@@ -19,6 +19,41 @@ describe('parseConfig', () => {
     assert.equal(config.PORT, 3000);
     assert.equal(config.LOG_LEVEL, 'info');
     assert.equal(config.IMAP_POOL_SIZE, 2);
+    assert.equal(config.MCP_TRANSPORT, 'http');
+    assert.equal(config.MAX_BODY_CHARS, 20000);
+    assert.equal(config.ENABLE_IDLE_WATCH, false);
+  });
+
+  describe('ENABLE_IDLE_WATCH', () => {
+    it('est off par défaut', () => {
+      assert.equal(parseConfig({ ...validEnv }).ENABLE_IDLE_WATCH, false);
+    });
+
+    for (const value of ['true', '1', 'yes']) {
+      it(`s'active pour ${JSON.stringify(value)}`, () => {
+        assert.equal(parseConfig({ ...validEnv, ENABLE_IDLE_WATCH: value }).ENABLE_IDLE_WATCH, true);
+      });
+    }
+
+    for (const value of ['false', '0', 'no', ' FALSE ']) {
+      it(`reste off pour ${JSON.stringify(value)}`, () => {
+        assert.equal(parseConfig({ ...validEnv, ENABLE_IDLE_WATCH: value }).ENABLE_IDLE_WATCH, false);
+      });
+    }
+  });
+
+  it('accepte les trois valeurs de MCP_TRANSPORT', () => {
+    for (const transport of ['http', 'stdio', 'both'] as const) {
+      assert.equal(parseConfig({ ...validEnv, MCP_TRANSPORT: transport }).MCP_TRANSPORT, transport);
+    }
+  });
+
+  it('rejette un MCP_TRANSPORT inconnu', () => {
+    assert.throws(() => parseConfig({ ...validEnv, MCP_TRANSPORT: 'grpc' }), /MCP_TRANSPORT/);
+  });
+
+  it('convertit MAX_BODY_CHARS en nombre', () => {
+    assert.equal(parseConfig({ ...validEnv, MAX_BODY_CHARS: '5000' }).MAX_BODY_CHARS, 5000);
   });
 
   it('convertit les ports en nombres', () => {

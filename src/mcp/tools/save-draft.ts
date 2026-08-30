@@ -4,6 +4,7 @@ import { saveDraft } from '../../imap/drafts.js';
 import { AttachmentTooLargeError, decodeInboundAttachments } from '../../attachments.js';
 import { config } from '../../config.js';
 import { jsonResult, errorResult } from '../result.js';
+import { draftResultSchema } from '../schemas.js';
 import { logger } from '../../logger.js';
 
 const log = logger.child({ tool: 'save_draft' });
@@ -37,6 +38,7 @@ export function registerSaveDraftTool(server: McpServer): void {
           )
           .optional(),
       },
+      outputSchema: draftResultSchema.shape,
     },
     async ({ to, cc, bcc, subject, text, html, replyFolder, replyUid, attachments }) => {
       if (!text && !html) {
@@ -60,7 +62,7 @@ export function registerSaveDraftTool(server: McpServer): void {
           replyUid,
           attachments: decoded,
         });
-        return jsonResult(result);
+        return jsonResult(result, draftResultSchema);
       } catch (err) {
         if (err instanceof AttachmentTooLargeError) {
           return errorResult(err.message);

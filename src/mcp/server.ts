@@ -16,6 +16,10 @@ import { registerUpdateDraftTool } from './tools/update-draft.js';
 import { registerSendDraftTool } from './tools/send-draft.js';
 import { registerGetThreadTool } from './tools/get-thread.js';
 import { registerWhoamiTool } from './tools/whoami.js';
+import { registerWaitForNewMessageTool } from './tools/wait-for-new-message.js';
+import { registerMailResources } from './resources.js';
+import { registerMailPrompts } from './prompts.js';
+import { config } from '../config.js';
 import { serverVersion } from '../version.js';
 
 export function createMailMcpServer(): McpServer {
@@ -41,6 +45,15 @@ export function createMailMcpServer(): McpServer {
   registerSendDraftTool(server);
   registerGetThreadTool(server);
   registerWhoamiTool(server);
+
+  // wait_for_new_message reste derrière un flag (défaut OFF) : sans reconnexion,
+  // l'attente IDLE se dégrade silencieusement si la connexion iCloud saute (#20).
+  if (config.ENABLE_IDLE_WATCH) {
+    registerWaitForNewMessageTool(server);
+  }
+
+  registerMailResources(server);
+  registerMailPrompts(server);
 
   return server;
 }

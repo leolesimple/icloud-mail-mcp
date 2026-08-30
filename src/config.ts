@@ -64,6 +64,10 @@ const envSchema = z.object({
     .default('http'),
   // Longueur maximale d'un corps de message (texte ou HTML) accepté par les outils.
   MAX_BODY_CHARS: z.coerce.number().int().positive().default(20_000),
+  // Active l'outil wait_for_new_message (attente IDLE sur connexion hors pool).
+  // OFF par défaut : pas de reconnexion, l'attente se dégrade silencieusement
+  // si la connexion iCloud saute. Voir docs/configuration.md.
+  ENABLE_IDLE_WATCH: envBool(false),
 });
 
 /** Valide un environnement arbitraire. Exporté pour les tests ; l'app utilise `config`. */

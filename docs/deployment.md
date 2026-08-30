@@ -93,9 +93,29 @@ Décommenter la section `ports:` du service `mail-mcp` dans `docker-compose.yml`
 
 ---
 
+## Choisir le transport
+
+`MCP_TRANSPORT` (défaut `http`) pilote la façon dont le serveur parle aux clients :
+
+| Valeur | Usage |
+|---|---|
+| `http` | Serveur HTTP streamable — le déploiement de référence ci-dessus (Docker + tunnel). |
+| `stdio` | Serveur JSON-RPC sur stdin/stdout, lancé directement par un client MCP local. Pas de port, pas de token. |
+| `both` | Les deux en parallèle. |
+
+> **En stdio, stdout porte le canal JSON-RPC.** Le serveur bascule alors automatiquement ses logs
+> sur **stderr** (`pino.destination(2)`) : une seule ligne de log sur stdout casserait le cadrage
+> des messages et rendrait le serveur muet, sans erreur visible. Rien à configurer, mais ne pas
+> rediriger stderr vers stdout dans un wrapper.
+
+L'arrêt propre (fermeture des sessions, du pool IMAP, du transport SMTP sur `SIGINT`/`SIGTERM`)
+fonctionne à l'identique dans les trois modes.
+
+---
+
 ## Brancher un client MCP
 
-### Claude Code
+### Claude Code — HTTP (déploiement distant)
 
 ```bash
 claude mcp add --transport http mail-mcp https://mail-mcp.exemple.com/mcp \
@@ -103,7 +123,24 @@ claude mcp add --transport http mail-mcp https://mail-mcp.exemple.com/mcp \
 ```
 
 Vérifier avec `/mcp` dans une session Claude Code : le serveur doit apparaître connecté avec ses
-dix outils.
+outils.
+
+### Claude Code — stdio (exécution locale)
+
+Pour lancer le serveur en local, sans HTTP ni tunnel :
+
+```bash
+claude mcp add mail-mcp -- \
+  env MCP_TRANSPORT=stdio \
+      ICLOUD_EMAIL=vous@icloud.com ICLOUD_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx \
+      MCP_BEARER_TOKEN=$(openssl rand -hex 16) \
+  node /chemin/vers/mail-mcp/dist/index.js
+```
+
+(ou `npx tsx src/index.ts` en développement). Le client démarre le processus lui-même ; `PORT`
+n'est pas utilisé et le `MCP_BEARER_TOKEN` ne sert pas à authentifier (aucune couche HTTP), mais la
+validation de configuration l'exige toujours — n'importe quelle valeur d'au moins 16 caractères
+convient.
 
 ### Claude Desktop / claude.ai
 
@@ -146,3 +183,4 @@ au prochain appel.
 | `502` Cloudflare | Le conteneur `mail-mcp` est arrêté, ou le hostname public pointe vers le mauvais port/nom de service. |
 | Erreurs IMAP intermittentes | Throttling iCloud. Baisser `IMAP_POOL_SIZE`, ou espacer les appels. |
 | Le tunnel ne se connecte pas | `TUNNEL_TOKEN` invalide ou tunnel supprimé côté Cloudflare. |
+| En stdio, le client MCP n'obtient jamais de réponse | Quelque chose écrit sur stdout du processus (wrapper qui fait `2>&1`, `console.log` ajouté, autre lib bavarde). stdout est réservé au JSON-RPC. |

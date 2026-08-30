@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { deleteMessage, deleteMessages, BULK_UID_LIMIT } from '../../imap/mutations.js';
 import { jsonResult, errorResult } from '../result.js';
+import { deleteResultSchema } from '../schemas.js';
 import { logger } from '../../logger.js';
 
 const log = logger.child({ tool: 'delete_message' });
@@ -20,6 +21,7 @@ export function registerDeleteMessageTool(server: McpServer): void {
         uid: z.coerce.number().int().positive().optional(),
         uids: z.array(z.coerce.number().int().positive()).min(1).max(BULK_UID_LIMIT).optional(),
       },
+      outputSchema: deleteResultSchema.shape,
     },
     async ({ folder, uid, uids }) => {
       if ((uid === undefined) === (uids === undefined)) {
@@ -28,11 +30,11 @@ export function registerDeleteMessageTool(server: McpServer): void {
 
       if (uids) {
         log.info({ folder, count: uids.length }, 'deleting messages (bulk)');
-        return jsonResult(await deleteMessages(folder, uids));
+        return jsonResult(await deleteMessages(folder, uids), deleteResultSchema);
       }
 
       log.info({ folder, uid }, 'deleting message');
-      return jsonResult(await deleteMessage(folder, uid as number));
+      return jsonResult(await deleteMessage(folder, uid as number), deleteResultSchema);
     },
   );
 }

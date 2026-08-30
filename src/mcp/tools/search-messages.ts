@@ -3,7 +3,8 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { searchMessages, searchMessagesAcross } from '../../imap/messages.js';
 import type { SearchMessagesOptions } from '../../imap/messages.js';
 import { hasSearchCriteria } from '../../imap/search-query.js';
-import { jsonResult, errorResult } from '../result.js';
+import { listResult, errorResult } from '../result.js';
+import { searchMessagesResultSchema } from '../schemas.js';
 import { logger } from '../../logger.js';
 
 const log = logger.child({ tool: 'search_messages' });
@@ -59,6 +60,7 @@ export function registerSearchMessagesTool(server: McpServer): void {
           ),
         limit: z.coerce.number().int().positive().max(200).default(50),
       },
+      outputSchema: searchMessagesResultSchema.shape,
     },
     async ({
       folder,
@@ -104,13 +106,13 @@ export function registerSearchMessagesTool(server: McpServer): void {
       if (folders && folders.length > 0) {
         log.info({ folders, subject, from }, 'searching messages (multi-folder)');
         const result = await searchMessagesAcross(folders, options);
-        return jsonResult(envelope ? result : result.messages);
+        return listResult('messages', result.messages, { envelope });
       }
 
       log.info({ folder, subject, from, beforeUid }, 'searching messages');
       const page = await searchMessages(folder, options);
       // Compat : tableau nu par défaut ; enveloppé sur demande, ou dès qu'un curseur existe.
-      return jsonResult(envelope || page.nextCursor !== undefined ? page : page.messages);
+      return listResult('messages', page.messages, { envelope, nextCursor: page.nextCursor });
     },
   );
 }

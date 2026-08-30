@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { flagMessage, flagMessages, BULK_UID_LIMIT } from '../../imap/mutations.js';
 import { jsonResult, errorResult } from '../result.js';
+import { flagResultSchema } from '../schemas.js';
 import { logger } from '../../logger.js';
 
 const log = logger.child({ tool: 'flag_message' });
@@ -36,6 +37,7 @@ export function registerFlagMessageTool(server: McpServer): void {
           .describe('One or more flag changes to apply'),
         keywords: z.array(z.string().min(1)).optional().describe('Arbitrary IMAP keywords to add'),
       },
+      outputSchema: flagResultSchema.shape,
     },
     async ({ folder, uid, uids, actions, keywords }) => {
       if ((uid === undefined) === (uids === undefined)) {
@@ -44,11 +46,11 @@ export function registerFlagMessageTool(server: McpServer): void {
 
       if (uids) {
         log.info({ folder, count: uids.length, actions, keywords }, 'flagging messages (bulk)');
-        return jsonResult(await flagMessages(folder, uids, actions, keywords));
+        return jsonResult(await flagMessages(folder, uids, actions, keywords), flagResultSchema);
       }
 
       log.info({ folder, uid, actions, keywords }, 'flagging message');
-      return jsonResult(await flagMessage(folder, uid as number, actions, keywords));
+      return jsonResult(await flagMessage(folder, uid as number, actions, keywords), flagResultSchema);
     },
   );
 }

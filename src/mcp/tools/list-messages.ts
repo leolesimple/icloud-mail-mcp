@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { listMessages } from '../../imap/messages.js';
-import { jsonResult } from '../result.js';
+import { listResult } from '../result.js';
+import { listMessagesResultSchema } from '../schemas.js';
 import { logger } from '../../logger.js';
 
 const log = logger.child({ tool: 'list_messages' });
@@ -46,6 +47,7 @@ export function registerListMessagesTool(server: McpServer): void {
           .default(50)
           .describe('Max number of messages to return (newest first)'),
       },
+      outputSchema: listMessagesResultSchema.shape,
     },
     async ({ folder, unreadOnly, since, before, from, beforeUid, envelope, limit }) => {
       log.info({ folder, unreadOnly, beforeUid, limit }, 'listing messages');
@@ -58,7 +60,7 @@ export function registerListMessagesTool(server: McpServer): void {
         limit,
       });
       // Compat : tableau nu par défaut ; enveloppé sur demande, ou dès qu'un curseur existe.
-      return jsonResult(envelope || page.nextCursor !== undefined ? page : page.messages);
+      return listResult('messages', page.messages, { envelope, nextCursor: page.nextCursor });
     },
   );
 }

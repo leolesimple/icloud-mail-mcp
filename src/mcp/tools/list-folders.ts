@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { listFolders } from '../../imap/folders.js';
-import { jsonResult } from '../result.js';
+import { listResult } from '../result.js';
+import { listFoldersResultSchema } from '../schemas.js';
 import { logger } from '../../logger.js';
 
 const log = logger.child({ tool: 'list_folders' });
@@ -25,11 +26,12 @@ export function registerListFoldersTool(server: McpServer): void {
           .default(false)
           .describe('Wrap the text block as { folders } instead of a bare array'),
       },
+      outputSchema: listFoldersResultSchema.shape,
     },
     async ({ includeStatus, envelope }) => {
       log.info({ includeStatus }, 'listing folders');
       const folders = await listFolders(includeStatus);
-      return jsonResult(envelope ? { folders } : folders);
+      return listResult('folders', folders, { envelope });
     },
   );
 }

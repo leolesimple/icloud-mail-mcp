@@ -1,9 +1,20 @@
 # Référence des outils
 
-Les dix-sept outils exposés par le serveur MCP. Les descriptions transmises à Claude sont en anglais
-(c'est ce que le modèle lit) ; cette page en donne la version détaillée.
+Les dix-sept outils exposés par le serveur MCP (dix-huit avec `wait_for_new_message`, désactivé
+par défaut), plus ses [resources et prompts](#resources-et-prompts). Les descriptions transmises à
+Claude sont en anglais (c'est ce que le modèle lit) ; cette page en donne la version détaillée.
 
 Conventions communes :
+
+- **Sorties structurées.** Chaque outil déclare un `outputSchema` et renvoie sa réponse en
+  `structuredContent` (objet validé contre le schéma) **et** dans un bloc texte JSON (pour les
+  clients qui ne lisent pas le structuré).
+- **Outils qui renvoient une liste** (`list_folders`, `list_messages`, `search_messages`) :
+  `structuredContent` porte **toujours** la forme enveloppée sous une clé (`{ "folders": [...] }`,
+  `{ "messages": [...] }`) — le protocole impose un objet. Le bloc texte, lui, reste le **tableau
+  nu** par défaut ; passer `envelope: true` pour qu'il porte aussi la forme enveloppée.
+- **Erreurs applicatives.** Les validations d'entrée qui échouent (critère de recherche manquant,
+  corps de message vide…) reviennent avec `isError` et un message français, sans `structuredContent`.
 
 - **`folder`** est un chemin IMAP tel que renvoyé par `list_folders` : `INBOX`, `Archive`,
   `Sent Messages`, `Deleted Messages`… Les chemins iCloud contiennent des espaces et sont sensibles
@@ -11,7 +22,7 @@ Conventions communes :
 - **`uid`** est l'identifiant IMAP d'un message *dans un dossier donné*. Un message qui change de
   dossier change d'UID : toujours re-lister après un `move_message`.
 - Tous les outils renvoient du JSON dans un bloc de texte, sauf `get_attachment` (bloc `image` ou
-  `resource`).
+  `resource`). Chaque outil déclare aussi un `outputSchema` et renvoie un `structuredContent`.
 - Une erreur IMAP/SMTP remonte classifiée, avec un message explicite (voir
   [architecture.md](architecture.md#gestion-des-erreurs)).
 
@@ -122,6 +133,7 @@ Liste les messages d'un dossier, **du plus récent au plus ancien**.
 | `beforeUid` | number | — | Curseur de pagination : ne renvoie que les UID inférieurs à cette valeur |
 | `envelope` | boolean | `false` | Enveloppe le bloc texte en `{ messages, nextCursor? }` |
 | `limit` | number | `50` | Nombre max de messages (200 maximum) |
+| `envelope` | boolean | `false` | Envelopper aussi le bloc texte sous la clé `messages` |
 
 `since` et `before` acceptent une date seule (`2026-07-01`) ou un instant complet
 (`2026-07-01T08:00:00Z`).
@@ -129,7 +141,8 @@ Liste les messages d'un dossier, **du plus récent au plus ancien**.
 Le filtrage est fait par le serveur IMAP, pas en local : demander les non-lus d'un dossier de
 50 000 messages reste rapide.
 
-**Forme de la réponse** — le bloc texte est un **tableau nu** par défaut (rétrocompatible) :
+**Forme de la réponse** — le bloc texte est un **tableau nu** par défaut (rétrocompatible), et
+`structuredContent` porte toujours la forme enveloppée `{ "messages": [...] }` :
 
 ```jsonc
 [
@@ -189,6 +202,7 @@ réel est requis (les seuls `folder` / `beforeUid` ne suffisent pas).
 | `beforeUid` | number | — | Curseur de pagination (mono-dossier uniquement) |
 | `envelope` | boolean | `false` | Enveloppe le bloc texte (`{ messages, nextCursor? }`) |
 | `limit` | number | `50` | Nombre max de résultats (200 maximum) |
+| `envelope` | boolean | `false` | Envelopper aussi le bloc texte sous la clé `messages` |
 
 **Forme de la réponse**, comme `list_messages` : bloc texte = **tableau nu** par défaut, enveloppé
 en `{ messages, nextCursor? }` si `envelope: true` ou dès qu'un curseur existe. Trié du plus récent
@@ -214,12 +228,15 @@ seulement avec `envelope: true`.
 
 ### `get_message`
 
-Contenu complet d'un message.
+Contenu complet d'un message, avec **maîtrise de la taille renvoyée**.
 
 | Paramètre | Type | Défaut | Description |
 |---|---|---|---|
 | `folder` | string | `INBOX` | Dossier contenant le message |
 | `uid` | number | *(requis)* | UID IMAP du message |
+| `maxBodyChars` | number | `MAX_BODY_CHARS` (20000) | Longueur max de chaque partie de corps renvoyée |
+| `includeHtml` | boolean | `false` | Inclure la partie HTML brute (volumineuse, hors contexte par défaut) |
+| `includeRawHeaders` | boolean | `false` | Inclure le bloc d'en-têtes brut (`List-Unsubscribe`, DKIM, débogage) |
 
 ```jsonc
 {
@@ -234,17 +251,26 @@ Contenu complet d'un message.
   "size": 24815,
   "messageId": "<abc123@exemple.fr>",     // sert au threading des réponses
   "references": ["<message-precedent@exemple.fr>"],
-  "text": "Bonjour,\n\nVeuillez trouver…",
-  "html": "<html>…</html>",                // `false` si le message n'a pas de partie HTML
+  "text": "Bonjour,\n\nVeuillez trouver…",  // partie texte, ou texte dérivé du HTML si absente
+  "html": false,                            // string seulement si includeHtml: true
+  "bodyTruncated": false,                    // true dès qu'une partie a été coupée à maxBodyChars
   "attachments": [
     { "index": 0, "filename": "facture.pdf", "contentType": "application/pdf", "size": 18234 }
-  ]
+  ],
+  "rawHeaders": "From: …\r\nSubject: …"      // présent seulement si includeRawHeaders: true
 }
 ```
 
-**Le contenu binaire des pièces jointes n'est pas renvoyé ici**, seulement leurs métadonnées.
-Chaque pièce jointe porte un `index` stable : le passer à [`get_attachment`](#get_attachment) pour
-récupérer le binaire.
+Points clés :
+
+- **`includeHtml` est à `false` par défaut.** Le HTML brut était jusqu'ici déversé intégralement
+  dans le contexte du client — c'était le premier poste de gaspillage du serveur.
+- Si le message n'a **pas de partie texte**, `text` est dérivé du HTML (via `html-to-text`).
+- La troncature est **toujours explicite** : `bodyTruncated: true`, jamais silencieuse.
+- `includeRawHeaders` ne renvoie que le bloc d'en-têtes, **pas** le corps brut.
+- **Le contenu binaire des pièces jointes n'est pas renvoyé**, seulement leurs métadonnées. Chaque
+  pièce jointe porte un `index` stable : le passer à [`get_attachment`](#get_attachment) pour
+  récupérer le binaire.
 
 Lire un message le marque comme lu du côté iCloud uniquement si le serveur le décide : le dossier
 est ouvert en lecture seule, donc en pratique le flag `\Seen` n'est pas posé. Utiliser
@@ -599,3 +625,65 @@ son contenu.
 { "action": "rename", "path": "Vieux nom", "newPath": "Nouveau nom" }
 { "action": "delete", "path": "Dossier obsolète" }
 ```
+
+---
+
+## Attente
+
+### `wait_for_new_message`
+
+> **Désactivé par défaut.** L'outil n'est enregistré que si `ENABLE_IDLE_WATCH=true` (voir
+> [configuration.md](configuration.md#attente-de-nouveaux-messages-idle)). Sans reconnexion, une
+> coupure iCloud pendant l'attente est manquée silencieusement.
+
+Bloque jusqu'à l'arrivée d'un nouveau message dans un dossier, ou jusqu'à expiration du délai.
+
+| Paramètre | Type | Défaut | Description |
+|---|---|---|---|
+| `folder` | string | `INBOX` | Dossier surveillé |
+| `timeoutSec` | number | `60` | Délai d'attente en secondes (300 maximum) |
+
+Ouvre une connexion IMAP **dédiée, hors du pool** (le pool ne fait que deux connexions et une
+attente longue les monopoliserait), et la referme systématiquement à la fin.
+
+Un délai atteint **n'est pas une erreur** : `timedOut: true` et `newMessages: []`.
+
+```jsonc
+{
+  "folder": "INBOX",
+  "timedOut": false,
+  "newMessages": [
+    { "uid": 10440, "subject": "Nouveau message", "from": [ /* … */ ], "seen": false, "flagged": false }
+  ]
+}
+```
+
+C'est une version minimale du push MCP : pas de reconnexion automatique, pas de notification
+`resources/updated`. Pour un suivi durable, ré-appeler l'outil.
+
+---
+
+## Resources et prompts
+
+En plus des outils, le serveur expose des **resources** (lecture seule, référençables par URI) et
+des **prompts** (points de départ guidés, en français).
+
+### Resources
+
+| URI | Contenu |
+|---|---|
+| `mail://folders` | La liste des dossiers (même donnée que `list_folders`) |
+| `mail://folder/{path}/message/{uid}` | Un message complet (même donnée que `get_message`, sans les options de taille) |
+
+L'argument `{path}` du gabarit propose une **complétion** sur les dossiers du compte (liste mise en
+cache 60 s pour ne pas multiplier les commandes `LIST`).
+
+### Prompts
+
+| Prompt | Arguments | Rôle |
+|---|---|---|
+| `triage-inbox` | `folder?` | Passer en revue les non-lus et proposer une action par message |
+| `summarize-thread` | `folder`, `uid` | Résumer le fil auquel appartient un message |
+| `draft-reply` | `folder`, `uid`, `instructions?` | Rédiger un brouillon de réponse et l'enregistrer (sans l'envoyer) |
+
+L'argument `folder` de chaque prompt propose la même complétion que la resource.

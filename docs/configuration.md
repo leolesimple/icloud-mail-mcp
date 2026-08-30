@@ -61,12 +61,23 @@ si le serveur refuse de passer en TLS, l'envoi échoue au lieu de partir en clai
 
 ---
 
+## Transport MCP
+
+| Variable | Défaut | Description |
+|---|---|---|
+| `MCP_TRANSPORT` | `http` | `http`, `stdio` ou `both`. Voir [deployment.md](deployment.md#choisir-le-transport). |
+| `MAX_BODY_CHARS` | `20000` | Plafond par défaut, en caractères, du corps renvoyé par `get_message`. Surchargeable par appel via `maxBodyChars`. |
+
+En `stdio`, stdout porte le canal JSON-RPC : le serveur bascule automatiquement ses logs sur stderr.
+
+---
+
 ## Serveur HTTP
 
 | Variable | Défaut | Description |
 |---|---|---|
-| `PORT` | `3000` | Port d'écoute. En Docker, port interne au réseau du compose : le conteneur ne l'expose pas à l'hôte. |
-| `MCP_BEARER_TOKEN` | **requis** | Token attendu dans `Authorization: Bearer <token>` sur `/mcp`. 16 caractères minimum. |
+| `PORT` | `3000` | Port d'écoute. En Docker, port interne au réseau du compose : le conteneur ne l'expose pas à l'hôte. Ignoré si `MCP_TRANSPORT=stdio`. |
+| `MCP_BEARER_TOKEN` | **requis** | Token attendu dans `Authorization: Bearer <token>` sur `/mcp`. 16 caractères minimum. Toujours requis, même en `stdio` (où il ne sert pas). |
 | `RATE_LIMIT_PER_MINUTE` | `120` | Requêtes `/mcp` autorisées par IP et par minute (fenêtre glissante). Au-delà : `429`. `/health` n'est jamais limité. |
 | `SESSION_TTL_MS` | `1800000` | Inactivité (en ms) au-delà de laquelle une session MCP est évincée et son transport fermé. 30 min par défaut. |
 
@@ -162,13 +173,32 @@ Les clés booléennes (`DRAFTS_ONLY`, `UNRESTRICTED`) suivent la même règle qu
 
 ---
 
+## Attente de nouveaux messages (IDLE)
+
+| Variable | Défaut | Description |
+|---|---|---|
+| `ENABLE_IDLE_WATCH` | `false` | `true` enregistre l'outil `wait_for_new_message` |
+
+**Off par défaut, volontairement.** `wait_for_new_message` ouvre une connexion IMAP dédiée hors du
+pool et attend l'événement `exists` d'iCloud. Cette version n'a **pas de reconnexion** : si la
+connexion iCloud saute pendant l'attente (coupure réseau, throttling, timeout serveur), l'outil ne
+le détecte pas et se contente d'expirer avec `timedOut: true` — un nouveau message arrivé
+entre-temps est manqué **sans le moindre signal**. Tant que la version avec reconnexion n'est pas
+faite ([#20](https://github.com/leolesimple/mail-mcp/issues/20)), l'outil n'est exposé que si vous
+l'activez explicitement, en connaissance de cause.
+
+Reconnus comme « activé » : toute valeur autre que `false`, `0`, `no` (casse et espaces ignorés).
+
+---
+
 ## Logs
 
 | Variable | Défaut | Description |
 |---|---|---|
 | `LOG_LEVEL` | `info` | `fatal`, `error`, `warn`, `info`, `debug`, `trace` |
 
-Logs JSON structurés (pino) sur la sortie standard. Les champs `password`, `pass`,
+Logs JSON structurés (pino), sur **stdout** en transport `http`, sur **stderr** dès que `stdio` est
+actif (stdout y est réservé au JSON-RPC). Les champs `password`, `pass`,
 `ICLOUD_APP_PASSWORD` et `token` sont expurgés automatiquement, et le contenu des mails n'est jamais
 loggé — seulement des métadonnées (dossier, UID, nombre de résultats).
 

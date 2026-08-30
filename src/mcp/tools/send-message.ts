@@ -4,6 +4,7 @@ import { sendNewMessage } from '../../smtp/send.js';
 import { AttachmentTooLargeError, decodeInboundAttachments } from '../../attachments.js';
 import { config } from '../../config.js';
 import { jsonResult, errorResult } from '../result.js';
+import { sendResultSchema } from '../schemas.js';
 import { logger } from '../../logger.js';
 
 const log = logger.child({ tool: 'send_message' });
@@ -34,6 +35,7 @@ export function registerSendMessageTool(server: McpServer): void {
           )
           .optional(),
       },
+      outputSchema: sendResultSchema.shape,
     },
     async ({ to, cc, bcc, subject, text, html, attachments }) => {
       if (!text && !html) {
@@ -44,7 +46,7 @@ export function registerSendMessageTool(server: McpServer): void {
         const decoded = decodeInboundAttachments(attachments, config.ATTACHMENT_MAX_BYTES);
         log.info({ to, subject }, 'sending message');
         const result = await sendNewMessage({ to, cc, bcc, subject, text, html, attachments: decoded });
-        return jsonResult(result);
+        return jsonResult(result, sendResultSchema);
       } catch (err) {
         if (err instanceof AttachmentTooLargeError) {
           return errorResult(err.message);
