@@ -1,0 +1,24 @@
+services:
+  mail-mcp:
+    build: .
+    container_name: mail-mcp
+    # Pour tester en local : decommente la ligne ci-dessous puis accede a http://localhost:3000
+    # ports:
+    #   - "3000:3000"
+    env_file:
+      - .env
+    restart: unless-stopped
+    networks:
+      - mail-mcp-net
+
+  cloudflared:
+    image: cloudflare/cloudflared:2025.2
+    container_name: mail-mcp-cloudflared
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN} --url http://mail-mcp:3000
+    restart: unless-stopped
+    networks:
+      - mail-mcp-net
+
+networks:
+  mail-mcp-net:
+    driver: bridge
