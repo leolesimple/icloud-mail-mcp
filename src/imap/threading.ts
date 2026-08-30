@@ -24,6 +24,22 @@ export interface BuildReplyOptions {
 
 const FALLBACK_SUBJECT = '(sans objet)';
 
+// Préfixes de réponse / transfert, plusieurs langues, éventuellement suivis
+// d'un compteur "[2]". Le quantificateur `+` retire les préfixes empilés
+// ("Re: Fwd: Re: ") en une passe.
+const STACKED_REPLY_PREFIXES = /^\s*(?:(?:re|r[ée]f|fwd?|fw|tr|aw|wg|antw|sv|vs|encaminhar)\s*(?:\[\d+\])?\s*:\s*)+/i;
+
+/**
+ * Ramène un sujet à sa forme « racine » pour regrouper un fil : retire les
+ * préfixes `Re:` / `Fwd:` empilés (toutes casses, quelques langues) et les
+ * espaces superflus. `"Re: Re: Fwd: Facture"` → `"Facture"`. Fonction pure,
+ * utilisée en repli quand les en-têtes `References` / `In-Reply-To` manquent.
+ */
+export function normalizeSubject(subject: string | undefined): string {
+  if (!subject) return '';
+  return subject.replace(STACKED_REPLY_PREFIXES, '').trim();
+}
+
 /** Préfixe "Re: " sauf si le sujet en porte déjà un. */
 export function replySubject(originalSubject: string | undefined): string {
   const subject = originalSubject ?? FALLBACK_SUBJECT;

@@ -168,9 +168,6 @@ Détail complet dans [`docs/security.md`](docs/security.md).
   récupère le binaire d'une pièce jointe et `send_message` / `reply_message` / `forward_message` /
   `save_draft` permettent d'en joindre, mais au-delà de cette limite (cumul compris) l'outil refuse
   explicitement plutôt que de tronquer.
-- **Pas de pagination.** `list_messages` et `search_messages` renvoient les N plus récents
-  (`limit`, 200 max) sans curseur pour aller plus loin.
-- **Pas de gestion de dossiers** (création, renommage, suppression).
 - **iCloud uniquement en pratique.** Le code est du IMAP/SMTP standard et les hôtes sont
   configurables, mais rien d'autre n'est testé.
 

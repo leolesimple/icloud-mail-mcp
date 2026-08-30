@@ -11,6 +11,10 @@ import { registerMoveMessageTool } from './tools/move-message.js';
 import { registerDeleteMessageTool } from './tools/delete-message.js';
 import { registerFlagMessageTool } from './tools/flag-message.js';
 import { registerSaveDraftTool } from './tools/save-draft.js';
+import { registerManageFolderTool } from './tools/manage-folder.js';
+import { registerUpdateDraftTool } from './tools/update-draft.js';
+import { registerSendDraftTool } from './tools/send-draft.js';
+import { registerGetThreadTool } from './tools/get-thread.js';
 
 export function createMailMcpServer(): McpServer {
   const server = new McpServer({
@@ -30,6 +34,10 @@ export function createMailMcpServer(): McpServer {
   registerDeleteMessageTool(server);
   registerFlagMessageTool(server);
   registerSaveDraftTool(server);
+  registerManageFolderTool(server);
+  registerUpdateDraftTool(server);
+  registerSendDraftTool(server);
+  registerGetThreadTool(server);
 
   return server;
 }

@@ -1,7 +1,9 @@
 import type { AddressObject } from 'mailparser';
 import { simpleParser } from 'mailparser';
-import type { FetchMessageObject, ImapFlow, SearchObject } from 'imapflow';
+import type { FetchMessageObject, ImapFlow } from 'imapflow';
 import { withMailbox } from './mailbox.js';
+import { buildSearchQuery, paginationExhausted } from './search-query.js';
+import type { SearchCriteria } from './search-query.js';
 
 export interface MessageAddress {
   name?: string;
@@ -72,16 +74,43 @@ export function toReferencesList(refs: string[] | string | undefined): string[] 
   return Array.isArray(refs) ? refs : [refs];
 }
 
-async function fetchSummaries(client: ImapFlow, query: SearchObject, limit: number): Promise<MessageSummary[]> {
-  const uids = await client.search(query, { uid: true });
-  if (!uids || uids.length === 0) {
-    return [];
+export interface MessagePage {
+  messages: MessageSummary[];
+  /**
+   * Plus petit UID renvoyé. À repasser tel quel en `beforeUid` pour la page
+   * suivante. Absent quand la liste est épuisée.
+   */
+  nextCursor?: number;
+}
+
+/** Un résumé rattaché à son dossier d'origine (recherche multi-dossiers). */
+export interface TaggedMessageSummary extends MessageSummary {
+  folder: string;
+}
+
+/**
+ * Cœur de la pagination : traduit les critères, laisse le serveur filtrer, trie
+ * par UID décroissant (donc du plus récent au plus ancien), tronque à `limit`,
+ * et n'expose un curseur que s'il reste des messages au-delà.
+ */
+export async function fetchPage(client: ImapFlow, criteria: SearchCriteria, limit: number): Promise<MessagePage> {
+  if (paginationExhausted(criteria.beforeUid)) {
+    return { messages: [] };
   }
 
-  // Les UID croissent avec le temps sur un même dossier : les plus grands sont les plus récents.
-  const selected = [...uids].sort((a, b) => b - a).slice(0, limit);
-  const messages = await client.fetchAll(selected, SUMMARY_QUERY, { uid: true });
-  return messages.map(toSummary).sort((a, b) => b.uid - a.uid);
+  const uids = await client.search(buildSearchQuery(criteria), { uid: true });
+  if (!uids || uids.length === 0) {
+    return { messages: [] };
+  }
+
+  const ordered = [...uids].sort((a, b) => b - a);
+  const selected = ordered.slice(0, limit);
+  const fetched = await client.fetchAll(selected, SUMMARY_QUERY, { uid: true });
+  const messages = fetched.map(toSummary).sort((a, b) => b.uid - a.uid);
+
+  const smallest = messages.at(-1)?.uid;
+  const hasMore = ordered.length > selected.length;
+  return hasMore && smallest !== undefined ? { messages, nextCursor: smallest } : { messages };
 }
 
 export interface ListMessagesOptions {
@@ -89,35 +118,50 @@ export interface ListMessagesOptions {
   since?: Date;
   before?: Date;
   from?: string;
+  beforeUid?: number;
   limit: number;
 }
 
-export async function listMessages(folder: string, options: ListMessagesOptions): Promise<MessageSummary[]> {
-  const query: SearchObject = { all: true };
-  if (options.unreadOnly) query.seen = false;
-  if (options.since) query.since = options.since;
-  if (options.before) query.before = options.before;
-  if (options.from) query.from = options.from;
-
-  return withMailbox(folder, (client) => fetchSummaries(client, query, options.limit), { readOnly: true });
+export async function listMessages(folder: string, options: ListMessagesOptions): Promise<MessagePage> {
+  const criteria: SearchCriteria = {
+    unreadOnly: options.unreadOnly,
+    since: options.since,
+    before: options.before,
+    from: options.from,
+    beforeUid: options.beforeUid,
+  };
+  return withMailbox(folder, (client) => fetchPage(client, criteria, options.limit), { readOnly: true });
 }
 
-export interface SearchMessagesOptions {
-  subject?: string;
-  body?: string;
-  from?: string;
-  to?: string;
+export interface SearchMessagesOptions extends SearchCriteria {
   limit: number;
 }
 
-export async function searchMessages(folder: string, options: SearchMessagesOptions): Promise<MessageSummary[]> {
-  const query: SearchObject = {};
-  if (options.subject) query.subject = options.subject;
-  if (options.body) query.body = options.body;
-  if (options.from) query.from = options.from;
-  if (options.to) query.to = options.to;
+export async function searchMessages(folder: string, options: SearchMessagesOptions): Promise<MessagePage> {
+  return withMailbox(folder, (client) => fetchPage(client, options, options.limit), { readOnly: true });
+}
 
-  return withMailbox(folder, (client) => fetchSummaries(client, query, options.limit), { readOnly: true });
+/**
+ * Recherche sur plusieurs dossiers, un dossier à la fois (IMAP ne sait pas
+ * chercher globalement). Résultats fusionnés, chacun étiqueté par son dossier,
+ * triés du plus récent au plus ancien, tronqués à `limit`. Pas de curseur : la
+ * pagination n'a de sens que dossier par dossier.
+ */
+export async function searchMessagesAcross(
+  folders: string[],
+  options: SearchMessagesOptions,
+): Promise<{ messages: TaggedMessageSummary[] }> {
+  const merged: TaggedMessageSummary[] = [];
+  for (const folder of folders) {
+    const page = await withMailbox(folder, (client) => fetchPage(client, options, options.limit), {
+      readOnly: true,
+    });
+    for (const message of page.messages) {
+      merged.push({ ...message, folder });
+    }
+  }
+  merged.sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''));
+  return { messages: merged.slice(0, options.limit) };
 }
 
 export async function getMessage(folder: string, uid: number): Promise<FullMessage> {
@@ -156,8 +200,9 @@ export async function getMessage(folder: string, uid: number): Promise<FullMessa
 }
 
 /**
- * Source RFC 5322 brute d'un message. Exportée pour `forward_message` (pièce
- * jointe `message/rfc822`) et réutilisable par les couches supérieures.
+ * Source RFC 5322 brute d'un message. Sert à ré-émettre ou recopier un message
+ * sans le recomposer (cycle de vie des brouillons) et à joindre l'original en
+ * `message/rfc822` pour `forward_message`.
  */
 export async function getMessageSource(folder: string, uid: number): Promise<Buffer> {
   return withMailbox(

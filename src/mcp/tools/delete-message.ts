@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { deleteMessage } from '../../imap/mutations.js';
-import { jsonResult } from '../result.js';
+import { deleteMessage, deleteMessages, BULK_UID_LIMIT } from '../../imap/mutations.js';
+import { jsonResult, errorResult } from '../result.js';
 import { logger } from '../../logger.js';
 
 const log = logger.child({ tool: 'delete_message' });
@@ -12,17 +12,27 @@ export function registerDeleteMessageTool(server: McpServer): void {
     {
       title: 'Delete message',
       description:
-        'Deletes a message, following iCloud convention: moves it to the Trash folder, or permanently ' +
-        'expunges it (flag \\Deleted + EXPUNGE) if it is already in Trash.',
+        'Deletes one message (uid) or up to 200 messages (uids), following iCloud convention: moves them to ' +
+        'Trash, or permanently expunges them (flag \\Deleted + EXPUNGE) if they are already in Trash. The ' +
+        'move/expunge runs as a single IMAP command. Exactly one of uid / uids is required.',
       inputSchema: {
         folder: z.string().min(1),
-        uid: z.coerce.number().int().positive(),
+        uid: z.coerce.number().int().positive().optional(),
+        uids: z.array(z.coerce.number().int().positive()).min(1).max(BULK_UID_LIMIT).optional(),
       },
     },
-    async ({ folder, uid }) => {
+    async ({ folder, uid, uids }) => {
+      if ((uid === undefined) === (uids === undefined)) {
+        return errorResult('Fournir exactement un de "uid" (un message) ou "uids" (jusqu\'à 200 messages).');
+      }
+
+      if (uids) {
+        log.info({ folder, count: uids.length }, 'deleting messages (bulk)');
+        return jsonResult(await deleteMessages(folder, uids));
+      }
+
       log.info({ folder, uid }, 'deleting message');
-      const result = await deleteMessage(folder, uid);
-      return jsonResult(result);
+      return jsonResult(await deleteMessage(folder, uid as number));
     },
   );
 }
