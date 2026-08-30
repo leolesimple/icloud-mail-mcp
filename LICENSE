@@ -1,0 +1,111 @@
+mail-mcp — Proprietary Use-Only License
+Copyright (c) 2026 Léo Lesimple. All rights reserved.
+
+This software is NOT open source. It is published publicly so that it can be
+read and used as-is, but the copyright holder retains all rights that are not
+expressly granted below.
+
+--------------------------------------------------------------------------------
+1. DEFINITIONS
+--------------------------------------------------------------------------------
+
+"Software" means the source code, documentation, configuration files and any
+other material contained in this repository.
+
+"You" means the individual or legal entity exercising the permissions granted
+by this License.
+
+"Commercial Use" means any use of the Software that is primarily intended for
+or directed toward commercial advantage or monetary compensation, including
+but not limited to: selling the Software or access to it, offering it as a
+paid or ad-supported service, bundling it into a commercial product, or using
+it to operate a business service offered to third parties for a fee.
+
+"Derivative Work" means any work that is based upon the Software or any part
+of it, including any modification, adaptation, translation, port, refactoring,
+extension, or any other form in which the Software may be recast, transformed
+or built upon.
+
+--------------------------------------------------------------------------------
+2. GRANT OF RIGHTS
+--------------------------------------------------------------------------------
+
+Subject to the restrictions in Section 3, permission is hereby granted, free
+of charge, to any person obtaining a copy of the Software, to:
+
+  (a) download, install, run and use the Software for personal purposes or for
+      the internal purposes of an organization, including on private servers
+      under Your control;
+
+  (b) make copies of the Software for backup and internal deployment purposes;
+
+  (c) redistribute verbatim, unmodified copies of the Software, provided that
+      this License file and all copyright notices are included unchanged, and
+      that no fee is charged for the Software itself.
+
+Configuring the Software through the means it provides for that purpose
+(environment variables, configuration files) is use, not modification, and is
+permitted under paragraph (a).
+
+--------------------------------------------------------------------------------
+3. RESTRICTIONS
+--------------------------------------------------------------------------------
+
+The following are NOT permitted without prior written permission from the
+copyright holder:
+
+  1. Commercial Use of any kind.
+
+  2. Creating, using, publishing or distributing any Derivative Work.
+
+  3. Sublicensing, relicensing, or distributing the Software under any terms
+     other than this License.
+
+  4. Removing, altering or obscuring any copyright, attribution or license
+     notice contained in the Software.
+
+  5. Using the name of the copyright holder to endorse or promote products
+     derived from or built upon the Software.
+
+Nothing in this License restricts any right You have under applicable
+mandatory law, including any statutory right to observe, study or test the
+functioning of the Software, or any right of quotation or fair use.
+
+--------------------------------------------------------------------------------
+4. REQUESTING ADDITIONAL RIGHTS
+--------------------------------------------------------------------------------
+
+Permission for Commercial Use, for Derivative Works, or for any other use not
+granted above may be obtained from the copyright holder. Contact the copyright
+holder through the repository's issue tracker to discuss licensing terms.
+
+--------------------------------------------------------------------------------
+5. TERMINATION
+--------------------------------------------------------------------------------
+
+This License terminates automatically if You breach any of its terms. Upon
+termination, You must cease all use of the Software and destroy all copies in
+Your possession. Sections 6 and 7 survive termination.
+
+--------------------------------------------------------------------------------
+6. NO WARRANTY
+--------------------------------------------------------------------------------
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, TITLE AND NONINFRINGEMENT.
+
+This Software connects to email accounts and is capable of reading, moving,
+deleting and sending email. You are solely responsible for the credentials You
+configure, for the exposure of the endpoint You deploy, and for any action
+performed through it.
+
+--------------------------------------------------------------------------------
+7. LIMITATION OF LIABILITY
+--------------------------------------------------------------------------------
+
+IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR
+OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+IN THE SOFTWARE, INCLUDING BUT NOT LIMITED TO LOSS OF EMAIL DATA, UNAUTHORIZED
+ACCESS TO A MAILBOX, OR MESSAGES SENT IN ERROR.
