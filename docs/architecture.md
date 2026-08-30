@@ -56,9 +56,19 @@ suivantes sont routées par l'en-tête `mcp-session-id`.
 Une requête authentifiée qui n'est ni un `initialize` ni une session connue reçoit un `400` : le
 serveur ne crée jamais de session implicite.
 
-> **Limitation connue** : la `Map` de sessions n'a ni TTL ni éviction. Un client qui disparaît sans
-> envoyer de `DELETE` laisse son entrée en mémoire jusqu'au redémarrage. Sans conséquence à l'échelle
-> d'un usage personnel, mais c'est la première chose à corriger pour un usage multi-utilisateurs.
+Chaque entrée de la `Map` porte un `lastSeen`, rafraîchi à chaque requête reçue sur la session. Un
+`setInterval` (avec `.unref()`, pour ne pas empêcher le process de s'arrêter) balaie régulièrement
+la `Map` : toute session inactive depuis plus de `SESSION_TTL_MS` est retirée et **son transport
+fermé proprement**, comme à l'arrêt. Un client qui disparaît sans envoyer de `DELETE` ne laisse donc
+plus fuir son entrée. `UNRESTRICTED` ne désactive **pas** ce TTL.
+
+### Rate limit
+
+`POST/GET/DELETE /mcp` passent d'abord par un limiteur de débit à fenêtre glissante
+([`rate-limit.ts`](../src/http/rate-limit.ts)), par IP : au-delà de `RATE_LIMIT_PER_MINUTE` requêtes
+sur 60 s, la réponse est un `429` au format JSON-RPC (code `-32002`). Le limiteur est placé **avant**
+l'authentification, pour amortir aussi un brute-force de token. `GET /health` n'est jamais limité.
+`UNRESTRICTED=true` lève cette limite (mais jamais l'authentification).
 
 ---
 

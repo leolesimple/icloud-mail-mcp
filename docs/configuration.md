@@ -67,6 +67,8 @@ si le serveur refuse de passer en TLS, l'envoi échoue au lieu de partir en clai
 |---|---|---|
 | `PORT` | `3000` | Port d'écoute. En Docker, port interne au réseau du compose : le conteneur ne l'expose pas à l'hôte. |
 | `MCP_BEARER_TOKEN` | **requis** | Token attendu dans `Authorization: Bearer <token>` sur `/mcp`. 16 caractères minimum. |
+| `RATE_LIMIT_PER_MINUTE` | `120` | Requêtes `/mcp` autorisées par IP et par minute (fenêtre glissante). Au-delà : `429`. `/health` n'est jamais limité. |
+| `SESSION_TTL_MS` | `1800000` | Inactivité (en ms) au-delà de laquelle une session MCP est évincée et son transport fermé. 30 min par défaut. |
 
 Générer le token avec :
 
@@ -77,27 +79,58 @@ openssl rand -hex 32
 C'est la seule chose qui sépare votre boîte mail d'Internet une fois le tunnel ouvert. Un token
 deviné donne un accès complet en lecture, suppression et envoi.
 
+`RATE_LIMIT_PER_MINUTE` est volontairement généreux : un seul Claude n'en approche jamais. Le
+descendre est utile si le tunnel est exposé plus largement. `SESSION_TTL_MS` borne la mémoire du
+serveur — une session qu'un client abandonne sans `DELETE` est nettoyée automatiquement.
+
 ---
 
-## Coupe-circuit d'envoi
+## Garde-fous d'envoi
 
-| Variable | Défaut | Description |
+`send_message` et `reply_message` passent par une décision graduée
+([`src/smtp/guards.ts`](../src/smtp/guards.ts)), évaluée dans cet ordre :
+
+| Variable | Défaut | Effet |
 |---|---|---|
-| `ENABLE_SENDING` | `true` | `false` désactive `send_message` et `reply_message` |
+| `UNRESTRICTED` | `false` | `true` **désactive** les garde-fous 2 à 5 ci-dessous **et** le rate limit HTTP. Chaque envoi est alors précédé d'un log `warn`. Ne désactive jamais l'authentification bearer ni le TTL des sessions. |
+| `ENABLE_SENDING` | `true` | `false` : aucun message n'est transmis, l'outil renvoie une erreur explicite. Coupe-circuit historique. |
+| `DRAFTS_ONLY` | `false` | `true` : au lieu d'envoyer, le message est **composé et déposé dans `Drafts`** (threading compris). L'outil renvoie un **succès** : `{ sent: false, draft: { folder, uid }, reason: "DRAFTS_ONLY" }`. Contrairement à `ENABLE_SENDING=false`, la rédaction n'est jamais perdue. |
+| `ALLOWED_RECIPIENTS` | `''` (vide) | Liste blanche de destinataires, séparés par des virgules. Vide = aucune restriction. Un envoi dont un destinataire (`to`, `cc` **ou** `bcc`) n'est pas couvert est refusé, et le message d'erreur **nomme les adresses fautives**. |
+| `MAX_SENDS_PER_DAY` | `0` (illimité) | Nombre maximum d'envois réussis sur une fenêtre glissante de 24 h. Au-delà : refus. |
 
-À `false`, ces deux outils renvoient une erreur claire et **aucun mail ne part**. Le reste — lecture,
-recherche, déplacement, flags, brouillons — continue de fonctionner normalement.
+### `ALLOWED_RECIPIENTS` — format
 
-Reconnus comme « désactivé » : `false`, `0`, `no` (insensible à la casse, espaces ignorés). Toute
-autre valeur laisse l'envoi actif.
+Deux formes acceptées, mélangeables :
+
+- **adresse exacte** : `alice@example.com` — insensible à la casse ;
+- **domaine entier** : `@example.com` — couvre `*@example.com`, mais **pas** les sous-domaines
+  (`bob@mail.example.com` reste hors liste).
+
+```
+ALLOWED_RECIPIENTS=alice@example.com, @mon-entreprise.com
+```
+
+### `MAX_SENDS_PER_DAY` — compteur non persisté
+
+Le compteur vit **en mémoire**. Un redémarrage du serveur le remet à zéro. C'est un choix assumé :
+il protège d'une boucle d'envoi d'un agent qui déraille pendant une exécution, pas d'un opérateur
+qui relance délibérément le process. Pour un plafond dur et durable, il faudrait le persister — hors
+périmètre actuel.
+
+### Interrupteurs booléens
+
+`ENABLE_SENDING`, `DRAFTS_ONLY` et `UNRESTRICTED` partagent le même parseur (`envBool`). Reconnus
+comme « faux » : `false`, `0`, `no` (insensible à la casse, espaces ignorés). Toute autre valeur non
+vide vaut « vrai ».
 
 > Le schéma n'utilise volontairement pas `z.coerce.boolean()` : en zod, la chaîne `"false"` est une
-> chaîne non vide, donc coercée à `true`. Le coupe-circuit aurait été silencieusement inopérant.
-> C'est verrouillé par des tests dédiés (`test/config.test.ts`, `test/sending-guard.test.ts`).
+> chaîne non vide, donc coercée à `true`. L'interrupteur aurait été silencieusement inopérant. C'est
+> verrouillé par des tests dédiés (`test/config.test.ts`, `test/sending-guard.test.ts`).
 
-**Recommandation** : démarrer à `false`, observer comment Claude se comporte sur votre boîte, et ne
-passer à `true` qu'ensuite. `save_draft` permet déjà un aller-retour complet — Claude rédige, vous
-envoyez depuis Mail.
+**Recommandation** : démarrer en `DRAFTS_ONLY=true` (ou `ENABLE_SENDING=false`), observer comment
+Claude se comporte sur votre boîte, puis ouvrir progressivement — d'abord `ALLOWED_RECIPIENTS` sur
+vos correspondants habituels, avec un `MAX_SENDS_PER_DAY` bas. `DRAFTS_ONLY` permet déjà un
+aller-retour complet : Claude rédige, vous envoyez depuis Mail après relecture.
 
 ---
 

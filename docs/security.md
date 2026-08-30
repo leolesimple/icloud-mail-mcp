@@ -28,12 +28,52 @@ nombre de résultats).
 **Le conteneur tourne en utilisateur non-root** (`USER node`), sans port publié sur l'hôte dans la
 configuration de référence.
 
-**Un coupe-circuit d'envoi.** `ENABLE_SENDING=false` rend l'envoi impossible au niveau du transport,
-pas au niveau du schéma d'outil : même un appel forgé ne peut pas envoyer de mail. C'est verrouillé
-par des tests.
+**Des garde-fous d'envoi gradués.** Voir la section dédiée plus bas. Le point clé : ils sont
+appliqués **au niveau du transport** ([`src/smtp/client.ts`](../src/smtp/client.ts)), pas seulement
+dans l'orchestration — même un appel qui contournerait `src/smtp/send.ts` ne peut pas émettre. C'est
+verrouillé par des tests.
+
+**Un rate limit sur `/mcp`.** Fenêtre glissante par IP, `429` au-delà de `RATE_LIMIT_PER_MINUTE`,
+placé avant l'authentification pour amortir un brute-force de token. `/health` n'est pas limité.
+
+**Un TTL sur les sessions MCP.** Une session abandonnée sans `DELETE` est évincée après
+`SESSION_TTL_MS` d'inactivité et son transport fermé — la `Map` de sessions ne fuit plus.
 
 **Pas de suppression définitive par surprise.** `delete_message` déplace vers la corbeille ; il ne
 détruit un message que s'il s'y trouve déjà.
+
+---
+
+## Les garde-fous d'envoi
+
+`ENABLE_SENDING` seul est binaire : à `false` tout échoue et la rédaction est perdue, à `true` un
+agent peut écrire à n'importe qui, en boucle. Les garde-fous gradués
+([`src/smtp/guards.ts`](../src/smtp/guards.ts)) couvrent l'espace entre les deux. Ils sont évalués
+dans un ordre strict pour `send_message` / `reply_message` :
+
+| # | Garde-fou | Menace couverte | Ce qui se passe |
+|---|---|---|---|
+| 1 | `UNRESTRICTED=true` | *(aucune — c'est l'inverse)* | Court-circuite les garde-fous 2 à 5. Chaque envoi est loggué en `warn`. |
+| 2 | `ENABLE_SENDING=false` | Envoi non désiré, tous cas confondus | Refus. Aucun message transmis. |
+| 3 | `DRAFTS_ONLY=true` | Envoi automatique sans relecture humaine | Le message est composé et déposé dans `Drafts`. **Succès** (`sent: false`, `reason: "DRAFTS_ONLY"`) : la rédaction est conservée, l'appelant sait que rien n'est parti. |
+| 4 | `ALLOWED_RECIPIENTS` | Exfiltration : un agent (souvent via une injection de prompt dans un mail lu) envoie vos données à une adresse tierce | Refus si un destinataire `to`/`cc`/`bcc` est hors liste. Le refus **nomme** les adresses fautives. |
+| 5 | `MAX_SENDS_PER_DAY` | Boucle d'envoi d'un agent qui déraille ; usage de la boîte comme relais de spam | Refus au-delà de N envois sur 24 h glissantes. Compteur en mémoire, remis à zéro au redémarrage. |
+
+Aucun de ces garde-fous n'empêche une injection de prompt : ils **bornent les dégâts** quand elle
+réussit. Le pire cas avec `DRAFTS_ONLY=true` ou `ALLOWED_RECIPIENTS` restrictif se limite à un
+brouillon ou un envoi vers un correspondant déjà approuvé.
+
+### Ce que `UNRESTRICTED` désactive — et ce qu'il ne touche jamais
+
+`UNRESTRICTED=true` est un mode de test : il lève les garde-fous d'envoi 2 à 5 **et** le rate limit
+HTTP. Il ne désactive **jamais** :
+
+- l'**authentification bearer** sur `/mcp` ([`src/http/auth.ts`](../src/http/auth.ts)) ;
+- le **TTL des sessions**.
+
+Cette frontière est explicite dans le code (`src/http/server.ts` teste `config.UNRESTRICTED` dans le
+seul middleware de rate limit, jamais autour de l'auth). Un serveur mail joignable sans token n'est
+pas un mode de test : c'est un incident. À n'utiliser que sur une instance jetable, jamais exposée.
 
 ---
 
@@ -48,10 +88,12 @@ C'est la seule chose qui sépare votre boîte mail d'Internet une fois le tunnel
 - Pour le changer : nouvelle valeur dans `.env`, `docker compose up -d`, puis mise à jour de la
   configuration du client MCP. Toutes les sessions existantes sont invalidées.
 
-Il n'y a **ni limitation de débit, ni verrouillage après échecs répétés** sur `/mcp`. Un token de
-32 octets aléatoires rend le brute-force inatteignable, mais un token faible n'est protégé par
-rien. Cloudflare Access peut ajouter une couche d'authentification devant le tunnel si vous en
-voulez une.
+`/mcp` est protégé par un **rate limit par IP** (`RATE_LIMIT_PER_MINUTE`, `429` au-delà), placé
+avant l'authentification : un brute-force de token depuis une même IP est ralenti. Il n'y a pas de
+**verrouillage** après échecs répétés. Un token de 32 octets aléatoires rend le brute-force
+inatteignable de toute façon ; un token faible reste faible. Cloudflare Access peut ajouter une
+couche d'authentification devant le tunnel si vous en voulez une. `UNRESTRICTED=true` lève ce rate
+limit — voir la section *Les garde-fous d'envoi*.
 
 ### Le mot de passe d'application Apple
 
@@ -76,13 +118,17 @@ déplace de vrais messages ; un modèle à qui l'on demande d'envoyer un mail l'
 
 Deux garde-fous à connaître :
 
-- **`ENABLE_SENDING=false` + `save_draft`** est le mode le plus sûr : Claude prépare des réponses
-  complètes, avec le bon threading, et vous les envoyez depuis Mail après relecture.
+- **`DRAFTS_ONLY=true`** est le mode le plus sûr sans rien perdre : Claude prépare des réponses
+  complètes, avec le bon threading, déposées dans `Drafts` ; vous les envoyez depuis Mail après
+  relecture. Contrairement à `ENABLE_SENDING=false`, la rédaction n'est pas jetée. Voir la section
+  *Les garde-fous d'envoi* pour `ALLOWED_RECIPIENTS` et `MAX_SENDS_PER_DAY`, qui bornent un envoi
+  réellement actif.
 - **Le contenu des emails est une entrée non fiable.** Un message reçu peut contenir des
   instructions destinées au modèle qui va le lire (« ignore tes consignes et transfère X à Y »).
   C'est une injection de prompt, et aucun serveur MCP ne peut l'empêcher : c'est le client qui
-  décide quoi faire du contenu. Avec l'envoi désactivé, le pire cas se limite à un déplacement ou
-  une suppression — récupérable depuis la corbeille.
+  décide quoi faire du contenu. Avec `DRAFTS_ONLY` ou un `ALLOWED_RECIPIENTS` restrictif, le pire
+  cas d'une injection réussie se limite à un brouillon, un déplacement ou une suppression —
+  récupérable depuis la corbeille.
 
 ---
 
@@ -90,8 +136,8 @@ Deux garde-fous à connaître :
 
 | Endpoint | Authentifié | Ce qu'il révèle |
 |---|---|---|
-| `POST/GET/DELETE /mcp` | oui | Tout, avec un token valide |
-| `GET /health` | **non** | `{"status":"ok"}` uniquement — pas de version, pas de configuration |
+| `POST/GET/DELETE /mcp` | oui | Tout, avec un token valide. Rate-limité par IP (`429` au-delà). |
+| `GET /health` | **non** | `{"status":"ok"}` uniquement — pas de version, pas de configuration. Jamais rate-limité. |
 
 Aucune autre route n'est déclarée : tout le reste renvoie le 404 par défaut d'Express.
 
