@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { saveDraft } from '../../imap/drafts.js';
+import { errorResult, jsonResult } from '../result.js';
 import { logger } from '../../logger.js';
 
 const log = logger.child({ tool: 'save_draft' });
@@ -27,21 +28,15 @@ export function registerSaveDraftTool(server: McpServer): void {
     },
     async ({ to, cc, bcc, subject, text, html, replyFolder, replyUid }) => {
       if (!text && !html) {
-        return {
-          isError: true,
-          content: [{ type: 'text', text: 'Fournir au moins un corps de message (text ou html).' }],
-        };
+        return errorResult('Fournir au moins un corps de message (text ou html).');
       }
       if ((replyFolder && !replyUid) || (!replyFolder && replyUid)) {
-        return {
-          isError: true,
-          content: [{ type: 'text', text: 'replyFolder et replyUid doivent être fournis ensemble.' }],
-        };
+        return errorResult('replyFolder et replyUid doivent être fournis ensemble.');
       }
 
       log.info({ to, subject, replyFolder, replyUid }, 'saving draft');
       const result = await saveDraft({ to, cc, bcc, subject, text, html, replyFolder, replyUid });
-      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      return jsonResult(result);
     },
   );
 }

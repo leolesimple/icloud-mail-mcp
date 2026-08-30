@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { getMessage } from '../../imap/messages.js';
+import { jsonResult } from '../result.js';
 import { logger } from '../../logger.js';
 
 const log = logger.child({ tool: 'get_message' });
@@ -21,7 +22,7 @@ export function registerGetMessageTool(server: McpServer): void {
     async ({ folder, uid }) => {
       log.info({ folder, uid }, 'fetching message');
       const message = await getMessage(folder, uid);
-      return { content: [{ type: 'text', text: JSON.stringify(message, null, 2) }] };
+      return jsonResult(message);
     },
   );
 }

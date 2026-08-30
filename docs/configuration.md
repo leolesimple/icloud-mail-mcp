@@ -101,6 +101,34 @@ envoyez depuis Mail.
 
 ---
 
+## Garde-fous d'envoi
+
+Toutes optionnelles. Vides ou absentes, elles laissent le comportement historique inchangé.
+
+| Variable | Défaut | Description |
+|---|---|---|
+| `ATTACHMENT_MAX_BYTES` | `5242880` | Taille maximale d'une pièce jointe, en octets (5 Mio). |
+| `ALLOWED_RECIPIENTS` | `''` | Liste d'adresses ou de domaines séparés par des virgules. Vide = aucun filtrage. Exposée aussi normalisée en tableau (`ALLOWED_RECIPIENTS_LIST` : trim, minuscules, entrées vides retirées). |
+| `MAX_SENDS_PER_DAY` | `0` | Nombre maximal d'envois par jour glissant. `0` = illimité. |
+| `DRAFTS_ONLY` | `false` | `true` force tout envoi à passer par un brouillon : aucun mail n'est émis. Même grammaire booléenne que `ENABLE_SENDING`. |
+| `UNRESTRICTED` | `false` | `true` lève tous les garde-fous d'envoi ci-dessus. À n'utiliser qu'en connaissance de cause. |
+| `MAX_BODY_CHARS` | `20000` | Longueur maximale d'un corps de message (texte ou HTML) accepté par les outils. |
+
+Les clés booléennes (`DRAFTS_ONLY`, `UNRESTRICTED`) suivent la même règle que `ENABLE_SENDING` :
+`false`, `0`, `no` (insensible à la casse, espaces ignorés) valent faux, toute autre valeur vaut vrai.
+
+---
+
+## Protocole MCP et sessions
+
+| Variable | Défaut | Description |
+|---|---|---|
+| `MCP_TRANSPORT` | `http` | Transport exposé par le serveur : `http`, `stdio` ou `both`. Une autre valeur fait échouer le démarrage. |
+| `RATE_LIMIT_PER_MINUTE` | `120` | Plafond d'appels d'outils par minute et par session. |
+| `SESSION_TTL_MS` | `1800000` | Durée de vie d'une session inactive, en millisecondes (30 min). |
+
+---
+
 ## Logs
 
 | Variable | Défaut | Description |

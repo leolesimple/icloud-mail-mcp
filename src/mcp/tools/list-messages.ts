@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { listMessages } from '../../imap/messages.js';
+import { jsonResult } from '../result.js';
 import { logger } from '../../logger.js';
 
 const log = logger.child({ tool: 'list_messages' });
@@ -40,7 +41,7 @@ export function registerListMessagesTool(server: McpServer): void {
         from,
         limit,
       });
-      return { content: [{ type: 'text', text: JSON.stringify(messages, null, 2) }] };
+      return jsonResult(messages);
     },
   );
 }

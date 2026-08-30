@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { searchMessages } from '../../imap/messages.js';
+import { errorResult, jsonResult } from '../result.js';
 import { logger } from '../../logger.js';
 
 const log = logger.child({ tool: 'search_messages' });
@@ -24,17 +25,12 @@ export function registerSearchMessagesTool(server: McpServer): void {
     },
     async ({ folder, subject, body, from, to, limit }) => {
       if (!subject && !body && !from && !to) {
-        return {
-          isError: true,
-          content: [
-            { type: 'text', text: 'Au moins un critère de recherche est requis (subject, body, from ou to).' },
-          ],
-        };
+        return errorResult('Au moins un critère de recherche est requis (subject, body, from ou to).');
       }
 
       log.info({ folder, subject, from, to }, 'searching messages');
       const messages = await searchMessages(folder, { subject, body, from, to, limit });
-      return { content: [{ type: 'text', text: JSON.stringify(messages, null, 2) }] };
+      return jsonResult(messages);
     },
   );
 }

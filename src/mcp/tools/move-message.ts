@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { moveMessage } from '../../imap/mutations.js';
+import { jsonResult } from '../result.js';
 import { logger } from '../../logger.js';
 
 const log = logger.child({ tool: 'move_message' });
@@ -22,7 +23,7 @@ export function registerMoveMessageTool(server: McpServer): void {
     async ({ folder, uid, destination }) => {
       log.info({ folder, uid, destination }, 'moving message');
       const result = await moveMessage(folder, uid, destination);
-      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      return jsonResult(result);
     },
   );
 }

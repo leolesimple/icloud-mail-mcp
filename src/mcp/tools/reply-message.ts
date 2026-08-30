@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { sendReply } from '../../smtp/send.js';
+import { errorResult, jsonResult } from '../result.js';
 import { logger } from '../../logger.js';
 
 const log = logger.child({ tool: 'reply_message' });
@@ -25,15 +26,12 @@ export function registerReplyMessageTool(server: McpServer): void {
     },
     async ({ folder, uid, to, cc, bcc, text, html }) => {
       if (!text && !html) {
-        return {
-          isError: true,
-          content: [{ type: 'text', text: 'Fournir au moins un corps de message (text ou html).' }],
-        };
+        return errorResult('Fournir au moins un corps de message (text ou html).');
       }
 
       log.info({ folder, uid }, 'replying to message');
       const result = await sendReply({ folder, uid, to, cc, bcc, text, html });
-      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      return jsonResult(result);
     },
   );
 }

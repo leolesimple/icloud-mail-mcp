@@ -1,5 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { listFolders } from '../../imap/folders.js';
+import { jsonResult } from '../result.js';
 import { logger } from '../../logger.js';
 
 const log = logger.child({ tool: 'list_folders' });
@@ -15,14 +16,7 @@ export function registerListFoldersTool(server: McpServer): void {
     async () => {
       log.info('listing folders');
       const folders = await listFolders();
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify(folders, null, 2),
-          },
-        ],
-      };
+      return jsonResult(folders);
     },
   );
 }

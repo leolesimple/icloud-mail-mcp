@@ -1,4 +1,5 @@
 import { ImapFlow } from 'imapflow';
+import { account } from '../account.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { classifyImapError, ImapNetworkError } from './errors.js';
@@ -15,12 +16,12 @@ export type ImapClientFactory = () => ImapFlow;
 
 function defaultClientFactory(): ImapFlow {
   return new ImapFlow({
-    host: config.IMAP_HOST,
-    port: config.IMAP_PORT,
+    host: account.imap.host,
+    port: account.imap.port,
     secure: true,
     auth: {
-      user: config.ICLOUD_EMAIL,
-      pass: config.ICLOUD_APP_PASSWORD,
+      user: account.email,
+      pass: account.password,
     },
     logger: false,
   });
@@ -183,7 +184,7 @@ export class ImapConnectionPool {
       throw classifyImapError(err);
     }
 
-    log.info({ host: config.IMAP_HOST }, 'imap connection established');
+    log.info({ host: account.imap.host }, 'imap connection established');
     return client;
   }
 
