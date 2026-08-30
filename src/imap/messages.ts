@@ -20,10 +20,20 @@ export interface MessageSummary {
 }
 
 export interface MessageAttachment {
+  /** Position stable de la pièce jointe dans le message, à passer à `get_attachment`. */
+  index: number;
   filename?: string;
   contentType: string;
   size: number;
   contentId?: string;
+}
+
+export interface AttachmentContent {
+  index: number;
+  filename?: string;
+  contentType: string;
+  size: number;
+  content: Buffer;
 }
 
 export interface FullMessage extends MessageSummary {
@@ -132,12 +142,62 @@ export async function getMessage(folder: string, uid: number): Promise<FullMessa
         references: toReferencesList(parsed?.references),
         text: parsed?.text,
         html: parsed?.html ?? false,
-        attachments: (parsed?.attachments ?? []).map((att) => ({
+        attachments: (parsed?.attachments ?? []).map((att, index) => ({
+          index,
           filename: att.filename,
           contentType: att.contentType,
           size: att.size,
           contentId: att.cid,
         })),
+      };
+    },
+    { readOnly: true },
+  );
+}
+
+/**
+ * Source RFC 5322 brute d'un message. Exportée pour `forward_message` (pièce
+ * jointe `message/rfc822`) et réutilisable par les couches supérieures.
+ */
+export async function getMessageSource(folder: string, uid: number): Promise<Buffer> {
+  return withMailbox(
+    folder,
+    async (client) => {
+      const fetched = await client.fetchOne(uid, { uid: true, source: true }, { uid: true });
+      if (!fetched || !fetched.source) {
+        throw new Error(`Message UID ${uid} introuvable dans "${folder}"`);
+      }
+      return fetched.source;
+    },
+    { readOnly: true },
+  );
+}
+
+/** Contenu binaire d'une pièce jointe, ciblée par son `index` (voir `getMessage`). */
+export async function getAttachment(folder: string, uid: number, index: number): Promise<AttachmentContent> {
+  return withMailbox(
+    folder,
+    async (client) => {
+      const fetched = await client.fetchOne(uid, { uid: true, source: true }, { uid: true });
+      if (!fetched || !fetched.source) {
+        throw new Error(`Message UID ${uid} introuvable dans "${folder}"`);
+      }
+
+      const parsed = await simpleParser(fetched.source);
+      const attachment = parsed.attachments[index];
+      if (!attachment) {
+        throw new Error(
+          `Pièce jointe #${index} introuvable pour le message UID ${uid} ` +
+            `(${parsed.attachments.length} pièce(s) jointe(s))`,
+        );
+      }
+
+      return {
+        index,
+        filename: attachment.filename,
+        contentType: attachment.contentType,
+        size: attachment.content.length,
+        content: attachment.content,
       };
     },
     { readOnly: true },

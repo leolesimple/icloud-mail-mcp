@@ -72,21 +72,57 @@ export async function deleteMessage(folder: string, uid: number): Promise<Delete
   }
 }
 
-export type FlagAction = 'read' | 'unread' | 'flagged' | 'unflagged';
+export type FlagAction =
+  | 'read'
+  | 'unread'
+  | 'flagged'
+  | 'unflagged'
+  | 'answered'
+  | 'unanswered'
+  | 'junk'
+  | 'not_junk';
 
 export interface FlagResult {
   uid: number;
   folder: string;
   applied: FlagAction[];
+  keywords?: string[];
 }
 
-const FLAG_ADDITIONS: Partial<Record<FlagAction, string>> = { read: '\\Seen', flagged: '\\Flagged' };
-const FLAG_REMOVALS: Partial<Record<FlagAction, string>> = { unread: '\\Seen', unflagged: '\\Flagged' };
+const FLAG_ADDITIONS: Partial<Record<FlagAction, string>> = {
+  read: '\\Seen',
+  flagged: '\\Flagged',
+  answered: '\\Answered',
+  junk: '$Junk',
+  not_junk: '$NotJunk',
+};
+const FLAG_REMOVALS: Partial<Record<FlagAction, string>> = {
+  unread: '\\Seen',
+  unflagged: '\\Flagged',
+  unanswered: '\\Answered',
+  junk: '$NotJunk',
+  not_junk: '$Junk',
+};
 
-export async function flagMessage(folder: string, uid: number, actions: FlagAction[]): Promise<FlagResult> {
+/**
+ * Applique un ou plusieurs changements de flags. Les `keywords` sont des
+ * mots-clés IMAP arbitraires ajoutés en plus des actions nommées. Les ajouts
+ * sont appliqués avant les retraits.
+ */
+export async function flagMessage(
+  folder: string,
+  uid: number,
+  actions: FlagAction[],
+  keywords: string[] = [],
+): Promise<FlagResult> {
   return withMailbox(folder, async (client) => {
-    const toAdd = actions.map((action) => FLAG_ADDITIONS[action]).filter((flag): flag is string => Boolean(flag));
-    const toRemove = actions.map((action) => FLAG_REMOVALS[action]).filter((flag): flag is string => Boolean(flag));
+    const toAdd = [
+      ...actions.map((action) => FLAG_ADDITIONS[action]).filter((flag): flag is string => Boolean(flag)),
+      ...keywords,
+    ];
+    const toRemove = actions
+      .map((action) => FLAG_REMOVALS[action])
+      .filter((flag): flag is string => Boolean(flag));
 
     if (toAdd.length > 0) {
       await client.messageFlagsAdd(uid, toAdd, { uid: true });
@@ -95,6 +131,6 @@ export async function flagMessage(folder: string, uid: number, actions: FlagActi
       await client.messageFlagsRemove(uid, toRemove, { uid: true });
     }
 
-    return { uid, folder, applied: actions };
+    return { uid, folder, applied: actions, keywords: keywords.length > 0 ? keywords : undefined };
   });
 }

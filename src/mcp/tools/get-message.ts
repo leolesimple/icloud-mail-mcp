@@ -12,8 +12,8 @@ export function registerGetMessageTool(server: McpServer): void {
     {
       title: 'Get message',
       description:
-        'Fetches the full content of a message by UID: headers, text/HTML body, and attachment metadata ' +
-        '(attachment binary content is not included).',
+        'Fetches the full content of a message by UID: headers, text/HTML body, and attachment metadata. ' +
+        'Each attachment carries a stable "index" — pass it to get_attachment to retrieve the binary content.',
       inputSchema: {
         folder: z.string().min(1).default('INBOX'),
         uid: z.coerce.number().int().positive().describe('IMAP UID of the message'),

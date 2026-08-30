@@ -1,9 +1,10 @@
-import { composeRaw } from '../smtp/compose.js';
 import { imapPool } from './pool.js';
 import { classifyImapError } from './errors.js';
 import { findSpecialFolder } from './special-folders.js';
 import { getMessage } from './messages.js';
 import { buildReplyHeaders } from './threading.js';
+import { composeRaw } from '../smtp/compose.js';
+import type { ComposeAttachment } from '../smtp/compose.js';
 
 export interface DraftInput {
   to?: string[];
@@ -14,6 +15,7 @@ export interface DraftInput {
   html?: string;
   replyFolder?: string;
   replyUid?: number;
+  attachments?: ComposeAttachment[];
 }
 
 export interface DraftResult {
@@ -57,6 +59,7 @@ export async function saveDraft(input: DraftInput): Promise<DraftResult> {
     html: input.html,
     inReplyTo,
     references,
+    attachments: input.attachments,
   });
 
   try {

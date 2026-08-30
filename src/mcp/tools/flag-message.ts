@@ -11,19 +11,33 @@ export function registerFlagMessageTool(server: McpServer): void {
     'flag_message',
     {
       title: 'Flag message',
-      description: 'Marks a message as read/unread and/or starred (flagged)/unstarred.',
+      description:
+        'Changes message flags: read/unread, starred/unstarred, answered/unanswered, junk/not_junk. ' +
+        'Pass keywords for arbitrary IMAP keywords. Additions are applied before removals.',
       inputSchema: {
         folder: z.string().min(1).default('INBOX'),
         uid: z.coerce.number().int().positive(),
         actions: z
-          .array(z.enum(['read', 'unread', 'flagged', 'unflagged']))
+          .array(
+            z.enum([
+              'read',
+              'unread',
+              'flagged',
+              'unflagged',
+              'answered',
+              'unanswered',
+              'junk',
+              'not_junk',
+            ]),
+          )
           .min(1)
           .describe('One or more flag changes to apply'),
+        keywords: z.array(z.string().min(1)).optional().describe('Arbitrary IMAP keywords to add'),
       },
     },
-    async ({ folder, uid, actions }) => {
-      log.info({ folder, uid, actions }, 'flagging message');
-      const result = await flagMessage(folder, uid, actions);
+    async ({ folder, uid, actions, keywords }) => {
+      log.info({ folder, uid, actions, keywords }, 'flagging message');
+      const result = await flagMessage(folder, uid, actions, keywords);
       return jsonResult(result);
     },
   );
