@@ -1,26 +1,27 @@
-import { listFolders } from '../imap/folders.js';
-import { imapPool } from '../imap/pool.js';
+import { account } from '../account.js';
+import { verifyImap } from '../imap/verify.js';
 
 // Petit script de vérification manuelle : se connecte à iCloud et affiche les
 // dossiers IMAP trouvés. Pas de MCP ici, juste pour valider la connexion et
-// list_folders avant de brancher le reste.
+// les identifiants avant de brancher le reste. Réutilise `verifyImap`, la même
+// logique que `npm run auth` et `whoami --probe`.
 
 async function main(): Promise<void> {
   console.log('Connexion à iCloud IMAP et récupération des dossiers…\n');
-  const folders = await listFolders();
+  const { folderCount, folders } = await verifyImap({
+    email: account.email,
+    password: account.password,
+    host: account.imap.host,
+    port: account.imap.port,
+  });
 
-  console.log(`${folders.length} dossier(s) trouvé(s) :\n`);
-  for (const folder of folders) {
-    const specialUse = folder.specialUse ? ` [${folder.specialUse}]` : '';
-    console.log(`- ${folder.path}${specialUse}`);
+  console.log(`Connexion OK — ${folderCount} dossier(s) trouvé(s) :\n`);
+  for (const path of folders) {
+    console.log(`- ${path}`);
   }
 }
 
-main()
-  .catch((err) => {
-    console.error('\nÉchec de la vérification :', err.message);
-    process.exitCode = 1;
-  })
-  .finally(() => {
-    void imapPool.close();
-  });
+main().catch((err: unknown) => {
+  console.error('\nÉchec de la vérification :', err instanceof Error ? err.message : String(err));
+  process.exitCode = 1;
+});

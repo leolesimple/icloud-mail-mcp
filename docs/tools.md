@@ -1,6 +1,6 @@
 # Référence des outils
 
-Les seize outils exposés par le serveur MCP. Les descriptions transmises à Claude sont en anglais
+Les dix-sept outils exposés par le serveur MCP. Les descriptions transmises à Claude sont en anglais
 (c'est ce que le modèle lit) ; cette page en donne la version détaillée.
 
 Conventions communes :
@@ -14,6 +14,47 @@ Conventions communes :
   `resource`).
 - Une erreur IMAP/SMTP remonte classifiée, avec un message explicite (voir
   [architecture.md](architecture.md#gestion-des-erreurs)).
+
+---
+
+## État
+
+### `whoami`
+
+Décrit le compte branché et l'état du serveur. À appeler en premier pour savoir **sur quelle boîte
+on travaille** et **ce qui est autorisé** avant d'agir.
+
+| Paramètre | Type | Défaut | Description |
+|---|---|---|---|
+| `probe` | boolean | `false` | Ouvre une connexion IMAP réelle et légère (un `list()`) pour confirmer que les identifiants fonctionnent |
+
+Ne renvoie **jamais** le mot de passe d'application ni le `MCP_BEARER_TOKEN`, même tronqués :
+seul un booléen « configuré » est exposé à leur sujet.
+
+```jsonc
+{
+  "server": { "name": "icloud-mail", "version": "0.1.0" },
+  "account": {
+    "email": "vous@icloud.com",
+    "imap": { "host": "imap.mail.me.com", "port": 993 },
+    "smtp": { "host": "smtp.mail.me.com", "port": 587 }
+  },
+  "credentials": { "appPasswordConfigured": true, "bearerTokenConfigured": true },
+  "guardrails": {
+    "sendingEnabled": false,        // ENABLE_SENDING
+    "draftsOnly": true,             // présent seulement si la variable existe
+    "allowlistActive": true,        // idem : dépend des garde-fous configurés
+    "maxSendsPerDay": 20,
+    "quota": { "windowHours": 24, "limit": 20, "remaining": 18 }
+  },
+  "imapPool": { "open": 1, "inUse": 0, "max": 2 },
+  "probe": { "attempted": true, "ok": true, "folderCount": 12 }   // seulement si probe=true
+}
+```
+
+Les champs `draftsOnly`, `unrestricted`, `allowlistActive`, `maxSendsPerDay` et `quota` n'apparaissent
+que si les garde-fous correspondants sont configurés ; `probe` n'apparaît que si `probe=true`. Une
+sonde qui échoue renvoie `{ "attempted": true, "ok": false, "error": "…" }` sans faire échouer l'appel.
 
 ---
 

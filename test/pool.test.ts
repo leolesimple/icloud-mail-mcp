@@ -200,4 +200,17 @@ describe('ImapConnectionPool', () => {
     await pool.close();
     await assert.rejects(pool.acquire(), /fermé/);
   });
+
+  it('stats() reflète les connexions ouvertes et en cours d’utilisation', async () => {
+    const { pool } = makePool(2);
+    assert.deepEqual(pool.stats(), { open: 0, inUse: 0, max: 2 });
+
+    const first = await pool.acquire();
+    assert.deepEqual(pool.stats(), { open: 1, inUse: 1, max: 2 });
+
+    pool.release(first);
+    assert.deepEqual(pool.stats(), { open: 1, inUse: 0, max: 2 });
+
+    await pool.close();
+  });
 });

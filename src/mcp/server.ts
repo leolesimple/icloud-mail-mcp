@@ -15,11 +15,13 @@ import { registerManageFolderTool } from './tools/manage-folder.js';
 import { registerUpdateDraftTool } from './tools/update-draft.js';
 import { registerSendDraftTool } from './tools/send-draft.js';
 import { registerGetThreadTool } from './tools/get-thread.js';
+import { registerWhoamiTool } from './tools/whoami.js';
+import { serverVersion } from '../version.js';
 
 export function createMailMcpServer(): McpServer {
   const server = new McpServer({
     name: 'icloud-mail',
-    version: '0.1.0',
+    version: serverVersion,
   });
 
   registerListFoldersTool(server);
@@ -38,6 +40,7 @@ export function createMailMcpServer(): McpServer {
   registerUpdateDraftTool(server);
   registerSendDraftTool(server);
   registerGetThreadTool(server);
+  registerWhoamiTool(server);
 
   return server;
 }

@@ -89,21 +89,17 @@ Concrètement, une fois branché, on peut demander à Claude :
 git clone https://github.com/leolesimple/mail-mcp.git
 cd mail-mcp
 npm install
-cp .env.example .env
+npm run auth
 ```
 
-Renseigner dans `.env` :
+`npm run auth` demande l'adresse iCloud et le mot de passe d'application (saisie
+masquée), génère le `MCP_BEARER_TOKEN`, **vérifie pour de vrai les connexions IMAP
+et SMTP**, puis écrit `.env` en `chmod 600` — rien n'est écrit si une vérification
+échoue, et un `.env` existant est sauvegardé en `.env.bak` avant tout écrasement.
+Le fichier généré démarre avec `ENABLE_SENDING=false`.
 
 ```bash
-ICLOUD_EMAIL=vous@icloud.com
-ICLOUD_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
-MCP_BEARER_TOKEN=$(openssl rand -hex 32)   # à générer, puis coller la valeur
-```
-
-Vérifier que la connexion iCloud passe, avant même de parler de MCP :
-
-```bash
-npm run verify:imap    # se connecte en IMAP et affiche vos dossiers
+npm run auth:check     # rejoue la vérification IMAP + SMTP sur le .env existant, sans rien écrire
 ```
 
 Puis démarrer :

@@ -11,6 +11,8 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
+    "auth": "tsx src/cli/auth.ts",
+    "auth:check": "tsx src/cli/auth.ts --check",
     "verify:imap": "tsx src/dev/verify-imap.ts",
     "test": "node --import tsx --test \"test/**/*.test.ts\"",
     "test:watch": "node --import tsx --test --watch \"test/**/*.test.ts\"",

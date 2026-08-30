@@ -3,6 +3,7 @@ dist/
 *.tsbuildinfo
 .env
 .env.local
+.env.bak
 *.log
 .DS_Store
 CLAUDE.md

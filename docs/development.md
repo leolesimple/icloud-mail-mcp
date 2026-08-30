@@ -10,13 +10,20 @@
 
 ```bash
 npm install
-cp .env.example .env      # renseigner ICLOUD_EMAIL, ICLOUD_APP_PASSWORD, MCP_BEARER_TOKEN
-npm run verify:imap       # valide la connexion iCloud, sans passer par MCP
+npm run auth              # saisie des identifiants, vérification IMAP + SMTP, écriture de .env (chmod 600)
 npm run dev               # serveur sur http://localhost:3000, rechargé par tsx
 ```
 
+`npm run auth` remplace le `cp .env.example .env` manuel : il génère le
+`MCP_BEARER_TOKEN`, vérifie réellement la connexion iCloud avant d'écrire quoi que
+ce soit, et sauvegarde un `.env` existant en `.env.bak`. `npm run auth:check`
+rejoue la seule vérification, sans écriture. `npm run verify:imap` reste
+disponible pour un contrôle IMAP seul.
+
 | Commande | Rôle |
 |---|---|
+| `npm run auth` | Mise en route : identifiants, vérification IMAP + SMTP, écriture de `.env` |
+| `npm run auth:check` | Rejoue la vérification IMAP + SMTP sur le `.env` existant, sans écriture |
 | `npm run dev` | Serveur HTTP MCP en TypeScript direct (tsx) |
 | `npm run build` | Compile `src/` vers `dist/` |
 | `npm start` | Lance le build compilé |
