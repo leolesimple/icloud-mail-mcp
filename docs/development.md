@@ -118,6 +118,17 @@ Les imports pointent vers les fichiers sources en `.js` (résolution NodeNext), 
 
 ---
 
+## Intégration continue
+
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) rejoue `typecheck`, `lint`, `test` et
+`build` sur Node 24, à chaque push sur `main` et sur chaque pull request.
+
+Le workflow n'a besoin d'**aucun secret** : la suite de tests n'ouvre aucune connexion IMAP ou SMTP
+et force `ENABLE_SENDING=false`. Il n'y a donc pas de compte iCloud à configurer dans le dépôt, et
+une pull request extérieure ne peut rien exfiltrer.
+
+---
+
 ## Conventions
 
 - **TypeScript strict**, avec `noUncheckedIndexedAccess` : un accès par index renvoie

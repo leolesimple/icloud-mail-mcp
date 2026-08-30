@@ -1,5 +1,7 @@
 # mail-mcp
 
+[![CI](https://github.com/leolesimple/mail-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/leolesimple/mail-mcp/actions/workflows/ci.yml)
+
 Serveur [MCP](https://modelcontextprotocol.io) qui expose un compte **iCloud Mail** (IMAP/SMTP) sous
 forme d'outils utilisables par Claude : lire, chercher, trier, répondre et archiver des mails depuis
 une conversation.
