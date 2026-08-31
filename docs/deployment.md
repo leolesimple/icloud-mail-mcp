@@ -60,7 +60,7 @@ ICLOUD_EMAIL=vous@icloud.com
 ICLOUD_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
 MCP_BEARER_TOKEN=<openssl rand -hex 32>
 TUNNEL_NETWORK=tunnel-net              # le réseau de l'étape 1
-ICLOUD_MAIL_MCP_VERSION=0.1.1          # version à déployer ("latest" pour suivre le dernier tag)
+ICLOUD_MAIL_MCP_VERSION=0.1.2          # version à déployer ("latest" pour suivre le dernier tag)
 ENABLE_SENDING=false                   # à laisser à false pour la première mise en service
 # TUNNEL_TOKEN=...                     # modèle autonome uniquement
 ```
@@ -95,7 +95,7 @@ Vérifier :
 docker compose ps                          # "healthy"/"running"
 docker compose logs -f icloud-mail-mcp     # "icloud-mail-mcp http server listening"
 curl https://icloud-mail-mcp.exemple.com/health
-# {"status":"ok","version":"0.1.1"}
+# {"status":"ok","version":"0.1.2"}
 ```
 
 Le `/health` répond sans token — c'est voulu, le healthcheck Docker en a besoin. Il ne révèle que le
@@ -178,10 +178,27 @@ n'est pas utilisé et le `MCP_BEARER_TOKEN` ne sert pas à authentifier (aucune 
 validation de configuration l'exige toujours — n'importe quelle valeur d'au moins 16 caractères
 convient.
 
-### Claude Desktop / claude.ai
+### Claude Desktop
 
-*Paramètres → Connecteurs → Ajouter un connecteur personnalisé*, avec l'URL
-`https://icloud-mail-mcp.exemple.com/mcp`.
+`claude_desktop_config.json` :
+
+```json
+"icloud-mail-mcp": {
+  "type": "http",
+  "url": "https://icloud-mail-mcp.exemple.com/mcp",
+  "headers": { "Authorization": "Bearer <votre token>" }
+}
+```
+
+### claude.ai (web / mobile)
+
+*Paramètres → Connecteurs → Ajouter un connecteur personnalisé* :
+
+- **URL** : `https://icloud-mail-mcp.exemple.com/mcp`
+- **Authentification** : le formulaire **interdit l'en-tête `Authorization`** et n'autorise qu'une
+  liste de noms. Choisir **`x-api-key`**, valeur = **le token brut** (`MCP_BEARER_TOKEN`, *sans* le
+  préfixe `Bearer `). Le serveur accepte les deux formes.
+- Passer le jeton par **en-tête**, pas par l'URL (une URL avec secret finit dans des logs).
 
 ### MCP Inspector (débogage)
 

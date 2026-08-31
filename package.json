@@ -1,7 +1,7 @@
 {
   "name": "icloud-mail-mcp",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "MCP server exposing iCloud Mail (IMAP/SMTP) as tools for Claude",
   "type": "module",
   "engines": {

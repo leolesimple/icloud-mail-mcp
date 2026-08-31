@@ -20,6 +20,16 @@ versionnage [SemVer](https://semver.org/lang/fr/).
 
 _Rien pour l'instant._
 
+## [0.1.2] - 2026-08-31
+
+### Ajouté
+
+- **Auth par `X-Api-Key`.** `/mcp` accepte le token en `X-Api-Key: <token>`
+  (jeton brut) en plus de `Authorization: Bearer <token>`. Les connecteurs
+  personnalisés de claude.ai interdisent l'en-tête `Authorization` et n'ouvrent
+  qu'une liste blanche de noms d'en-têtes, dont `x-api-key`. Même token, même
+  accès. `docs/deployment.md` détaille le branchement claude.ai / Claude Desktop.
+
 ## [0.1.1] - 2026-08-31
 
 ### Modifié
@@ -71,6 +81,7 @@ Première version publiée. Serveur MCP exposant un compte iCloud Mail
   par IP ne s'effondre plus en un seul seau).
 - Dependabot sur npm et GitHub Actions.
 
-[Non publié]: https://github.com/leolesimple/icloud-mail-mcp/compare/v0.1.1...HEAD
+[Non publié]: https://github.com/leolesimple/icloud-mail-mcp/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/leolesimple/icloud-mail-mcp/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/leolesimple/icloud-mail-mcp/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/leolesimple/icloud-mail-mcp/releases/tag/v0.1.0

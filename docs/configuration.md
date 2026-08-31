@@ -77,7 +77,7 @@ En `stdio`, stdout porte le canal JSON-RPC : le serveur bascule automatiquement 
 | Variable | Défaut | Description |
 |---|---|---|
 | `PORT` | `3000` | Port d'écoute. En Docker, port interne au réseau du compose : le conteneur ne l'expose pas à l'hôte. Ignoré si `MCP_TRANSPORT=stdio`. |
-| `MCP_BEARER_TOKEN` | **requis** | Token attendu dans `Authorization: Bearer <token>` sur `/mcp`. 16 caractères minimum. Toujours requis, même en `stdio` (où il ne sert pas). |
+| `MCP_BEARER_TOKEN` | **requis** | Token attendu sur `/mcp`, en `Authorization: Bearer <token>` ou `X-Api-Key: <token>` (jeton brut, pour les connecteurs claude.ai). 16 caractères minimum. Toujours requis, même en `stdio` (où il ne sert pas). |
 | `RATE_LIMIT_PER_MINUTE` | `120` | Requêtes `/mcp` autorisées par IP et par minute (fenêtre glissante). Au-delà : `429`. `/health` n'est jamais limité. |
 | `SESSION_TTL_MS` | `1800000` | Inactivité (en ms) au-delà de laquelle une session MCP est évincée et son transport fermé. 30 min par défaut. |
 

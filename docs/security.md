@@ -11,10 +11,11 @@ Cette page décrit ce que le projet protège, et ce qui reste à votre charge.
 
 ## Ce que le serveur fait pour vous
 
-**Authentification de tous les appels MCP.** `/mcp` exige `Authorization: Bearer <token>` en `POST`,
-`GET` et `DELETE`. Le token est comparé en temps constant (`timingSafeEqual`), après une
-vérification de longueur qui évite l'exception que lève cette fonction sur des tampons de tailles
-différentes.
+**Authentification de tous les appels MCP.** `/mcp` exige le token en `POST`, `GET` et `DELETE`,
+via `Authorization: Bearer <token>` ou `X-Api-Key: <token>` (jeton brut — cette seconde forme pour
+les connecteurs claude.ai, qui interdisent l'en-tête `Authorization`). Le token est comparé en
+temps constant (`timingSafeEqual`), après une vérification de longueur qui évite l'exception que
+lève cette fonction sur des tampons de tailles différentes.
 
 **TLS partout.** IMAP sur le port 993 en TLS implicite ; SMTP sur 587 avec `requireTLS: true` — si
 le serveur refuse STARTTLS, l'envoi échoue plutôt que de partir en clair.
@@ -88,6 +89,8 @@ C'est la seule chose qui sépare votre boîte mail d'Internet une fois le tunnel
 
 - Générez-le avec `openssl rand -hex 32`. N'inventez pas de token « mémorisable ».
 - Ne le collez ni dans une conversation, ni dans un ticket, ni dans un dépôt.
+- Se présente en `Authorization: Bearer <token>` **ou** `X-Api-Key: <token>` — même token, même
+  niveau d'accès. À passer par en-tête, jamais dans l'URL.
 - Pour le changer : nouvelle valeur dans `.env`, `docker compose up -d`, puis mise à jour de la
   configuration du client MCP. Toutes les sessions existantes sont invalidées.
 

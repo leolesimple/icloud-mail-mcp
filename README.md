@@ -124,8 +124,9 @@ Puis démarrer :
 npm run dev            # http://localhost:3000/mcp
 ```
 
-Le endpoint MCP est `POST|GET|DELETE /mcp`, protégé par
-`Authorization: Bearer <MCP_BEARER_TOKEN>`. `GET /health` reste ouvert (healthcheck Docker).
+Le endpoint MCP est `POST|GET|DELETE /mcp`, protégé par le `MCP_BEARER_TOKEN`
+(`Authorization: Bearer <token>` ou `X-Api-Key: <token>`). `GET /health` reste ouvert
+(healthcheck Docker).
 
 Pour l'inspecter à la main :
 
@@ -164,7 +165,7 @@ ICLOUD_EMAIL=vous@icloud.com
 ICLOUD_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
 MCP_BEARER_TOKEN=<openssl rand -hex 32>
 TUNNEL_NETWORK=<réseau Docker partagé avec cloudflared>   # requis
-ICLOUD_MAIL_MCP_VERSION=0.1.1                             # ou "latest"
+ICLOUD_MAIL_MCP_VERSION=0.1.2                             # ou "latest"
 ```
 
 Le trafic passe par un **Cloudflare Tunnel** : `docker-compose.yml` rattache le
@@ -191,8 +192,12 @@ claude mcp add --transport http icloud-mail-mcp https://icloud-mail-mcp.exemple.
   --header "Authorization: Bearer <votre token>"
 ```
 
-**Claude Desktop / claude.ai** : *Paramètres → Connecteurs → Ajouter un connecteur personnalisé*,
-en donnant l'URL `https://icloud-mail-mcp.exemple.com/mcp`.
+**Claude Desktop** : dans `claude_desktop_config.json`, un serveur `"type": "http"` avec
+`"headers": { "Authorization": "Bearer <token>" }`.
+
+**claude.ai (web / mobile)** : *Paramètres → Connecteurs → Ajouter un connecteur personnalisé*,
+URL `https://icloud-mail-mcp.exemple.com/mcp`. Le formulaire interdit l'en-tête `Authorization` :
+choisir **`x-api-key`** avec le **token brut** (le serveur accepte les deux formes).
 
 Détails et dépannage dans [`docs/deployment.md`](docs/deployment.md#brancher-un-client-mcp).
 

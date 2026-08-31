@@ -44,7 +44,7 @@ seul un booléen « configuré » est exposé à leur sujet.
 
 ```jsonc
 {
-  "server": { "name": "icloud-mail", "version": "0.1.1" },
+  "server": { "name": "icloud-mail", "version": "0.1.2" },
   "account": {
     "email": "vous@icloud.com",
     "imap": { "host": "imap.mail.me.com", "port": 993 },

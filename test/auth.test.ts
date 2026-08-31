@@ -7,7 +7,7 @@ import { config } from '../src/config.js';
 
 const VALID = config.MCP_BEARER_TOKEN;
 
-function run(authorization?: string) {
+function invoke(headers: Record<string, string | string[] | undefined>) {
   const res = {
     statusCode: undefined as number | undefined,
     body: undefined as Record<string, unknown> | undefined,
@@ -22,11 +22,16 @@ function run(authorization?: string) {
   };
   let nextCalled = false;
 
-  bearerAuth({ headers: { authorization } } as Request, res as unknown as Response, () => {
+  bearerAuth({ headers } as Request, res as unknown as Response, () => {
     nextCalled = true;
   });
 
   return { res, nextCalled };
+}
+
+/** Raccourci historique : ne pose que l'en-tête `Authorization`. */
+function run(authorization?: string) {
+  return invoke({ authorization });
 }
 
 describe('bearerAuth', () => {
@@ -47,7 +52,7 @@ describe('bearerAuth', () => {
     assert.equal(res.body?.jsonrpc, '2.0');
     assert.deepEqual(res.body?.error, {
       code: -32001,
-      message: 'Unauthorized: missing or invalid bearer token',
+      message: 'Unauthorized: missing or invalid token',
     });
   });
 
@@ -87,5 +92,34 @@ describe('bearerAuth', () => {
   it('rejette "Bearer" sans token', () => {
     const { nextCalled } = run('Bearer ');
     assert.equal(nextCalled, false);
+  });
+
+  describe('en-tête X-Api-Key (connecteurs claude.ai)', () => {
+    it('laisse passer le bon token en jeton brut', () => {
+      const { nextCalled, res } = invoke({ 'x-api-key': VALID });
+      assert.equal(nextCalled, true);
+      assert.equal(res.statusCode, undefined);
+    });
+
+    it('rejette un mauvais token de même longueur', () => {
+      const { nextCalled, res } = invoke({ 'x-api-key': 'x'.repeat(VALID.length) });
+      assert.equal(nextCalled, false);
+      assert.equal(res.statusCode, 401);
+    });
+
+    it('rejette un token plus court sans planter', () => {
+      const { nextCalled } = invoke({ 'x-api-key': 'court' });
+      assert.equal(nextCalled, false);
+    });
+
+    it('ignore un en-tête répété (string[])', () => {
+      const { nextCalled } = invoke({ 'x-api-key': [VALID, VALID] });
+      assert.equal(nextCalled, false);
+    });
+
+    it('Authorization: Bearer valide a la priorité sur un X-Api-Key erroné', () => {
+      const { nextCalled } = invoke({ authorization: `Bearer ${VALID}`, 'x-api-key': 'faux' });
+      assert.equal(nextCalled, true);
+    });
   });
 });
