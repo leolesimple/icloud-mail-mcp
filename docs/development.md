@@ -84,7 +84,7 @@ qui mérite un test appartient aux couches basses.
 npm test
 ```
 
-**107 tests**, exécutés par le runner intégré de Node (`node:test`) via tsx. Aucune dépendance de
+**333 tests**, exécutés par le runner intégré de Node (`node:test`) via tsx. Aucune dépendance de
 test supplémentaire, aucun framework à maintenir.
 
 | Fichier | Ce qui est couvert |

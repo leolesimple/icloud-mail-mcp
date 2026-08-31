@@ -35,20 +35,31 @@ Claude  ──HTTPS+Bearer──▶  Cloudflare Tunnel  ──▶  mail-mcp  ─
 
 ## Ce que ça fait
 
-Dix outils MCP, décrits en détail dans [`docs/tools.md`](docs/tools.md) :
+Dix-sept outils MCP, décrits en détail dans [`docs/tools.md`](docs/tools.md) :
 
 | Outil | Ce qu'il fait |
 |---|---|
-| `list_folders` | Liste les dossiers IMAP, avec leur rôle spécial (`\Trash`, `\Drafts`…) |
-| `list_messages` | Liste un dossier, du plus récent au plus ancien — filtres : non lus, plage de dates, expéditeur |
-| `search_messages` | Recherche côté serveur IMAP : sujet, corps, expéditeur, destinataire |
-| `get_message` | Contenu complet d'un message : en-têtes, corps texte et HTML, métadonnées des pièces jointes |
-| `send_message` | Envoie un nouveau message |
-| `reply_message` | Répond à un message avec un threading correct (`In-Reply-To`, `References`, sujet `Re:`) |
+| `list_folders` | Liste les dossiers IMAP, leur rôle spécial (`\Trash`, `\Drafts`…) et leurs compteurs de non-lus |
+| `list_messages` | Liste un dossier, du plus récent au plus ancien — filtres : non lus, plage de dates, expéditeur ; pagination par curseur |
+| `search_messages` | Recherche côté serveur IMAP : sujet, corps, expéditeur, destinataire, dates, flags, sur un ou plusieurs dossiers |
+| `get_message` | Contenu complet d'un message : en-têtes, corps tronqué à la demande, métadonnées des pièces jointes |
+| `get_attachment` | Contenu binaire d'une pièce jointe, ciblée par son index |
+| `get_thread` | Reconstitue un fil de discussion à partir de n'importe lequel de ses messages |
+| `send_message` | Envoie un nouveau message, avec pièces jointes, et l'archive dans « Sent » |
+| `reply_message` | Répond avec un threading correct (`In-Reply-To`, `References`, sujet `Re:`), en option à tous |
+| `forward_message` | Transfère un message, l'original joint verbatim en `message/rfc822` |
 | `save_draft` | Enregistre un brouillon dans Drafts sans rien envoyer — peut hériter du threading d'un message |
-| `move_message` | Déplace un message d'un dossier à un autre |
+| `update_draft` | Remplace un brouillon existant |
+| `send_draft` | Envoie un brouillon existant, puis le retire de Drafts |
+| `move_message` | Déplace un ou plusieurs messages d'un dossier à un autre |
 | `delete_message` | Envoie à la corbeille ; supprime définitivement si le message y est déjà |
-| `flag_message` | Marque lu / non lu, favori / non favori |
+| `flag_message` | Lu / non lu, favori, répondu, indésirable, mots-clés IMAP arbitraires |
+| `manage_folder` | Crée, renomme ou supprime un dossier — refusé sur les dossiers système |
+| `whoami` | Compte branché, garde-fous actifs, quota restant — jamais de secret |
+
+Les opérations sur les messages acceptent un `uid` unique ou jusqu'à 200 `uids` en une seule
+commande IMAP. Un dix-huitième outil, `wait_for_new_message`, existe derrière
+`ENABLE_IDLE_WATCH` (désactivé par défaut : il n'a pas de reconnexion).
 
 Concrètement, une fois branché, on peut demander à Claude :
 
@@ -63,11 +74,15 @@ Concrètement, une fois branché, on peut demander à Claude :
   [`docs/architecture.md`](docs/architecture.md).
 - **Erreurs lisibles** — un mot de passe principal Apple utilisé à la place d'un mot de passe
   d'application donne un message qui le dit, pas une stack trace IMAP.
-- **Coupe-circuit d'envoi** — `ENABLE_SENDING=false` désactive `send_message` et `reply_message`
-  sans toucher au reste. Utile pour laisser Claude trier une boîte sans jamais pouvoir écrire à
-  quelqu'un.
+- **Garde-fous d'envoi gradués** — de `ENABLE_SENDING=false` (rien ne part) à `DRAFTS_ONLY` (tout
+  est déposé dans Drafts, rien n'est perdu), en passant par une allowlist de destinataires et un
+  quota journalier. `UNRESTRICTED` les lève tous d'un coup, sans jamais toucher à
+  l'authentification. Voir [`docs/security.md`](docs/security.md).
+- **Mise en route guidée** — `npm run auth` vérifie IMAP et SMTP pour de vrai avant d'écrire le
+  `.env`, plutôt que de découvrir la faute de frappe au premier appel d'outil.
+- **Deux transports** — HTTP streamable, ou stdio pour un branchement local (`MCP_TRANSPORT`).
 - **Logs structurés** (pino) sans mot de passe ni contenu de mail.
-- **107 tests** qui ne touchent ni le réseau ni une vraie boîte mail.
+- **333 tests** qui ne touchent ni le réseau ni une vraie boîte mail.
 
 ---
 
@@ -173,7 +188,7 @@ Détail complet dans [`docs/security.md`](docs/security.md).
 
 | Document | Contenu |
 |---|---|
-| [`docs/tools.md`](docs/tools.md) | Référence des dix outils : paramètres, retours, exemples |
+| [`docs/tools.md`](docs/tools.md) | Référence des dix-sept outils : paramètres, retours, exemples |
 | [`docs/configuration.md`](docs/configuration.md) | Toutes les variables d'environnement |
 | [`docs/deployment.md`](docs/deployment.md) | Docker, Cloudflare Tunnel, branchement des clients MCP |
 | [`docs/architecture.md`](docs/architecture.md) | Découpage en couches, pool IMAP, gestion des erreurs et des sessions |
