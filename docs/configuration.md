@@ -184,7 +184,7 @@ pool et attend l'événement `exists` d'iCloud. Cette version n'a **pas de recon
 connexion iCloud saute pendant l'attente (coupure réseau, throttling, timeout serveur), l'outil ne
 le détecte pas et se contente d'expirer avec `timedOut: true` — un nouveau message arrivé
 entre-temps est manqué **sans le moindre signal**. Tant que la version avec reconnexion n'est pas
-faite ([#20](https://github.com/leolesimple/mail-mcp/issues/20)), l'outil n'est exposé que si vous
+faite ([#20](https://github.com/leolesimple/icloud-mail-mcp/issues/20)), l'outil n'est exposé que si vous
 l'activez explicitement, en connaissance de cause.
 
 Reconnus comme « activé » : toute valeur autre que `false`, `0`, `no` (casse et espaces ignorés).

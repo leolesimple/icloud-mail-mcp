@@ -17,7 +17,7 @@ const cleanups: Array<() => void | Promise<void>> = [];
 if (useHttp) {
   const http = createHttpServer();
   const httpServer: Server = http.app.listen(config.PORT, '0.0.0.0', () => {
-    logger.info({ port: config.PORT }, 'mail-mcp http server listening');
+    logger.info({ port: config.PORT }, 'icloud-mail-mcp http server listening');
   });
   cleanups.push(() => {
     httpServer.close();
@@ -33,7 +33,7 @@ if (useStdio) {
   await server.connect(transport);
   cleanups.push(() => transport.close());
   // stderr : en stdio, stdout est le canal JSON-RPC (voir src/logger.ts).
-  logger.info('mail-mcp stdio server ready');
+  logger.info('icloud-mail-mcp stdio server ready');
 }
 
 async function shutdown(signal: string): Promise<void> {

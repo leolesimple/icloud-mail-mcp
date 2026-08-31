@@ -1,5 +1,5 @@
 {
-  "name": "mail-mcp",
+  "name": "icloud-mail-mcp",
   "private": true,
   "version": "0.1.0",
   "description": "MCP server exposing iCloud Mail (IMAP/SMTP) as tools for Claude",
@@ -21,15 +21,15 @@
     "format": "prettier --write ."
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "html-to-text": "10.0.1",
-    "imapflow": "^1.4.7",
-    "mailparser": "^3.9.14",
-    "nodemailer": "^9.0.3",
+    "imapflow": "^1.7.6",
+    "mailparser": "^3.9.17",
+    "nodemailer": "^9.1.0",
     "pino": "^10.3.1",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "overrides": {
     "html-to-text": "10.0.1"
@@ -37,15 +37,15 @@
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/mailparser": "^3.4.6",
-    "@types/nodemailer": "^8.0.1",
     "@types/node": "^24.13.3",
-    "@typescript-eslint/eslint-plugin": "^8.19.0",
-    "@typescript-eslint/parser": "^8.19.0",
+    "@types/nodemailer": "^8.0.1",
+    "@typescript-eslint/eslint-plugin": "^8.68.0",
+    "@typescript-eslint/parser": "^8.68.0",
     "eslint": "^9.17.0",
     "eslint-config-prettier": "^9.1.0",
-    "globals": "^17.7.0",
-    "prettier": "^3.4.2",
-    "tsx": "^4.23.1",
+    "globals": "^17.11.0",
+    "prettier": "^3.9.6",
+    "tsx": "^4.23.13",
     "typescript": "^5.7.2"
   },
   "license": "SEE LICENSE IN LICENSE",

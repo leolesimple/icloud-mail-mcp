@@ -84,7 +84,7 @@ qui mérite un test appartient aux couches basses.
 npm test
 ```
 
-**333 tests**, exécutés par le runner intégré de Node (`node:test`) via tsx. Aucune dépendance de
+**340 tests**, exécutés par le runner intégré de Node (`node:test`) via tsx. Aucune dépendance de
 test supplémentaire, aucun framework à maintenir.
 
 | Fichier | Ce qui est couvert |
@@ -96,7 +96,8 @@ test supplémentaire, aucun framework à maintenir.
 | `messages.test.ts` | Projections d'enveloppe, flags, dates ISO, champs manquants |
 | `pool.test.ts` | Réutilisation, taille max, file d'attente, purge des connexions mortes, retry, fermeture |
 | `auth.test.ts` | Bearer valide, absent, tronqué, rallongé, mauvais schéma |
-| `http.test.ts` | Serveur réel : `/health`, `401`, cycle de session MCP complet |
+| `http.test.ts` | Serveur réel : `/health` + version, `401`, rate limit par `CF-Connecting-IP`, cycle de session MCP complet |
+| `client-ip.test.ts` | Résolution de l'IP appelante (`CF-Connecting-IP`, `req.ip`, socket, `unknown`) |
 | `sending-guard.test.ts` | `ENABLE_SENDING=false` bloque l'envoi avant toute connexion SMTP |
 
 ### Deux invariants tenus par la suite
@@ -128,11 +129,16 @@ Les imports pointent vers les fichiers sources en `.js` (résolution NodeNext), 
 ## Intégration continue
 
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) rejoue `typecheck`, `lint`, `test` et
-`build` sur Node 24, à chaque push sur `main` et sur chaque pull request.
+`build` sur Node 24, puis construit l'image Docker (`linux/amd64`, sans push) et vérifie qu'elle
+démarre — à chaque push sur `main` et sur chaque pull request.
 
 Le workflow n'a besoin d'**aucun secret** : la suite de tests n'ouvre aucune connexion IMAP ou SMTP
 et force `ENABLE_SENDING=false`. Il n'y a donc pas de compte iCloud à configurer dans le dépôt, et
 une pull request extérieure ne peut rien exfiltrer.
+
+Les versions sont publiées par [`.github/workflows/release.yml`](../.github/workflows/release.yml)
+sur tag `vX.Y.Z` : image poussée sur GHCR et GitHub Release. Procédure détaillée dans
+[`CHANGELOG.md`](../CHANGELOG.md).
 
 ---
 

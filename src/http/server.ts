@@ -5,9 +5,11 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { createMailMcpServer } from '../mcp/server.js';
 import { bearerAuth } from './auth.js';
+import { clientIp } from './client-ip.js';
 import { SlidingWindowRateLimiter } from './rate-limit.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
+import { serverVersion } from '../version.js';
 
 const log = logger.child({ module: 'http' });
 
@@ -81,7 +83,7 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
       next();
       return;
     }
-    const key = req.ip ?? req.socket.remoteAddress ?? 'unknown';
+    const key = clientIp(req);
     if (!rateLimiter.allow(key)) {
       log.warn({ ip: key }, 'rate limit exceeded on /mcp');
       res.status(429).json({
@@ -151,6 +153,10 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
   }
 
   const app = express();
+  // Le seul ingress est cloudflared, sur le réseau bridge privé : on lui fait
+  // confiance pour X-Forwarded-For afin que req.ip porte l'IP cliente. La
+  // résolution fine passe par clientIp() (CF-Connecting-IP en priorité).
+  app.set('trust proxy', true);
   app.use(express.json());
 
   app.post('/mcp', rateLimit, bearerAuth, handlePost);
@@ -158,7 +164,7 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
   app.delete('/mcp', rateLimit, bearerAuth, handleSessionRequest);
 
   app.get('/health', (_req, res) => {
-    res.json({ status: 'ok' });
+    res.json({ status: 'ok', version: serverVersion });
   });
 
   async function close(): Promise<void> {

@@ -6,6 +6,7 @@ import type { Server } from 'node:http';
 import { createHttpServer } from '../src/http/server.js';
 import type { HttpServer } from '../src/http/server.js';
 import { config } from '../src/config.js';
+import { serverVersion } from '../src/version.js';
 import { imapPool } from '../src/imap/pool.js';
 import { closeSmtp } from '../src/smtp/client.js';
 
@@ -70,7 +71,7 @@ describe('GET /health', () => {
   it('répond sans authentification (healthcheck Docker)', async () => {
     const response = await fetch(`${baseUrl}/health`);
     assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), { status: 'ok' });
+    assert.deepEqual(await response.json(), { status: 'ok', version: serverVersion });
   });
 });
 
@@ -190,6 +191,19 @@ describe('rate limit sur /mcp', () => {
   it('n’applique jamais le rate limit à /health', async () => {
     for (let i = 0; i < 20; i += 1) {
       assert.equal((await fetch(`${url}/health`)).status, 200);
+    }
+  });
+
+  it('compte par CF-Connecting-IP, pas par IP de socket', async () => {
+    // Même socket (localhost), deux IP clientes distinctes derrière le tunnel :
+    // chacune a son propre seau, aucune ne doit déclencher le 429 de l'autre.
+    for (const ip of ['203.0.113.10', '203.0.113.20']) {
+      const statuses: number[] = [];
+      for (let i = 0; i < 3; i += 1) {
+        const res = await fetch(`${url}/mcp`, { method: 'GET', headers: { 'CF-Connecting-IP': ip } });
+        statuses.push(res.status);
+      }
+      assert.deepEqual(statuses, [401, 401, 401], `IP ${ip} ne doit pas être limitée`);
     }
   });
 });

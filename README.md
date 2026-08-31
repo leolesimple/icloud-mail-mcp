@@ -1,6 +1,6 @@
-# mail-mcp
+# icloud-mail-mcp
 
-[![CI](https://github.com/leolesimple/mail-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/leolesimple/mail-mcp/actions/workflows/ci.yml)
+[![CI](https://github.com/leolesimple/icloud-mail-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/leolesimple/icloud-mail-mcp/actions/workflows/ci.yml)
 
 Serveur [MCP](https://modelcontextprotocol.io) qui expose un compte **iCloud Mail** (IMAP/SMTP) sous
 forme d'outils utilisables par Claude : lire, chercher, trier, répondre et archiver des mails depuis
@@ -11,7 +11,7 @@ transite par un service tiers : Claude parle directement à votre instance, qui 
 iCloud.
 
 ```
-Claude  ──HTTPS+Bearer──▶  Cloudflare Tunnel  ──▶  mail-mcp  ──IMAP/SMTP+TLS──▶  iCloud
+Claude  ──HTTPS+Bearer──▶  Cloudflare Tunnel  ──▶  icloud-mail-mcp  ──IMAP/SMTP+TLS──▶  iCloud
 ```
 
 > **Licence — à lire avant de cloner.** Ce projet **n'est pas open source**. Vous pouvez le
@@ -82,7 +82,7 @@ Concrètement, une fois branché, on peut demander à Claude :
   `.env`, plutôt que de découvrir la faute de frappe au premier appel d'outil.
 - **Deux transports** — HTTP streamable, ou stdio pour un branchement local (`MCP_TRANSPORT`).
 - **Logs structurés** (pino) sans mot de passe ni contenu de mail.
-- **333 tests** qui ne touchent ni le réseau ni une vraie boîte mail.
+- **340 tests** qui ne touchent ni le réseau ni une vraie boîte mail.
 
 ---
 
@@ -94,15 +94,15 @@ Concrètement, une fois branché, on peut demander à Claude :
   en IMAP/SMTP :
   1. [appleid.apple.com](https://appleid.apple.com/) → se connecter
   2. **Connexion et sécurité** → **Mots de passe pour applications** → **Générer un mot de passe**
-  3. Nommer (« mail-mcp ») et copier le mot de passe au format `xxxx-xxxx-xxxx-xxxx`
+  3. Nommer (« icloud-mail-mcp ») et copier le mot de passe au format `xxxx-xxxx-xxxx-xxxx`
 
 ---
 
 ## Démarrage rapide
 
 ```bash
-git clone https://github.com/leolesimple/mail-mcp.git
-cd mail-mcp
+git clone https://github.com/leolesimple/icloud-mail-mcp.git
+cd icloud-mail-mcp
 npm install
 npm run auth
 ```
@@ -144,12 +144,12 @@ Pour le déploiement Docker + Cloudflare Tunnel, voir [`docs/deployment.md`](doc
 **Claude Code** :
 
 ```bash
-claude mcp add --transport http mail-mcp https://mail-mcp.exemple.com/mcp \
+claude mcp add --transport http icloud-mail-mcp https://icloud-mail-mcp.exemple.com/mcp \
   --header "Authorization: Bearer <votre token>"
 ```
 
 **Claude Desktop / claude.ai** : *Paramètres → Connecteurs → Ajouter un connecteur personnalisé*,
-en donnant l'URL `https://mail-mcp.exemple.com/mcp`.
+en donnant l'URL `https://icloud-mail-mcp.exemple.com/mcp`.
 
 Détails et dépannage dans [`docs/deployment.md`](docs/deployment.md#brancher-un-client-mcp).
 
@@ -167,7 +167,8 @@ Ce serveur peut lire, déplacer, supprimer et envoyer des mails. Les points à n
   clic sur appleid.apple.com si le serveur est compromis.
 - **Commencez avec `ENABLE_SENDING=false`.** Vous rallumerez l'envoi quand vous aurez vu comment
   Claude se comporte sur votre boîte.
-- **Le healthcheck `/health` n'est pas authentifié** — il ne révèle que `{"status":"ok"}`.
+- **Le healthcheck `/health` n'est pas authentifié** — il ne révèle que le statut et la version
+  du serveur (`{"status":"ok","version":"…"}`), aucune configuration ni secret.
 
 Détail complet dans [`docs/security.md`](docs/security.md).
 
@@ -194,6 +195,7 @@ Détail complet dans [`docs/security.md`](docs/security.md).
 | [`docs/architecture.md`](docs/architecture.md) | Découpage en couches, pool IMAP, gestion des erreurs et des sessions |
 | [`docs/security.md`](docs/security.md) | Modèle de menace et bonnes pratiques |
 | [`docs/development.md`](docs/development.md) | Structure du code, tests, conventions |
+| [`CHANGELOG.md`](CHANGELOG.md) | Historique des versions et procédure de release |
 
 ---
 

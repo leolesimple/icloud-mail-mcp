@@ -1,0 +1,88 @@
+name: Release
+
+# Une release = un tag `vX.Y.Z`. Le tag doit correspondre au champ `version`
+# de package.json (le job le vérifie). Procédure complète : CHANGELOG.md.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # créer la GitHub Release
+  packages: write # pousser l'image sur GHCR
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Vérifier que le tag correspond à package.json
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME != package.json version $pkg"
+            exit 1
+          fi
+
+      # Le CI complet (typecheck, lint, tests, build, image) tourne sur main
+      # avant le tag ; on rejoue tests + build ici pour ne rien publier d'un
+      # arbre qui ne compile pas.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Connexion à GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Métadonnées de l'image
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          body: |
+            Image : `${{ env.IMAGE }}:${{ github.ref_name }}`
+
+            Déploiement : bumper `ICLOUD_MAIL_MCP_VERSION` dans `.env`, puis
+            `docker compose pull && docker compose up -d`. Voir `docs/deployment.md`.

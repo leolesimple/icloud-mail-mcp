@@ -1,24 +1,29 @@
 services:
-  mail-mcp:
-    build: .
-    container_name: mail-mcp
-    # Pour tester en local : decommente la ligne ci-dessous puis accede a http://localhost:3000
-    # ports:
-    #   - "3000:3000"
+  icloud-mail-mcp:
+    # Image publiée sur GHCR à chaque tag `v*` (voir .github/workflows/release.yml).
+    # Fixer ICLOUD_MAIL_MCP_VERSION dans .env pour épingler une version ;
+    # `latest` suit le dernier tag. Le build local passe par docker-compose.dev.yml.
+    image: ghcr.io/leolesimple/icloud-mail-mcp:${ICLOUD_MAIL_MCP_VERSION:-latest}
+    container_name: icloud-mail-mcp
     env_file:
       - .env
     restart: unless-stopped
     networks:
-      - mail-mcp-net
+      - icloud-mail-mcp-net
 
   cloudflared:
     image: cloudflare/cloudflared:2025.2
-    container_name: mail-mcp-cloudflared
-    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN} --url http://mail-mcp:3000
+    container_name: icloud-mail-mcp-cloudflared
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN} --url http://icloud-mail-mcp:3000
     restart: unless-stopped
+    # Le HEALTHCHECK est porté par l'image : on n'ouvre le tunnel qu'une fois le
+    # serveur prêt à répondre sur /health.
+    depends_on:
+      icloud-mail-mcp:
+        condition: service_healthy
     networks:
-      - mail-mcp-net
+      - icloud-mail-mcp-net
 
 networks:
-  mail-mcp-net:
+  icloud-mail-mcp-net:
     driver: bridge

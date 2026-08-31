@@ -5,4 +5,13 @@ dist
 !.env.example
 *.log
 .git
+.github
 .DS_Store
+
+# Non nécessaires à la construction de l'image (dépendances de dev seules).
+test
+docs
+*.md
+!README.md
+.prettierrc.json
+eslint.config.js

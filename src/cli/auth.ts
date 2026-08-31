@@ -130,7 +130,7 @@ async function runCheck(): Promise<void> {
 }
 
 async function runSetup(): Promise<void> {
-  console.log('Configuration de mail-mcp\n');
+  console.log('Configuration de icloud-mail-mcp\n');
 
   const email = (await ask('Adresse iCloud (Apple ID) : ')).trim();
   if (email === '') {

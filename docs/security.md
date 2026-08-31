@@ -35,6 +35,9 @@ verrouillé par des tests.
 
 **Un rate limit sur `/mcp`.** Fenêtre glissante par IP, `429` au-delà de `RATE_LIMIT_PER_MINUTE`,
 placé avant l'authentification pour amortir un brute-force de token. `/health` n'est pas limité.
+Derrière le tunnel, l'IP retenue est celle de l'en-tête `CF-Connecting-IP` (posée par `cloudflared`,
+non usurpable par le client), pas l'IP du conteneur `cloudflared` — sans quoi tout le trafic
+partagerait un seul seau.
 
 **Un TTL sur les sessions MCP.** Une session abandonnée sans `DELETE` est évincée après
 `SESSION_TTL_MS` d'inactivité et son transport fermé — la `Map` de sessions ne fuit plus.
@@ -89,7 +92,9 @@ C'est la seule chose qui sépare votre boîte mail d'Internet une fois le tunnel
   configuration du client MCP. Toutes les sessions existantes sont invalidées.
 
 `/mcp` est protégé par un **rate limit par IP** (`RATE_LIMIT_PER_MINUTE`, `429` au-delà), placé
-avant l'authentification : un brute-force de token depuis une même IP est ralenti. Il n'y a pas de
+avant l'authentification : un brute-force de token depuis une même IP est ralenti. L'IP est lue dans
+`CF-Connecting-IP` derrière le tunnel (`app.set('trust proxy', true)` : le seul ingress est
+`cloudflared` sur le réseau bridge privé). Il n'y a pas de
 **verrouillage** après échecs répétés. Un token de 32 octets aléatoires rend le brute-force
 inatteignable de toute façon ; un token faible reste faible. Cloudflare Access peut ajouter une
 couche d'authentification devant le tunnel si vous en voulez une. `UNRESTRICTED=true` lève ce rate
@@ -98,7 +103,7 @@ limit — voir la section *Les garde-fous d'envoi*.
 ### Le mot de passe d'application Apple
 
 - Il donne accès à **toute** la boîte mail, pas seulement à ce serveur.
-- Créez-en un **dédié** à mail-mcp : vous pourrez le révoquer sans casser vos autres appareils.
+- Créez-en un **dédié** à icloud-mail-mcp : vous pourrez le révoquer sans casser vos autres appareils.
 - Révocation immédiate sur [appleid.apple.com](https://appleid.apple.com/) → *Connexion et
   sécurité* → *Mots de passe pour applications*, au moindre doute.
 
@@ -137,7 +142,7 @@ Deux garde-fous à connaître :
 | Endpoint | Authentifié | Ce qu'il révèle |
 |---|---|---|
 | `POST/GET/DELETE /mcp` | oui | Tout, avec un token valide. Rate-limité par IP (`429` au-delà). |
-| `GET /health` | **non** | `{"status":"ok"}` uniquement — pas de version, pas de configuration. Jamais rate-limité. |
+| `GET /health` | **non** | `{"status":"ok","version":"<x.y.z>"}` — statut et version du serveur, rien d'autre (aucune configuration, aucun secret). Jamais rate-limité. |
 
 Aucune autre route n'est déclarée : tout le reste renvoie le 404 par défaut d'Express.
 

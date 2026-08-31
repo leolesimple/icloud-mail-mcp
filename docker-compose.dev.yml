@@ -1,0 +1,14 @@
+# Surcharge pour le développement local : construit l'image depuis les sources
+# au lieu de tirer celle de GHCR, et publie le port sur l'hôte pour viser
+# http://localhost:3000 sans tunnel.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+#
+# À ne pas utiliser sur une machine exposée : le port devient joignable
+# directement, hors du tunnel.
+services:
+  icloud-mail-mcp:
+    build: .
+    image: icloud-mail-mcp:dev
+    ports:
+      - "3000:3000"

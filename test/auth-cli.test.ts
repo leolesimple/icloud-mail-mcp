@@ -16,7 +16,7 @@ import { SmtpAuthError, SmtpNetworkError } from '../src/smtp/errors.js';
 
 // Répertoire jetable : toute écriture de fichier de ce test y reste confinée,
 // jamais sur le .env du dépôt.
-const workdir = mkdtempSync(join(tmpdir(), 'mail-mcp-auth-'));
+const workdir = mkdtempSync(join(tmpdir(), 'icloud-mail-mcp-auth-'));
 after(() => rmSync(workdir, { recursive: true, force: true }));
 
 describe('normalizeAppPassword', () => {

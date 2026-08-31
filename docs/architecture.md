@@ -37,7 +37,7 @@ Un serveur Express avec trois routes :
 | `POST /mcp` | bearer | Requêtes JSON-RPC, dont `initialize` qui ouvre une session |
 | `GET /mcp` | bearer | Flux SSE de notifications serveur → client |
 | `DELETE /mcp` | bearer | Fermeture explicite d'une session |
-| `GET /health` | **aucune** | Healthcheck Docker, renvoie `{"status":"ok"}` |
+| `GET /health` | **aucune** | Healthcheck Docker, renvoie `{"status":"ok","version":"<x.y.z>"}` |
 
 ### Authentification
 
