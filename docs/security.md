@@ -94,7 +94,7 @@ C'est la seule chose qui sépare votre boîte mail d'Internet une fois le tunnel
 `/mcp` est protégé par un **rate limit par IP** (`RATE_LIMIT_PER_MINUTE`, `429` au-delà), placé
 avant l'authentification : un brute-force de token depuis une même IP est ralenti. L'IP est lue dans
 `CF-Connecting-IP` derrière le tunnel (`app.set('trust proxy', true)` : le seul ingress est
-`cloudflared` sur le réseau bridge privé). Il n'y a pas de
+`cloudflared`, sur le réseau Docker partagé, aucun port publié sur l'hôte). Il n'y a pas de
 **verrouillage** après échecs répétés. Un token de 32 octets aléatoires rend le brute-force
 inatteignable de toute façon ; un token faible reste faible. Cloudflare Access peut ajouter une
 couche d'authentification devant le tunnel si vous en voulez une. `UNRESTRICTED=true` lève ce rate

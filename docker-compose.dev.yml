@@ -1,8 +1,9 @@
 # Surcharge pour le développement local : construit l'image depuis les sources
-# au lieu de tirer celle de GHCR, et publie le port sur l'hôte pour viser
-# http://localhost:3000 sans tunnel.
+# au lieu de tirer celle de GHCR, publie le port sur l'hôte, et remplace le
+# réseau externe du tunnel par un bridge local (pas de cloudflared en dev).
 #
 #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+#   curl http://localhost:3000/health
 #
 # À ne pas utiliser sur une machine exposée : le port devient joignable
 # directement, hors du tunnel.
@@ -12,3 +13,8 @@ services:
     image: icloud-mail-mcp:dev
     ports:
       - "3000:3000"
+
+networks:
+  tunnel:
+    external: false
+    name: icloud-mail-mcp-dev

@@ -9,21 +9,16 @@ services:
       - .env
     restart: unless-stopped
     networks:
-      - icloud-mail-mcp-net
+      - tunnel
 
-  cloudflared:
-    image: cloudflare/cloudflared:2025.2
-    container_name: icloud-mail-mcp-cloudflared
-    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN} --url http://icloud-mail-mcp:3000
-    restart: unless-stopped
-    # Le HEALTHCHECK est porté par l'image : on n'ouvre le tunnel qu'une fois le
-    # serveur prêt à répondre sur /health.
-    depends_on:
-      icloud-mail-mcp:
-        condition: service_healthy
-    networks:
-      - icloud-mail-mcp-net
-
+# Réseau partagé avec le cloudflared qui expose le tunnel. Ce cloudflared est
+# géré hors de ce projet (stack tierce) ; le serveur y est simplement rattaché,
+# joignable en `http://icloud-mail-mcp:3000`. Le nom du réseau vit dans .env
+# (TUNNEL_NETWORK) pour ne pas être commité, et le réseau doit déjà exister :
+#   docker network create "$TUNNEL_NETWORK"   # si ce n'est pas déjà le cas
+#
+# Déploiement autonome (cloudflared embarqué) : ajouter docker-compose.tunnel.yml.
 networks:
-  icloud-mail-mcp-net:
-    driver: bridge
+  tunnel:
+    external: true
+    name: ${TUNNEL_NETWORK:?définir TUNNEL_NETWORK dans .env (nom du réseau Docker partagé avec cloudflared)}

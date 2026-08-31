@@ -207,10 +207,12 @@ un throttling iCloud.
 
 ---
 
-## Cloudflare Tunnel
+## Déploiement (docker-compose)
 
 | Variable | Requis | Description |
 |---|---|---|
-| `TUNNEL_TOKEN` | pour le déploiement | Token du tunnel, utilisé uniquement par le service `cloudflared` du `docker-compose.yml` |
+| `ICLOUD_MAIL_MCP_VERSION` | non (`latest`) | Tag de l'image GHCR tirée par `docker-compose.yml` |
+| `TUNNEL_NETWORK` | oui | Nom du réseau Docker partagé avec le `cloudflared` qui gère le tunnel. Le réseau doit déjà exister. |
+| `TUNNEL_TOKEN` | modèle autonome | Token du tunnel Cloudflare, utilisé uniquement par le `cloudflared` embarqué de `docker-compose.tunnel.yml` |
 
-L'application elle-même ne lit jamais cette variable. Voir [deployment.md](deployment.md).
+L'application elle-même ne lit aucune de ces variables. Voir [deployment.md](deployment.md).

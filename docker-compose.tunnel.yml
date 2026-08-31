@@ -1,0 +1,20 @@
+# Déploiement autonome : embarque un cloudflared dédié, sur le même réseau que
+# le serveur. À utiliser quand aucun tunnel n'est déjà géré ailleurs.
+#
+#   docker network create "$TUNNEL_NETWORK"   # une fois, si le réseau n'existe pas
+#   docker compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d
+#
+# Renseigner TUNNEL_TOKEN dans .env (dashboard Cloudflare Zero Trust).
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:2025.2
+    container_name: icloud-mail-mcp-cloudflared
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN:?TUNNEL_TOKEN manquant dans .env} --url http://icloud-mail-mcp:3000
+    restart: unless-stopped
+    # Le HEALTHCHECK est porté par l'image : on n'ouvre le tunnel qu'une fois le
+    # serveur prêt à répondre sur /health.
+    depends_on:
+      icloud-mail-mcp:
+        condition: service_healthy
+    networks:
+      - tunnel

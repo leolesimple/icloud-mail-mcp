@@ -3,21 +3,41 @@ updates:
   - package-ecosystem: npm
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
     groups:
-      # Un seul PR par vague de mises à jour mineures/patch.
-      minor-and-patch:
+      # Un seul PR par vague pour les montées mineures/patch.
+      npm-minor-patch:
+        patterns:
+          - "*"
         update-types:
           - minor
           - patch
-    open-pull-requests-limit: 5
+    ignore:
+      # Majeures qui demandent une migration dédiée, pas un bump automatique.
+      # (Les autres majeures restent proposées, une par PR, pour revue.)
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+      - dependency-name: eslint
+        update-types: ["version-update:semver-major"]
+      - dependency-name: eslint-config-prettier
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
+    groups:
+      actions:
+        patterns:
+          - "*"
 
   - package-ecosystem: docker
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
+    groups:
+      docker:
+        patterns:
+          - "*"

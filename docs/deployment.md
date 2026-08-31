@@ -1,47 +1,56 @@
 # Déploiement
 
-Le déploiement de référence : deux conteneurs sur un réseau bridge privé, **aucun port publié sur
-l'hôte**, et un Cloudflare Tunnel qui expose le endpoint en HTTPS sans ouvrir de port sur votre
-routeur.
+Le serveur ne publie **aucun port sur l'hôte**. Il est joint via un `cloudflared` qui établit une
+connexion *sortante* vers Cloudflare et fait redescendre le trafic HTTPS par ce tunnel — rien à
+ouvrir sur la box, pas d'IP fixe, certificat TLS géré par Cloudflare.
 
 ```
 Internet ──HTTPS──▶ Cloudflare ──tunnel sortant──▶ cloudflared ──http://icloud-mail-mcp:3000──▶ icloud-mail-mcp
-                                                        └──── réseau bridge privé ────┘
+                                                        └──── réseau Docker partagé ────┘
 ```
 
-L'intérêt : la machine hôte n'a aucun port entrant ouvert. `cloudflared` établit une connexion
-*sortante* vers Cloudflare, et le trafic redescend par ce tunnel. Rien à configurer sur la box, pas
-d'IP fixe, certificat TLS géré par Cloudflare.
+Deux modèles :
+
+- **Tunnel géré ailleurs (par défaut).** Un `cloudflared` tourne déjà dans une autre stack ; le
+  serveur se rattache simplement à son réseau Docker. `docker-compose.yml` seul.
+- **Autonome.** Aucun tunnel existant : ajouter `docker-compose.tunnel.yml`, qui embarque un
+  `cloudflared` dédié.
+
+Dans les deux cas, rien n'est compilé sur l'hôte : `docker-compose.yml` tire l'image publiée sur
+`ghcr.io/leolesimple/icloud-mail-mcp` à chaque tag `v*`.
 
 ---
 
-## 1. Créer le tunnel
+## 1. Le réseau et le hostname public
 
-Dans le dashboard [Cloudflare Zero Trust](https://one.dash.cloudflare.com/) :
+Le serveur et `cloudflared` doivent partager un réseau Docker. Son nom vit dans `.env`
+(`TUNNEL_NETWORK`), pas dans le dépôt. Le créer s'il n'existe pas encore :
 
-1. **Networks → Tunnels → Create a tunnel**
-2. Type **Cloudflared**, nommer le tunnel
-3. Choisir l'environnement **Docker** et copier le token affiché (une longue chaîne)
-4. Onglet **Public Hostname** → **Add a public hostname** :
-   - *Subdomain* : `icloud-mail-mcp` (par exemple)
-   - *Domain* : votre domaine
-   - *Service* : **HTTP** → `icloud-mail-mcp:3000`
+```bash
+docker network create tunnel-net    # ou le nom de votre choix
+```
 
-Le service pointe vers le **nom du conteneur**, pas vers `localhost` : les deux conteneurs partagent
-le réseau `icloud-mail-mcp-net` du compose.
+Côté [Cloudflare Zero Trust](https://one.dash.cloudflare.com/), sur le tunnel qui dessert ce
+réseau, **Public Hostname → Add a public hostname** :
+
+- *Subdomain* / *Domain* : à votre convenance
+- *Service* : **HTTP** → `icloud-mail-mcp:3000` (le **nom du conteneur**, résolu sur le réseau
+  partagé — pas `localhost`)
+
+Pour le modèle autonome, récupérer aussi le **token** du tunnel (environnement *Docker*).
 
 ---
 
 ## 2. Préparer l'hôte
 
-Le déploiement ne compile rien sur l'hôte : `docker-compose.yml` tire l'image publiée sur
-`ghcr.io/leolesimple/icloud-mail-mcp` à chaque tag `v*`. Seuls le `docker-compose.yml` et le `.env`
-sont nécessaires — cloner le dépôt reste le plus simple pour les récupérer.
+Deux fichiers suffisent, dans un dossier vide — pas besoin de cloner le dépôt :
 
 ```bash
-git clone https://github.com/leolesimple/icloud-mail-mcp.git
-cd icloud-mail-mcp
-cp .env.example .env
+mkdir icloud-mail-mcp && cd icloud-mail-mcp
+base=https://raw.githubusercontent.com/leolesimple/icloud-mail-mcp/main
+curl -O  $base/docker-compose.yml
+curl -O  $base/docker-compose.tunnel.yml   # seulement pour le modèle autonome
+curl -o .env $base/.env.example
 ```
 
 Renseigner dans `.env` :
@@ -50,21 +59,30 @@ Renseigner dans `.env` :
 ICLOUD_EMAIL=vous@icloud.com
 ICLOUD_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
 MCP_BEARER_TOKEN=<openssl rand -hex 32>
-TUNNEL_TOKEN=<le token copié à l'étape 1>
-ICLOUD_MAIL_MCP_VERSION=0.1.0   # version à déployer ("latest" pour suivre le dernier tag)
-ENABLE_SENDING=false            # à laisser à false pour la première mise en service
+TUNNEL_NETWORK=tunnel-net              # le réseau de l'étape 1
+ICLOUD_MAIL_MCP_VERSION=0.1.1          # version à déployer ("latest" pour suivre le dernier tag)
+ENABLE_SENDING=false                   # à laisser à false pour la première mise en service
+# TUNNEL_TOKEN=...                     # modèle autonome uniquement
 ```
+
+`docker compose` lit ce `.env` **à la fois** pour les `${VARIABLES}` du compose et pour l'`env` du
+conteneur (`env_file`). Un seul fichier.
 
 ---
 
 ## 3. Lancer
 
+Tunnel géré ailleurs :
+
 ```bash
 docker compose up -d
 ```
 
-`docker compose` tire l'image GHCR puis démarre les deux conteneurs. `cloudflared` attend que
-`icloud-mail-mcp` soit *healthy* avant d'ouvrir le tunnel.
+Autonome (cloudflared embarqué) :
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d
+```
 
 > Le paquet GHCR est privé par défaut à la première publication. Une fois : le rendre public
 > (*Packages → icloud-mail-mcp → Package settings → Change visibility*), ou, pour le garder privé,
@@ -74,16 +92,10 @@ docker compose up -d
 Vérifier :
 
 ```bash
-docker compose ps                          # les deux conteneurs "healthy"/"running"
+docker compose ps                          # "healthy"/"running"
 docker compose logs -f icloud-mail-mcp     # "icloud-mail-mcp http server listening"
-docker compose logs -f cloudflared         # "Registered tunnel connection"
-```
-
-Puis, depuis n'importe où :
-
-```bash
 curl https://icloud-mail-mcp.exemple.com/health
-# {"status":"ok","version":"0.1.0"}
+# {"status":"ok","version":"0.1.1"}
 ```
 
 Le `/health` répond sans token — c'est voulu, le healthcheck Docker en a besoin. Il ne révèle que le
@@ -104,8 +116,9 @@ via `env_file`. L'image ne contient donc aucun secret.
 
 ### Tester en local (build depuis les sources)
 
-`docker-compose.dev.yml` surcharge le service : build local au lieu du pull GHCR, et port publié
-sur l'hôte.
+`docker-compose.dev.yml` surcharge le service : build local au lieu du pull GHCR, port publié sur
+l'hôte, et le réseau externe du tunnel remplacé par un bridge local (pas de `cloudflared` ni de
+`TUNNEL_NETWORK` requis).
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
@@ -184,18 +197,18 @@ rapide de distinguer un problème de serveur d'un problème de modèle.
 
 ---
 
-## Mise à jour
+## Mise à jour et retour arrière
 
-Bumper `ICLOUD_MAIL_MCP_VERSION` dans `.env` vers le nouveau tag, puis :
+Bumper `ICLOUD_MAIL_MCP_VERSION` dans `.env` vers le tag voulu, puis :
 
 ```bash
-docker compose pull
-docker compose up -d
+docker compose pull && docker compose up -d
+# modèle autonome : ajouter -f docker-compose.yml -f docker-compose.tunnel.yml aux deux commandes
 ```
 
-Rien à compiler sur l'hôte, rien à `git pull` sauf si `docker-compose.yml` lui-même a changé.
-Revenir en arrière = remettre l'ancienne valeur et rejouer les deux commandes. Vérifier la version
-réellement en ligne : `curl https://icloud-mail-mcp.exemple.com/health`.
+Rien à compiler, rien à re-télécharger sauf si un `docker-compose*.yml` a changé (re-`curl` dans ce
+cas). **Retour arrière** = remettre l'ancienne valeur et rejouer. Vérifier la version réellement en
+ligne : `curl https://icloud-mail-mcp.exemple.com/health`.
 
 Les sessions MCP en cours sont perdues au redémarrage ; les clients en rouvrent une automatiquement
 au prochain appel.
@@ -209,7 +222,9 @@ au prochain appel.
 | `Configuration invalide` au démarrage | Une variable manque ou est mal formée — le message liste précisément lesquelles. |
 | `Authentification iCloud IMAP refusée` | Mot de passe principal utilisé à la place d'un mot de passe d'application, ou mot de passe révoqué. |
 | `401` sur `/mcp`, `/health` OK | Token absent ou différent de `MCP_BEARER_TOKEN`. Vérifier le préfixe `Bearer ` et l'absence d'espace parasite. |
-| `502` Cloudflare | Le conteneur `icloud-mail-mcp` est arrêté, ou le hostname public pointe vers le mauvais port/nom de service. |
+| `502` Cloudflare | Le conteneur `icloud-mail-mcp` est arrêté, hors du réseau `TUNNEL_NETWORK`, ou le hostname public pointe vers le mauvais nom/port de service. |
+| `network <nom> declared as external, but could not be found` | Le réseau n'existe pas : `docker network create "<nom>"`, ou `TUNNEL_NETWORK` ne correspond pas au réseau du `cloudflared`. |
+| `required variable TUNNEL_NETWORK is missing` | `TUNNEL_NETWORK` absent de `.env`. |
 | Erreurs IMAP intermittentes | Throttling iCloud. Baisser `IMAP_POOL_SIZE`, ou espacer les appels. |
-| Le tunnel ne se connecte pas | `TUNNEL_TOKEN` invalide ou tunnel supprimé côté Cloudflare. |
+| Le tunnel ne se connecte pas (modèle autonome) | `TUNNEL_TOKEN` invalide ou tunnel supprimé côté Cloudflare. |
 | En stdio, le client MCP n'obtient jamais de réponse | Quelque chose écrit sur stdout du processus (wrapper qui fait `2>&1`, `console.log` ajouté, autre lib bavarde). stdout est réservé au JSON-RPC. |

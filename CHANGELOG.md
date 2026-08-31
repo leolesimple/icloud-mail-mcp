@@ -20,6 +20,17 @@ versionnage [SemVer](https://semver.org/lang/fr/).
 
 _Rien pour l'instant._
 
+## [0.1.1] - 2026-08-31
+
+### Modifié
+
+- **Déploiement : tunnel externalisable.** `docker-compose.yml` ne contient plus
+  que le serveur, rattaché à un réseau Docker externe dont le nom vit dans `.env`
+  (`TUNNEL_NETWORK`) — pour un `cloudflared` géré par une autre stack. Le
+  `cloudflared` embarqué passe dans `docker-compose.tunnel.yml` (déploiement
+  autonome, opt-in). `docs/deployment.md` réécrit : installation en 2 fichiers
+  `curl`, sans `git clone`.
+
 ## [0.1.0] - 2026-08-31
 
 Première version publiée. Serveur MCP exposant un compte iCloud Mail
@@ -60,5 +71,6 @@ Première version publiée. Serveur MCP exposant un compte iCloud Mail
   par IP ne s'effondre plus en un seul seau).
 - Dependabot sur npm et GitHub Actions.
 
-[Non publié]: https://github.com/leolesimple/icloud-mail-mcp/compare/v0.1.0...HEAD
+[Non publié]: https://github.com/leolesimple/icloud-mail-mcp/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/leolesimple/icloud-mail-mcp/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/leolesimple/icloud-mail-mcp/releases/tag/v0.1.0
