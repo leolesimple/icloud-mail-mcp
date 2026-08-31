@@ -26,6 +26,7 @@ Claude  ──HTTPS+Bearer──▶  Cloudflare Tunnel  ──▶  icloud-mail-m
 - [Ce que ça fait](#ce-que-ça-fait)
 - [Prérequis](#prérequis)
 - [Démarrage rapide](#démarrage-rapide)
+- [Déploiement (Docker / GHCR)](#déploiement-docker--ghcr)
 - [Brancher Claude dessus](#brancher-claude-dessus)
 - [Sécurité](#sécurité)
 - [Limitations connues](#limitations-connues)
@@ -135,7 +136,49 @@ npx @modelcontextprotocol/inspector
 # Header    : Authorization: Bearer <votre token>
 ```
 
-Pour le déploiement Docker + Cloudflare Tunnel, voir [`docs/deployment.md`](docs/deployment.md).
+---
+
+## Déploiement (Docker / GHCR)
+
+Le serveur est publié en image Docker sur GHCR à chaque version
+(`ghcr.io/leolesimple/icloud-mail-mcp`, `linux/amd64`). **Rien à compiler ni à
+cloner sur l'hôte** : deux fichiers suffisent dans un dossier vide.
+
+```bash
+mkdir icloud-mail-mcp && cd icloud-mail-mcp
+base=https://raw.githubusercontent.com/leolesimple/icloud-mail-mcp/main
+
+curl -O  $base/docker-compose.yml
+curl -O  $base/docker-compose.tunnel.yml   # seulement si aucun cloudflared n'existe déjà
+curl -o .env $base/.env.example            # puis renseigner (voir ci-dessous)
+
+docker compose up -d                       # tire l'image et démarre
+docker compose ps                          # "healthy"/"running"
+curl https://<votre-hostname>/health       # {"status":"ok","version":"…"}
+```
+
+`.env` — au minimum :
+
+```bash
+ICLOUD_EMAIL=vous@icloud.com
+ICLOUD_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
+MCP_BEARER_TOKEN=<openssl rand -hex 32>
+TUNNEL_NETWORK=<réseau Docker partagé avec cloudflared>   # requis
+ICLOUD_MAIL_MCP_VERSION=0.1.1                             # ou "latest"
+```
+
+Le trafic passe par un **Cloudflare Tunnel** : `docker-compose.yml` rattache le
+serveur au réseau Docker `TUNNEL_NETWORK` sur lequel tourne `cloudflared` (géré
+par une autre stack), qui pointe un hostname public vers `http://icloud-mail-mcp:3000`.
+Aucun port n'est publié sur l'hôte. Pas de tunnel existant → ajouter
+`docker-compose.tunnel.yml`, qui embarque un `cloudflared` dédié (`TUNNEL_TOKEN`
+dans `.env`).
+
+**Mise à jour** : bumper `ICLOUD_MAIL_MCP_VERSION`, puis
+`docker compose pull && docker compose up -d`.
+
+Détail complet (création du tunnel, hostname public, dépannage, transport stdio) :
+[`docs/deployment.md`](docs/deployment.md).
 
 ---
 
