@@ -4,6 +4,7 @@ import type { FetchMessageObject, ImapFlow } from 'imapflow';
 import { withMailbox } from './mailbox.js';
 import { buildSearchQuery, paginationExhausted } from './search-query.js';
 import type { SearchCriteria } from './search-query.js';
+import { classifyImapError } from './errors.js';
 
 export interface MessageAddress {
   name?: string;
@@ -93,7 +94,11 @@ export interface TaggedMessageSummary extends MessageSummary {
  * par UID décroissant (donc du plus récent au plus ancien), tronque à `limit`,
  * et n'expose un curseur que s'il reste des messages au-delà.
  */
-export async function fetchPage(client: ImapFlow, criteria: SearchCriteria, limit: number): Promise<MessagePage> {
+export async function fetchPage(
+  client: ImapFlow,
+  criteria: SearchCriteria,
+  limit: number,
+): Promise<MessagePage> {
   if (paginationExhausted(criteria.beforeUid)) {
     return { messages: [] };
   }
@@ -122,7 +127,10 @@ export interface ListMessagesOptions {
   limit: number;
 }
 
-export async function listMessages(folder: string, options: ListMessagesOptions): Promise<MessagePage> {
+export async function listMessages(
+  folder: string,
+  options: ListMessagesOptions,
+): Promise<MessagePage> {
   const criteria: SearchCriteria = {
     unreadOnly: options.unreadOnly,
     since: options.since,
@@ -130,38 +138,75 @@ export async function listMessages(folder: string, options: ListMessagesOptions)
     from: options.from,
     beforeUid: options.beforeUid,
   };
-  return withMailbox(folder, (client) => fetchPage(client, criteria, options.limit), { readOnly: true });
+  return withMailbox(folder, (client) => fetchPage(client, criteria, options.limit), {
+    readOnly: true,
+  });
 }
 
 export interface SearchMessagesOptions extends SearchCriteria {
   limit: number;
 }
 
-export async function searchMessages(folder: string, options: SearchMessagesOptions): Promise<MessagePage> {
-  return withMailbox(folder, (client) => fetchPage(client, options, options.limit), { readOnly: true });
+export async function searchMessages(
+  folder: string,
+  options: SearchMessagesOptions,
+): Promise<MessagePage> {
+  return withMailbox(folder, (client) => fetchPage(client, options, options.limit), {
+    readOnly: true,
+  });
 }
+
+export interface FolderSearchError {
+  folder: string;
+  error: string;
+}
+
+/** Signature de `withMailbox`, injectable pour les tests (défaut : le pool partagé). */
+type WithMailbox = <T>(
+  folder: string,
+  fn: (client: ImapFlow) => Promise<T>,
+  options?: { readOnly?: boolean },
+) => Promise<T>;
 
 /**
  * Recherche sur plusieurs dossiers, un dossier à la fois (IMAP ne sait pas
  * chercher globalement). Résultats fusionnés, chacun étiqueté par son dossier,
  * triés du plus récent au plus ancien, tronqués à `limit`. Pas de curseur : la
  * pagination n'a de sens que dossier par dossier.
+ *
+ * Un dossier en échec (ex. nom inexistant) est écarté et reporté dans
+ * `errors` plutôt que de faire échouer tout le lot : sur N dossiers demandés,
+ * une faute de frappe sur un seul ne doit pas priver des résultats des autres.
+ * Une erreur d'auth/réseau, elle, affecte la connexion entière et est donc
+ * toujours propagée (inutile de la répéter dossier par dossier).
  */
 export async function searchMessagesAcross(
   folders: string[],
   options: SearchMessagesOptions,
-): Promise<{ messages: TaggedMessageSummary[] }> {
+  withMailboxFn: WithMailbox = withMailbox,
+): Promise<{ messages: TaggedMessageSummary[]; errors?: FolderSearchError[] }> {
   const merged: TaggedMessageSummary[] = [];
+  const errors: FolderSearchError[] = [];
   for (const folder of folders) {
-    const page = await withMailbox(folder, (client) => fetchPage(client, options, options.limit), {
-      readOnly: true,
-    });
-    for (const message of page.messages) {
-      merged.push({ ...message, folder });
+    try {
+      const page = await withMailboxFn(
+        folder,
+        (client) => fetchPage(client, options, options.limit),
+        {
+          readOnly: true,
+        },
+      );
+      for (const message of page.messages) {
+        merged.push({ ...message, folder });
+      }
+    } catch (err) {
+      const classified = classifyImapError(err);
+      if (classified.name !== 'ImapCommandError') throw classified;
+      errors.push({ folder, error: classified.message });
     }
   }
   merged.sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''));
-  return { messages: merged.slice(0, options.limit) };
+  return { messages: merged.slice(0, options.limit), ...(errors.length > 0 ? { errors } : {}) };
 }
 
 export async function getMessage(folder: string, uid: number): Promise<FullMessage> {
@@ -219,7 +264,11 @@ export async function getMessageSource(folder: string, uid: number): Promise<Buf
 }
 
 /** Contenu binaire d'une pièce jointe, ciblée par son `index` (voir `getMessage`). */
-export async function getAttachment(folder: string, uid: number, index: number): Promise<AttachmentContent> {
+export async function getAttachment(
+  folder: string,
+  uid: number,
+  index: number,
+): Promise<AttachmentContent> {
   return withMailbox(
     folder,
     async (client) => {
