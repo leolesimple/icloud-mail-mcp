@@ -20,6 +20,16 @@ versionnage [SemVer](https://semver.org/lang/fr/).
 
 _Rien pour l'instant._
 
+## [0.1.4] - 2026-09-18
+
+### Ajouté
+
+- **Favicon/webclip.** Le serveur ne servait aucune icône : les connecteurs MCP
+  distants (Claude Desktop, claude.ai) retombaient sur le favicon du domaine
+  parent faute de mieux. Ajout de `favicon.ico`, `apple-touch-icon.png`, des
+  icônes du manifest et d'une page racine (`/`) avec les balises `<link>`
+  associées, servis sans authentification (comme `/health`).
+
 ## [0.1.3] - 2026-09-18
 
 ### Corrigé
