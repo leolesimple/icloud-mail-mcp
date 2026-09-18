@@ -40,10 +40,24 @@ interface ImapFlowError extends Error {
   // Propriété posée par imapflow sur sa classe interne AuthenticationFailure
   // (non exportée du package, donc pas d'instanceof possible).
   authenticationFailed?: boolean;
+  // Sur un NO/BAD, imapflow lève `new Error('Command failed')` et met le texte
+  // renvoyé par le serveur (ex. "Mailbox doesn't exist") ici plutôt que dans `message`.
+  responseText?: string;
+}
+
+/** Message d'erreur le plus informatif disponible : le texte serveur s'il existe, sinon `message`. */
+function describeImapFlowError(err: ImapFlowError): string {
+  return err.responseText && err.responseText !== err.message
+    ? `${err.message} : ${err.responseText}`
+    : err.message;
 }
 
 export function classifyImapError(err: unknown): Error {
-  if (err instanceof ImapAuthError || err instanceof ImapNetworkError || err instanceof ImapCommandError) {
+  if (
+    err instanceof ImapAuthError ||
+    err instanceof ImapNetworkError ||
+    err instanceof ImapCommandError
+  ) {
     return err;
   }
 
@@ -62,10 +76,13 @@ export function classifyImapError(err: unknown): Error {
   }
 
   if (flowErr.code && NETWORK_ERROR_CODES.has(flowErr.code)) {
-    return new ImapNetworkError(`Connexion au serveur IMAP iCloud impossible (${flowErr.code}) : ${err.message}`, {
-      cause: err,
-    });
+    return new ImapNetworkError(
+      `Connexion au serveur IMAP iCloud impossible (${flowErr.code}) : ${err.message}`,
+      {
+        cause: err,
+      },
+    );
   }
 
-  return new ImapCommandError(err.message, { cause: err });
+  return new ImapCommandError(describeImapFlowError(flowErr), { cause: err });
 }

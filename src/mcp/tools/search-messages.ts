@@ -31,9 +31,14 @@ export function registerSearchMessagesTool(server: McpServer): void {
         'text (subject/body/from/to/text), date range (since/before), unreadOnly, flagged, negation (not), ' +
         'alternation (or), pagination (beforeUid → nextCursor), and multi-folder search (folders[]). ' +
         'At least one real criterion is required. Returns { messages, nextCursor? }; with folders[], each ' +
-        'message is tagged with its "folder" and no cursor is returned.',
+        'message is tagged with its "folder", no cursor is returned, and a folder that fails (e.g. an ' +
+        'unknown name) is skipped and reported in "errors" instead of failing the whole search.',
       inputSchema: {
-        folder: z.string().min(1).default('INBOX').describe('Single folder to search (ignored if folders[] is set)'),
+        folder: z
+          .string()
+          .min(1)
+          .default('INBOX')
+          .describe('Single folder to search (ignored if folders[] is set)'),
         folders: z
           .array(z.string().min(1))
           .min(1)
@@ -50,7 +55,12 @@ export function registerSearchMessagesTool(server: McpServer): void {
         flagged: z.boolean().optional().describe('Only starred (flagged) messages'),
         not: textCriteria.optional().describe('Text criteria to exclude'),
         or: z.array(textCriteria).optional().describe('Branches; at least one must match'),
-        beforeUid: z.coerce.number().int().positive().optional().describe('Pagination cursor (single-folder only)'),
+        beforeUid: z.coerce
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe('Pagination cursor (single-folder only)'),
         envelope: z
           .boolean()
           .default(false)
@@ -106,7 +116,11 @@ export function registerSearchMessagesTool(server: McpServer): void {
       if (folders && folders.length > 0) {
         log.info({ folders, subject, from }, 'searching messages (multi-folder)');
         const result = await searchMessagesAcross(folders, options);
-        return listResult('messages', result.messages, { envelope });
+        if (result.errors) log.warn({ errors: result.errors }, 'some folders failed');
+        return listResult('messages', result.messages, {
+          envelope,
+          extra: result.errors ? { errors: result.errors } : undefined,
+        });
       }
 
       log.info({ folder, subject, from, beforeUid }, 'searching messages');

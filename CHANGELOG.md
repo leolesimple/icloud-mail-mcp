@@ -20,6 +20,24 @@ versionnage [SemVer](https://semver.org/lang/fr/).
 
 _Rien pour l'instant._
 
+## [0.1.3] - 2026-09-18
+
+### Corrigé
+
+- **`list_folders` : validation de sortie cassée sur certains comptes.** Quand
+  le serveur IMAP ne rapporte l'état d'abonnement d'un dossier ni via `LSUB`
+  ni via `LIST RETURN (SUBSCRIBED)`, imapflow laisse `subscribed` absent.
+  L'outil le recopiait tel quel, ce que le schéma de sortie (booléen requis)
+  rejetait. Absent = abonné par défaut (comportement documenté d'imapflow).
+- **`search_messages` multi-dossiers : un dossier invalide faisait échouer tout
+  le lot.** `folders: [...]` abandonnait toute la recherche, sans résultats des
+  autres dossiers et avec un message d'erreur générique ("Command failed") qui
+  masquait la vraie raison. Un dossier en échec (ex. nom inexistant) est
+  désormais écarté et signalé dans un champ `errors` de la réponse ; les autres
+  dossiers sont recherchés normalement. Les erreurs de classification IMAP
+  reprennent aussi le texte renvoyé par le serveur (`responseText` d'imapflow)
+  au lieu du message générique.
+
 ## [0.1.2] - 2026-08-31
 
 ### Ajouté
