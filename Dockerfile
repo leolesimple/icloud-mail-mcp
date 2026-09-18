@@ -24,6 +24,7 @@ ENV NODE_ENV=production
 COPY ./package.json package-lock.json /app/
 COPY --from=production-dependencies-env /app/node_modules /app/node_modules
 COPY --from=build-env /app/dist /app/dist
+COPY ./public /app/public
 WORKDIR /app
 USER node
 
