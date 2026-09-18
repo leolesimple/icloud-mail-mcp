@@ -68,6 +68,16 @@ const envSchema = z.object({
   // OFF par défaut : pas de reconnexion, l'attente se dégrade silencieusement
   // si la connexion iCloud saute. Voir docs/configuration.md.
   ENABLE_IDLE_WATCH: envBool(false),
+
+  // URL publique HTTPS du serveur (ex. https://mail-mcp.exemple.com), sans
+  // slash final. Optionnelle : sert uniquement à renseigner `icons`/`websiteUrl`
+  // dans les métadonnées `Implementation` du protocole MCP (favicon affiché par
+  // les clients qui les lisent). Absente = ces champs ne sont pas envoyés.
+  PUBLIC_BASE_URL: z
+    .string()
+    .default('')
+    .refine((v) => v === '' || /^https:\/\//.test(v), 'PUBLIC_BASE_URL doit être vide ou une URL https://')
+    .transform((v) => v.replace(/\/+$/, '')),
 });
 
 /** Valide un environnement arbitraire. Exporté pour les tests ; l'app utilise `config`. */
