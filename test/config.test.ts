@@ -153,6 +153,26 @@ describe('parseConfig', () => {
     });
   });
 
+  describe('PUBLIC_BASE_URL', () => {
+    it('est vide par défaut', () => {
+      assert.equal(parseConfig({ ...validEnv }).PUBLIC_BASE_URL, '');
+    });
+
+    it('accepte une URL https et retire le slash final', () => {
+      assert.equal(
+        parseConfig({ ...validEnv, PUBLIC_BASE_URL: 'https://mail-mcp.exemple.com/' }).PUBLIC_BASE_URL,
+        'https://mail-mcp.exemple.com',
+      );
+    });
+
+    it('rejette une URL non https', () => {
+      assert.throws(
+        () => parseConfig({ ...validEnv, PUBLIC_BASE_URL: 'http://mail-mcp.exemple.com' }),
+        /PUBLIC_BASE_URL/,
+      );
+    });
+  });
+
   describe('envBool', () => {
     for (const value of ['false', '0', 'no', 'FALSE ', ' No ']) {
       it(`traite ${JSON.stringify(value)} comme faux`, () => {
