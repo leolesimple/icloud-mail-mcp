@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import type { FullMessage, MessageAddress, MessageAttachment, MessageSummary } from '../imap/messages.js';
+import type {
+  FullMessage,
+  MessageAddress,
+  MessageAttachment,
+  MessageSummary,
+} from '../imap/messages.js';
 import type { FolderInfo } from '../imap/folders.js';
 import type { BulkItemResult } from '../imap/mutations.js';
 import type { DraftResult } from '../imap/drafts.js';
@@ -105,17 +110,19 @@ export const listMessagesResultSchema = z.object({
   nextCursor: z.number().optional(),
 });
 
-// Une recherche multi-dossiers étiquette chaque résumé par son dossier.
+// Une recherche multi-dossiers étiquette chaque résumé par son dossier, et
+// reporte à part les dossiers en échec (ex. nom inexistant) sans faire
+// échouer les autres.
 export const searchMessagesResultSchema = z.object({
   messages: z.array(messageSummarySchema.extend({ folder: z.string().optional() })),
   nextCursor: z.number().optional(),
+  errors: z.array(z.object({ folder: z.string(), error: z.string() })).optional(),
 });
 
 /** Résultat par UID d'une opération en masse. */
 export const bulkItemResultSchema = schemaFor<BulkItemResult>()(
   z.object({ uid: z.number(), ok: z.boolean(), error: z.string().optional() }),
 );
-
 
 /**
  * NOTE — les outils de mutation ont deux formes de retour (un UID, ou un lot

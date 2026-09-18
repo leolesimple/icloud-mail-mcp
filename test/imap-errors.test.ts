@@ -22,7 +22,14 @@ describe('classifyImapError', () => {
     assert.equal(classified.cause, original);
   });
 
-  for (const code of ['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT', 'NoConnection', 'GREETING_TIMEOUT', 'StateLogout']) {
+  for (const code of [
+    'ENOTFOUND',
+    'ECONNREFUSED',
+    'ETIMEDOUT',
+    'NoConnection',
+    'GREETING_TIMEOUT',
+    'StateLogout',
+  ]) {
     it(`classe le code réseau ${code} en ImapNetworkError`, () => {
       const classified = classifyImapError(networkError(code));
       assert.ok(classified instanceof ImapNetworkError);
@@ -34,6 +41,21 @@ describe('classifyImapError', () => {
     const classified = classifyImapError(new Error('NO [CANNOT] Mailbox does not exist'));
     assert.ok(classified instanceof ImapCommandError);
     assert.equal(classified.message, 'NO [CANNOT] Mailbox does not exist');
+  });
+
+  it('reprend le `responseText` imapflow quand le message générique "Command failed" ne dit rien', () => {
+    const flowErr = Object.assign(new Error('Command failed'), {
+      responseText: "Mailbox doesn't exist",
+    });
+    const classified = classifyImapError(flowErr);
+    assert.ok(classified instanceof ImapCommandError);
+    assert.match(classified.message, /Command failed/);
+    assert.match(classified.message, /Mailbox doesn't exist/);
+  });
+
+  it('ne double pas le texte si `responseText` répète déjà `message`', () => {
+    const flowErr = Object.assign(new Error('même texte'), { responseText: 'même texte' });
+    assert.equal(classifyImapError(flowErr).message, 'même texte');
   });
 
   it('classe un code inconnu en ImapCommandError plutôt qu’en erreur réseau', () => {
@@ -53,7 +75,10 @@ describe('classifyImapError', () => {
   });
 
   it('donne la priorité à l’authentification sur le code réseau', () => {
-    const both = Object.assign(new Error('nope'), { authenticationFailed: true, code: 'ECONNRESET' });
+    const both = Object.assign(new Error('nope'), {
+      authenticationFailed: true,
+      code: 'ECONNRESET',
+    });
     assert.ok(classifyImapError(both) instanceof ImapAuthError);
   });
 });
