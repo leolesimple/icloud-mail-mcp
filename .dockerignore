@@ -11,6 +11,8 @@ dist
 # Non nécessaires à la construction de l'image (dépendances de dev seules).
 test
 docs
+deploy
+docker-compose*.yml
 *.md
 !README.md
 .prettierrc.json
