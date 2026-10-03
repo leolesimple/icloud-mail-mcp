@@ -143,10 +143,14 @@ une pull request extérieure ne peut rien exfiltrer.
 Les versions sont publiées automatiquement par
 [`semantic-release`](https://semantic-release.gitbook.io/) via
 [`.github/workflows/release.yml`](../.github/workflows/release.yml), déclenché après chaque run
-vert de `ci.yml` sur `main` (donc à chaque merge). Aucun tag manuel, aucune édition de
-`package.json`/`CHANGELOG.md` : semantic-release calcule le bump à partir des commits mergés
-depuis le dernier tag, met à jour ces fichiers, tag, publie la GitHub Release. Le job `docker` du
-même workflow pousse ensuite l'image sur GHCR taguée `{X.Y.Z, X.Y, latest}`.
+vert de `ci.yml` sur `main` (donc à chaque merge). Aucun tag manuel : semantic-release calcule le
+bump à partir des commits mergés depuis le dernier tag, pose le tag `vX.Y.Z` et publie la GitHub
+Release avec ses notes. Le job `docker` du même workflow pousse ensuite l'image sur GHCR taguée
+`{X.Y.Z, X.Y, latest}`.
+
+Aucun commit de version n'est poussé sur `main` (le ruleset y impose une PR) : `package.json` et
+`CHANGELOG.md` ne sont pas mis à jour, la version de référence est le dernier tag et les notes
+vivent dans les GitHub Releases.
 
 Le calcul du bump dépend des commits en [Conventional Commits](https://www.conventionalcommits.org/fr/) :
 

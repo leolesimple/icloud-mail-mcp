@@ -1,14 +1,14 @@
 # Changelog
 
-Généré automatiquement par [semantic-release](https://semantic-release.gitbook.io/)
-à partir des commits [Conventional Commits](https://www.conventionalcommits.org/fr/)
-mergés sur `main` (`feat:` → minor, `fix:` → patch, `BREAKING CHANGE:` → major).
-Rien à éditer ici à la main : chaque release ajoute son entrée sous ce
-préambule. Détails du pipeline dans
+Depuis la 0.1.5, les notes de version sont publiées sur les
+[GitHub Releases](https://github.com/leolesimple/icloud-mail-mcp/releases), générées par
+[semantic-release](https://semantic-release.gitbook.io/) à partir des commits
+[Conventional Commits](https://www.conventionalcommits.org/fr/) mergés sur `main`. Ce fichier
+n'est plus mis à jour ; détails du pipeline dans
 [`docs/development.md`](docs/development.md#releases).
 
-Les entrées ci-dessous, jusqu'à `[0.1.4]`, sont l'historique de l'ancien
-processus manuel (tag `vX.Y.Z` + édition manuelle de ce fichier).
+Les entrées ci-dessous sont l'historique de l'ancien processus manuel (tag `vX.Y.Z` + édition
+manuelle de ce fichier).
 
 ---
 
