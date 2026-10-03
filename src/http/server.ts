@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import express from 'express';
 import type { Request, Response } from 'express';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -12,6 +13,11 @@ import { logger } from '../logger.js';
 import { serverVersion } from '../version.js';
 
 const log = logger.child({ module: 'http' });
+
+// dist/http/server.js -> dist/http -> dist -> racine du repo (voir src/version.ts
+// pour le même principe). `public/` est copié à côté de `dist/` dans l'image
+// (Dockerfile), donc le chemin relatif tient aussi bien en dev qu'en conteneur.
+const publicDir = fileURLToPath(new URL('../../public', import.meta.url));
 
 interface Session {
   transport: StreamableHTTPServerTransport;
@@ -158,6 +164,28 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
   // résolution fine passe par clientIp() (CF-Connecting-IP en priorité).
   app.set('trust proxy', true);
   app.use(express.json());
+
+  // Favicon/webclip : servis à la racine du domaine public (pas d'auth, pas de
+  // secret dedans) pour que les connecteurs MCP distants (Claude Desktop,
+  // claude.ai) affichent une icône propre au lieu de retomber sur celle du
+  // domaine parent.
+  app.use(express.static(publicDir, { maxAge: '1d' }));
+  app.get('/', (_req, res) => {
+    res.type('html').send(`<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Mail MCP</title>
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32">
+<link rel="icon" href="/favicon-16x16.png" type="image/png" sizes="16x16">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180">
+<link rel="manifest" href="/site.webmanifest">
+</head>
+<body>Mail MCP — serveur MCP pour iCloud Mail.</body>
+</html>
+`);
+  });
 
   app.post('/mcp', rateLimit, bearerAuth, handlePost);
   app.get('/mcp', rateLimit, bearerAuth, handleSessionRequest);

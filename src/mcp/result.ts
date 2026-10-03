@@ -47,14 +47,23 @@ export function jsonResult(data: unknown, schema?: z.ZodType): CallToolResult {
 export function listResult<T>(
   key: string,
   items: T[],
-  options: { envelope?: boolean; nextCursor?: number | string } = {},
+  options: {
+    envelope?: boolean;
+    nextCursor?: number | string;
+    extra?: Record<string, unknown>;
+  } = {},
 ): CallToolResult {
   const enveloped: Record<string, unknown> = { [key]: items };
   if (options.nextCursor !== undefined) {
     enveloped.nextCursor = options.nextCursor;
   }
+  if (options.extra) {
+    Object.assign(enveloped, options.extra);
+  }
 
-  const textPayload = options.envelope || options.nextCursor !== undefined ? enveloped : items;
+  const forceEnvelope =
+    options.envelope || options.nextCursor !== undefined || options.extra !== undefined;
+  const textPayload = forceEnvelope ? enveloped : items;
 
   return {
     content: [{ type: 'text', text: JSON.stringify(textPayload, null, 2) }],

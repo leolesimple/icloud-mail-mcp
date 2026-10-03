@@ -23,9 +23,25 @@ import { config } from '../config.js';
 import { serverVersion } from '../version.js';
 
 export function createMailMcpServer(): McpServer {
+  // `icons`/`websiteUrl` sont optionnels dans le protocole MCP (Implementation) :
+  // on ne les envoie que si le déploiement expose une URL publique, faute de
+  // quoi une URL locale/invalide serait rejetée par les clients qui la
+  // vérifient (même origine, HTTPS).
+  const icons = config.PUBLIC_BASE_URL
+    ? [
+        {
+          src: `${config.PUBLIC_BASE_URL}/apple-touch-icon.png`,
+          mimeType: 'image/png',
+          sizes: ['180x180'],
+        },
+      ]
+    : undefined;
+
   const server = new McpServer({
     name: 'icloud-mail',
     version: serverVersion,
+    ...(icons ? { icons } : {}),
+    ...(config.PUBLIC_BASE_URL ? { websiteUrl: config.PUBLIC_BASE_URL } : {}),
   });
 
   registerListFoldersTool(server);

@@ -51,6 +51,23 @@ describe('listFoldersOn (B4)', () => {
     assert.equal(conteneur.messages, undefined);
     assert.equal(conteneur.unseen, undefined);
   });
+
+  it('laisse sans compteurs un dossier dont le STATUS renvoie false (refus serveur, imapflow 2)', async () => {
+    const mail = account();
+    mail.status = async () => false;
+
+    const folders = await listFoldersOn(mail.asImapFlow(), true);
+    assert.ok(folders.every((f) => f.messages === undefined && f.unseen === undefined));
+  });
+
+  it('traite un dossier sans état d’abonnement rapporté comme abonné (comportement imapflow)', async () => {
+    const mail = account();
+    // Un serveur qui ne répond ni à LSUB ni à LIST RETURN (SUBSCRIBED) omet le champ.
+    (mail.mailboxes.get('Projets') as { subscribed?: boolean }).subscribed = undefined;
+
+    const folders = await listFoldersOn(mail.asImapFlow(), false);
+    assert.equal(folders.find((f) => f.path === 'Projets')!.subscribed, true);
+  });
 });
 
 describe('manageFolderOn (B2)', () => {
@@ -105,7 +122,10 @@ describe('manageFolderOn (B2)', () => {
 
   it('ne supprime rien quand le garde-fou se déclenche', async () => {
     const mail = account();
-    await assert.rejects(() => manageFolderOn(mail.asImapFlow(), 'delete', 'Archive'), ImapCommandError);
+    await assert.rejects(
+      () => manageFolderOn(mail.asImapFlow(), 'delete', 'Archive'),
+      ImapCommandError,
+    );
     assert.ok(mail.mailboxes.has('Archive'));
   });
 });

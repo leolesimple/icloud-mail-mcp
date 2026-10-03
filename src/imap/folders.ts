@@ -41,7 +41,9 @@ function toFolderInfo(entry: ListResponse): FolderInfo {
     parentPath: entry.parentPath,
     specialUse: entry.specialUse,
     flags: Array.from(entry.flags),
-    subscribed: entry.subscribed,
+    // imapflow : quand le serveur ne rapporte aucun état d'abonnement (ni LSUB, ni LIST RETURN
+    // (SUBSCRIBED)), `subscribed` est absent et tout dossier est alors réputé abonné.
+    subscribed: entry.subscribed ?? true,
   };
 }
 
@@ -50,13 +52,18 @@ function toFolderInfo(entry: ListResponse): FolderInfo {
  * compteurs via une commande STATUS par dossier (~10 allers-retours sur un
  * compte iCloud typique — d'où l'option pour un listing rapide).
  */
-export async function listFoldersOn(client: ImapFlow, includeStatus: boolean): Promise<FolderInfo[]> {
+export async function listFoldersOn(
+  client: ImapFlow,
+  includeStatus: boolean,
+): Promise<FolderInfo[]> {
   const infos = (await client.list()).map(toFolderInfo);
   if (!includeStatus) return infos;
 
   for (const info of infos) {
     try {
       const status = await client.status(info.path, { messages: true, unseen: true });
+      // imapflow renvoie `false` (sans lever) quand le serveur refuse le STATUS.
+      if (!status) continue;
       info.messages = status.messages;
       info.unseen = status.unseen;
     } catch {
@@ -109,7 +116,9 @@ export async function manageFolderOn(
 
   if (action === 'rename') {
     if (!newPath) {
-      throw new ImapCommandError('Un chemin cible ("newPath") est requis pour renommer un dossier.');
+      throw new ImapCommandError(
+        'Un chemin cible ("newPath") est requis pour renommer un dossier.',
+      );
     }
     await assertMutable(client, path, 'renommé');
     await client.mailboxRename(path, newPath);
