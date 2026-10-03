@@ -21,15 +21,15 @@
     "format": "prettier --write ."
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
-    "dotenv": "^17.4.2",
+    "@modelcontextprotocol/sdk": "^1.30.1",
+    "dotenv": "^18.0.4",
     "express": "^5.2.1",
     "html-to-text": "10.0.1",
     "imapflow": "^2.1.0",
-    "mailparser": "^3.9.17",
-    "nodemailer": "^9.1.0",
+    "mailparser": "^3.9.29",
+    "nodemailer": "^10.0.13",
     "pino": "^10.3.1",
-    "zod": "^4.5.4"
+    "zod": "^4.6.5"
   },
   "overrides": {
     "html-to-text": "10.0.1"
@@ -37,15 +37,15 @@
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/mailparser": "^3.4.6",
-    "@types/node": "^24.13.3",
+    "@types/node": "^24.19.0",
     "@types/nodemailer": "^8.0.1",
-    "@typescript-eslint/eslint-plugin": "^8.68.0",
+    "@typescript-eslint/eslint-plugin": "^8.70.1",
     "@typescript-eslint/parser": "^8.68.0",
     "eslint": "^9.17.0",
     "eslint-config-prettier": "^9.1.0",
-    "globals": "^17.11.0",
-    "prettier": "^3.9.6",
-    "tsx": "^4.23.13",
+    "globals": "^17.12.0",
+    "prettier": "^3.9.9",
+    "tsx": "^4.23.15",
     "typescript": "^5.7.2"
   },
   "license": "SEE LICENSE IN LICENSE",
