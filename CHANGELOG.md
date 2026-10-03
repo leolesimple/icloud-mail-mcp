@@ -18,7 +18,12 @@ versionnage [SemVer](https://semver.org/lang/fr/).
 
 ## [Non publié]
 
-_Rien pour l'instant._
+### Ajouté
+
+- **Déploiement continu.** `.github/workflows/deploy.yml` + `deploy/deploy.sh` :
+  déploiement sur l'hôte via SSH, automatique à chaque release publiée et à la
+  demande (bouton *Run workflow*). Aucun agent résident sur l'hôte. Clé SSH
+  dédiée forcée sur `deploy.sh`. Mise en place : `deploy/README.md`.
 
 ## [0.1.4] - 2026-09-18
 

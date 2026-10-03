@@ -232,6 +232,19 @@ au prochain appel.
 
 ---
 
+## Déploiement continu (optionnel)
+
+[`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) déploie sur l'hôte :
+
+- **automatiquement** à chaque GitHub Release publiée (le tag est déployé) ;
+- **à la demande** via le bouton *Run workflow* de l'onglet *Actions* (choix de la version).
+
+Il se connecte en SSH et exécute [`deploy/deploy.sh`](../deploy/deploy.sh) : écriture de la version
+dans `.env`, `docker compose pull`, `up -d`, puis attente de `healthy` (échec sinon). Aucun runner
+ni agent résident sur l'hôte. Mise en place et modèle de menace : [`deploy/README.md`](../deploy/README.md).
+
+---
+
 ## Dépannage
 
 | Symptôme | Piste |
