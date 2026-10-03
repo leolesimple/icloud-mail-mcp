@@ -1,29 +1,16 @@
 # Changelog
 
-Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
-versionnage [SemVer](https://semver.org/lang/fr/).
+Depuis la 0.1.5, les notes de version sont publiées sur les
+[GitHub Releases](https://github.com/leolesimple/icloud-mail-mcp/releases), générées par
+[semantic-release](https://semantic-release.gitbook.io/) à partir des commits
+[Conventional Commits](https://www.conventionalcommits.org/fr/) mergés sur `main`. Ce fichier
+n'est plus mis à jour ; détails du pipeline dans
+[`docs/development.md`](docs/development.md#releases).
 
-## Procédure de release
-
-1. Mettre à jour ce fichier : renommer `[Non publié]` en `[X.Y.Z] - AAAA-MM-JJ`.
-2. Bumper `version` dans `package.json` (source unique, lue par `src/version.ts`
-   et exposée sur `/health` + l'outil `whoami`).
-3. Commit sur `main` via PR.
-4. `git tag -a vX.Y.Z -m "vX.Y.Z"` puis `git push origin vX.Y.Z`.
-5. Le workflow `release.yml` vérifie que le tag == `package.json`, rejoue
-   tests + build, pousse `ghcr.io/leolesimple/icloud-mail-mcp:{X.Y.Z, X.Y, latest}`
-   (linux/amd64) et crée la GitHub Release.
+Les entrées ci-dessous sont l'historique de l'ancien processus manuel (tag `vX.Y.Z` + édition
+manuelle de ce fichier).
 
 ---
-
-## [Non publié]
-
-### Ajouté
-
-- **Déploiement continu.** `.github/workflows/deploy.yml` + `deploy/deploy.sh` :
-  déploiement sur l'hôte via SSH, automatique à chaque release publiée et à la
-  demande (bouton *Run workflow*). Aucun agent résident sur l'hôte. Clé SSH
-  dédiée forcée sur `deploy.sh`. Mise en place : `deploy/README.md`.
 
 ## [0.1.4] - 2026-09-18
 

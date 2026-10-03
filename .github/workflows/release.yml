@@ -1,18 +1,23 @@
 name: Release
 
-# Une release = un tag `vX.Y.Z`. Le tag doit correspondre au champ `version`
-# de package.json (le job le vérifie). Procédure complète : CHANGELOG.md.
+# Se déclenche après un run vert du workflow CI sur main (donc après chaque
+# merge). semantic-release analyse les commits Conventional Commits depuis le
+# dernier tag, décide s'il y a une release, bump package.json/CHANGELOG.md,
+# tag, crée la GitHub Release ; si une release a eu lieu, le job docker pousse
+# l'image sur GHCR taguée avec la nouvelle version.
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_run:
+    workflows: [CI]
+    branches: [main]
+    types: [completed]
 
 permissions:
-  contents: write # créer la GitHub Release
-  packages: write # pousser l'image sur GHCR
+  contents: write
+  issues: write
+  pull-requests: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-main
   cancel-in-progress: false
 
 env:
@@ -20,31 +25,48 @@ env:
 
 jobs:
   release:
+    # `event == 'push'` : ignore les runs CI déclenchés par une pull request
+    # dont la branche source s'appellerait aussi `main` (fork).
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.semrel.outputs.released }}
+      version: ${{ steps.semrel.outputs.version }}
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
 
-      - name: Vérifier que le tag correspond à package.json
-        run: |
-          tag="${GITHUB_REF_NAME#v}"
-          pkg="$(node -p "require('./package.json').version")"
-          if [ "$tag" != "$pkg" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME != package.json version $pkg"
-            exit 1
-          fi
-
-      # Le CI complet (typecheck, lint, tests, build, image) tourne sur main
-      # avant le tag ; on rejoue tests + build ici pour ne rien publier d'un
-      # arbre qui ne compile pas.
       - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run build
+
+      - name: semantic-release
+        id: semrel
+        run: npx semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docker:
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    # Des permissions au niveau du job remplacent celles du workflow :
+    # `contents: read` reste nécessaire pour le checkout.
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: v${{ needs.release.outputs.version }}
 
       - uses: docker/setup-buildx-action@v4
 
@@ -61,9 +83,9 @@ jobs:
         with:
           images: ${{ env.IMAGE }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+            type=semver,pattern={{version}},value=v${{ needs.release.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ needs.release.outputs.version }}
+            type=raw,value=latest,enable=${{ !contains(needs.release.outputs.version, '-') }}
 
       - name: Build & push
         uses: docker/build-push-action@v7
@@ -75,14 +97,3 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: GitHub Release
-        uses: softprops/action-gh-release@v3
-        with:
-          generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          body: |
-            Image : `${{ env.IMAGE }}:${{ github.ref_name }}`
-
-            Déploiement : bumper `ICLOUD_MAIL_MCP_VERSION` dans `.env`, puis
-            `docker compose pull && docker compose up -d`. Voir `docs/deployment.md`.
