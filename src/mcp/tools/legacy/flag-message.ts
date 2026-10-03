@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { flagMessage, flagMessages, BULK_UID_LIMIT } from '../../imap/mutations.js';
-import { jsonResult, errorResult } from '../result.js';
-import { flagResultSchema } from '../schemas.js';
-import { logger } from '../../logger.js';
+import { flagMessage, flagMessages, BULK_UID_LIMIT } from '../../../imap/mutations.js';
+import { jsonResult, errorResult } from '../../result.js';
+import { flagResultSchema } from '../../schemas.js';
+import { logger } from '../../../logger.js';
 
 const log = logger.child({ tool: 'flag_message' });
 

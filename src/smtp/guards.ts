@@ -86,7 +86,7 @@ export function checkSendAllowed(message: GuardMessage, ctx: GuardContext = defa
       reason:
         "Envoi désactivé (ENABLE_SENDING=false) : aucun message n'est transmis. " +
         'Réactiver ENABLE_SENDING dans .env, ou passer DRAFTS_ONLY=true pour que ' +
-        'send_message / reply_message déposent le message en brouillon au lieu de le perdre.',
+        'compose_message dépose le message en brouillon au lieu de le perdre.',
     };
   }
 
@@ -113,7 +113,7 @@ export function checkSendAllowed(message: GuardMessage, ctx: GuardContext = defa
       action: 'deny',
       reason:
         `Quota d'envoi atteint : ${quota.max} message(s) sur 24 h glissantes (MAX_SENDS_PER_DAY). ` +
-        'Réessayer plus tard, augmenter MAX_SENDS_PER_DAY, ou utiliser save_draft en attendant.',
+        'Réessayer plus tard, augmenter MAX_SENDS_PER_DAY, ou utiliser compose_message avec deliver "draft" en attendant.',
     };
   }
 
