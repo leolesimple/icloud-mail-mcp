@@ -52,6 +52,14 @@ describe('listFoldersOn (B4)', () => {
     assert.equal(conteneur.unseen, undefined);
   });
 
+  it('laisse sans compteurs un dossier dont le STATUS renvoie false (refus serveur, imapflow 2)', async () => {
+    const mail = account();
+    mail.status = async () => false;
+
+    const folders = await listFoldersOn(mail.asImapFlow(), true);
+    assert.ok(folders.every((f) => f.messages === undefined && f.unseen === undefined));
+  });
+
   it('traite un dossier sans état d’abonnement rapporté comme abonné (comportement imapflow)', async () => {
     const mail = account();
     // Un serveur qui ne répond ni à LSUB ni à LIST RETURN (SUBSCRIBED) omet le champ.
