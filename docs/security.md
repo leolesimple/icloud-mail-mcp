@@ -43,8 +43,8 @@ partagerait un seul seau.
 **Un TTL sur les sessions MCP.** Une session abandonnée sans `DELETE` est évincée après
 `SESSION_TTL_MS` d'inactivité et son transport fermé — la `Map` de sessions ne fuit plus.
 
-**Pas de suppression définitive par surprise.** `delete_message` déplace vers la corbeille ; il ne
-détruit un message que s'il s'y trouve déjà.
+**Pas de suppression définitive par surprise.** `organize_messages` (`action: "trash"`) déplace
+vers la corbeille ; il ne détruit un message que s'il s'y trouve déjà.
 
 ---
 
@@ -53,7 +53,7 @@ détruit un message que s'il s'y trouve déjà.
 `ENABLE_SENDING` seul est binaire : à `false` tout échoue et la rédaction est perdue, à `true` un
 agent peut écrire à n'importe qui, en boucle. Les garde-fous gradués
 ([`src/smtp/guards.ts`](../src/smtp/guards.ts)) couvrent l'espace entre les deux. Ils sont évalués
-dans un ordre strict pour `send_message` / `reply_message` :
+dans un ordre strict pour `compose_message` (`deliver: "send"`) et `send_draft` :
 
 | # | Garde-fou | Menace couverte | Ce qui se passe |
 |---|---|---|---|
