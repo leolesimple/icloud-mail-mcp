@@ -23,7 +23,9 @@ export function registerListMessagesTool(server: McpServer): void {
       inputSchema: {
         folder: z.string().min(1).default('INBOX').describe('Folder path, e.g. "INBOX", "Archive"'),
         unreadOnly: z.boolean().optional().describe('Only return unread messages'),
-        since: isoDate.optional().describe('Only messages received on or after this date (ISO 8601, e.g. "2026-07-01")'),
+        since: isoDate
+          .optional()
+          .describe('Only messages received on or after this date (ISO 8601, e.g. "2026-07-01")'),
         before: isoDate.optional().describe('Only messages received before this date (ISO 8601)'),
         from: z.string().optional().describe('Filter by sender address (partial match)'),
         beforeUid: z.coerce
@@ -31,7 +33,9 @@ export function registerListMessagesTool(server: McpServer): void {
           .int()
           .positive()
           .optional()
-          .describe('Pagination cursor: only messages with a UID below this value (pass a previous nextCursor)'),
+          .describe(
+            'Pagination cursor: only messages with a UID below this value (pass a previous nextCursor)',
+          ),
         envelope: z
           .boolean()
           .default(false)

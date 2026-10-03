@@ -21,19 +21,30 @@ export function registerManageFoldersTool(server: McpServer): void {
         'Archive, Junk) is refused.',
       inputSchema: {
         action: z.enum(['list', 'create', 'rename', 'delete']).default('list'),
-        path: z.string().min(1).optional().describe('Folder path to act on (create / rename / delete)'),
+        path: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('Folder path to act on (create / rename / delete)'),
         newPath: z.string().min(1).optional().describe('Target path (rename only)'),
         includeStatus: z
           .boolean()
           .default(true)
-          .describe('list: include per-folder message/unseen counts (one STATUS command per folder)'),
+          .describe(
+            'list: include per-folder message/unseen counts (one STATUS command per folder)',
+          ),
         envelope: z
           .boolean()
           .default(false)
           .describe('list: wrap the text block as { folders } instead of a bare array'),
       },
       outputSchema: manageFoldersResultSchema.shape,
-      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
     },
     async ({ action, path, newPath, includeStatus, envelope }) => {
       if (action === 'list') {

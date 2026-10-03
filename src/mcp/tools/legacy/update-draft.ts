@@ -17,8 +17,15 @@ export function registerUpdateDraftTool(server: McpServer): void {
         'duplicate rather than losing content. Never blocked by ENABLE_SENDING (IMAP only). Pass ' +
         'replyFolder/replyUid to keep reply threading.',
       inputSchema: {
-        uid: z.coerce.number().int().positive().describe('UID of the draft to replace, in the Drafts folder'),
-        to: z.array(z.string().email()).optional().describe('Required unless replyFolder/replyUid is given'),
+        uid: z.coerce
+          .number()
+          .int()
+          .positive()
+          .describe('UID of the draft to replace, in the Drafts folder'),
+        to: z
+          .array(z.string().email())
+          .optional()
+          .describe('Required unless replyFolder/replyUid is given'),
         cc: z.array(z.string().email()).optional(),
         bcc: z.array(z.string().email()).optional(),
         subject: z.string().optional().describe('Required unless replyFolder/replyUid is given'),
@@ -37,7 +44,9 @@ export function registerUpdateDraftTool(server: McpServer): void {
       }
 
       log.info({ uid, subject, replyFolder, replyUid }, 'updating draft');
-      return jsonResult(await updateDraft(uid, { to, cc, bcc, subject, text, html, replyFolder, replyUid }));
+      return jsonResult(
+        await updateDraft(uid, { to, cc, bcc, subject, text, html, replyFolder, replyUid }),
+      );
     },
   );
 }

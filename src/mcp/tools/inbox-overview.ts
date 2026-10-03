@@ -29,14 +29,24 @@ export function registerInboxOverviewTool(server: McpServer): void {
         includeDiagnostics: z
           .boolean()
           .default(false)
-          .describe('Add a live IMAP connection check, the connection pool state and the server hosts'),
+          .describe(
+            'Add a live IMAP connection check, the connection pool state and the server hosts',
+          ),
       },
       outputSchema: inboxOverviewSchema.shape,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ limit, includeDiagnostics }) => {
       log.info({ limit, includeDiagnostics }, 'inbox overview');
-      return jsonResult(await buildInboxOverview({ limit, includeDiagnostics }), inboxOverviewSchema);
+      return jsonResult(
+        await buildInboxOverview({ limit, includeDiagnostics }),
+        inboxOverviewSchema,
+      );
     },
   );
 }

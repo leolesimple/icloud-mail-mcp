@@ -255,7 +255,10 @@ export const whoamiReportSchema = schemaFor<WhoamiReport>()(
   z.object({
     server: z.object({ name: z.string(), version: z.string() }),
     account: z.object({ email: z.string(), imap: hostPortSchema, smtp: hostPortSchema }),
-    credentials: z.object({ appPasswordConfigured: z.boolean(), bearerTokenConfigured: z.boolean() }),
+    credentials: z.object({
+      appPasswordConfigured: z.boolean(),
+      bearerTokenConfigured: z.boolean(),
+    }),
     guardrails: guardrailsSchema,
     imapPool: z.object({ open: z.number(), inUse: z.number(), max: z.number() }),
     probe: z

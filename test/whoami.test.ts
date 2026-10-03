@@ -126,7 +126,10 @@ describe('buildWhoami', () => {
 
       for (const report of reports) {
         const json = JSON.stringify(report);
-        assert.ok(!json.includes(APP_PASSWORD), 'le mot de passe d’application ne doit pas apparaître');
+        assert.ok(
+          !json.includes(APP_PASSWORD),
+          'le mot de passe d’application ne doit pas apparaître',
+        );
         assert.ok(!json.includes(BEARER_TOKEN), 'le bearer token ne doit pas apparaître');
       }
     });
@@ -139,12 +142,27 @@ function summary(uid: number, seen: boolean): MessageSummary {
   return { uid, subject: `Message ${uid}`, from: [], to: [], seen, flagged: false };
 }
 
-function folder(path: string, counts: { messages?: number; unseen?: number } = {}, specialUse?: string): FolderInfo {
-  return { path, name: path, delimiter: '/', parentPath: '', flags: [], subscribed: true, specialUse, ...counts };
+function folder(
+  path: string,
+  counts: { messages?: number; unseen?: number } = {},
+  specialUse?: string,
+): FolderInfo {
+  return {
+    path,
+    name: path,
+    delimiter: '/',
+    parentPath: '',
+    flags: [],
+    subscribed: true,
+    specialUse,
+    ...counts,
+  };
 }
 
 /** Dépendances factices : aucune connexion IMAP, sonde comprise. */
-function overviewDeps(overrides: Partial<InboxOverviewDeps> = {}): InboxOverviewDeps & { calls: unknown[] } {
+function overviewDeps(
+  overrides: Partial<InboxOverviewDeps> = {},
+): InboxOverviewDeps & { calls: unknown[] } {
   const calls: unknown[] = [];
   return {
     calls,
@@ -152,7 +170,9 @@ function overviewDeps(overrides: Partial<InboxOverviewDeps> = {}): InboxOverview
       calls.push(opts);
       return opts.unreadOnly
         ? { messages: [summary(9, false), summary(7, false)].slice(0, opts.limit) }
-        : { messages: [summary(10, true), summary(9, false), summary(8, true)].slice(0, opts.limit) };
+        : {
+            messages: [summary(10, true), summary(9, false), summary(8, true)].slice(0, opts.limit),
+          };
     },
     listFolders: async () => [
       folder('INBOX', { messages: 120, unseen: 14 }),
@@ -186,7 +206,10 @@ describe('buildInboxOverview', () => {
   });
 
   it('donne les compteurs de chaque dossier, sans les champs absents', async () => {
-    const overview = await buildInboxOverview({ limit: 10, includeDiagnostics: false }, overviewDeps());
+    const overview = await buildInboxOverview(
+      { limit: 10, includeDiagnostics: false },
+      overviewDeps(),
+    );
     assert.deepEqual(overview.folders, [
       { path: 'INBOX', messages: 120, unseen: 14 },
       { path: 'Sent Messages', specialUse: '\\Sent', messages: 30, unseen: 0 },
@@ -204,7 +227,10 @@ describe('buildInboxOverview', () => {
   });
 
   it('expose les garde-fous actifs, comme whoami', async () => {
-    const overview = await buildInboxOverview({ limit: 10, includeDiagnostics: false }, overviewDeps());
+    const overview = await buildInboxOverview(
+      { limit: 10, includeDiagnostics: false },
+      overviewDeps(),
+    );
     assert.equal(overview.guardrails.sendingEnabled, config.ENABLE_SENDING);
     assert.equal(overview.guardrails.draftsOnly, config.DRAFTS_ONLY);
     assert.equal(overview.guardrails.allowlistActive, config.ALLOWED_RECIPIENTS_LIST.length > 0);
@@ -227,7 +253,10 @@ describe('buildInboxOverview', () => {
   });
 
   it('inclut la sonde et l’état du pool avec includeDiagnostics', async () => {
-    const overview = await buildInboxOverview({ limit: 10, includeDiagnostics: true }, overviewDeps());
+    const overview = await buildInboxOverview(
+      { limit: 10, includeDiagnostics: true },
+      overviewDeps(),
+    );
     assert.deepEqual(overview.diagnostics?.probe, { attempted: true, ok: true, folderCount: 3 });
     assert.deepEqual(overview.diagnostics?.imapPool, { open: 0, inUse: 0, max: 2 });
   });
@@ -250,7 +279,10 @@ describe('buildInboxOverview', () => {
 
     for (const overview of overviews) {
       const json = JSON.stringify(overview);
-      assert.ok(!json.includes(APP_PASSWORD), 'le mot de passe d’application ne doit pas apparaître');
+      assert.ok(
+        !json.includes(APP_PASSWORD),
+        'le mot de passe d’application ne doit pas apparaître',
+      );
       assert.ok(!json.includes(BEARER_TOKEN), 'le bearer token ne doit pas apparaître');
     }
   });

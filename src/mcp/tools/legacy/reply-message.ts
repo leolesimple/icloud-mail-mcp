@@ -20,14 +20,27 @@ export function registerReplyMessageTool(server: McpServer): void {
         'include the other original recipients (as Cc). The original message is marked \\Answered ' +
         '(markedAnswered in the result), and a copy is archived in "Sent" (savedToSent).',
       inputSchema: {
-        folder: z.string().min(1).default('INBOX').describe('Folder containing the original message'),
+        folder: z
+          .string()
+          .min(1)
+          .default('INBOX')
+          .describe('Folder containing the original message'),
         uid: z.coerce.number().int().positive().describe('UID of the message being replied to'),
-        to: z.array(z.string().email()).optional().describe('Defaults to the original sender if omitted'),
-        cc: z.array(z.string().email()).optional().describe('Explicit Cc; overrides the replyAll-derived Cc'),
+        to: z
+          .array(z.string().email())
+          .optional()
+          .describe('Defaults to the original sender if omitted'),
+        cc: z
+          .array(z.string().email())
+          .optional()
+          .describe('Explicit Cc; overrides the replyAll-derived Cc'),
         bcc: z.array(z.string().email()).optional(),
         text: z.string().optional(),
         html: z.string().optional(),
-        replyAll: z.boolean().default(false).describe('Reply to the sender and all original recipients'),
+        replyAll: z
+          .boolean()
+          .default(false)
+          .describe('Reply to the sender and all original recipients'),
         attachments: z
           .array(
             z.object({
@@ -48,7 +61,17 @@ export function registerReplyMessageTool(server: McpServer): void {
       try {
         const decoded = decodeInboundAttachments(attachments, config.ATTACHMENT_MAX_BYTES);
         log.info({ folder, uid, replyAll }, 'replying to message');
-        const result = await sendReply({ folder, uid, to, cc, bcc, text, html, replyAll, attachments: decoded });
+        const result = await sendReply({
+          folder,
+          uid,
+          to,
+          cc,
+          bcc,
+          text,
+          html,
+          replyAll,
+          attachments: decoded,
+        });
         return jsonResult(result, sendResultSchema);
       } catch (err) {
         if (err instanceof AttachmentTooLargeError) {

@@ -40,14 +40,23 @@ export function registerOrganizeMessagesTool(server: McpServer): void {
         folder: z.string().min(1).describe('Folder containing the messages (UIDs are per folder)'),
         uids: uidsInput,
         action: organizeActionSchema.describe('What to do with the messages'),
-        destination: z.string().min(1).optional().describe('Target folder path (required for "move")'),
+        destination: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('Target folder path (required for "move")'),
         keywords: z
           .array(z.string().min(1))
           .optional()
           .describe('Arbitrary IMAP keywords to add (flag actions only)'),
       },
       outputSchema: organizeResultSchema.shape,
-      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
     },
     async ({ folder, uids, action, destination, keywords }) => {
       if (action === 'move' && !destination) {
@@ -59,7 +68,9 @@ export function registerOrganizeMessagesTool(server: McpServer): void {
 
       const flagAction = FLAG_ACTIONS[action];
       if (!flagAction && keywords !== undefined) {
-        return errorResult('"keywords" ne s\'utilise qu\'avec une action de flag (read, unread, flag, unflag…).');
+        return errorResult(
+          '"keywords" ne s\'utilise qu\'avec une action de flag (read, unread, flag, unflag…).',
+        );
       }
 
       log.info({ folder, count: uids.length, action, destination }, 'organizing messages');

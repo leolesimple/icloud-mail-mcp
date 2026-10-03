@@ -141,7 +141,17 @@ describe('métadonnées des outils', () => {
 
   // Au moins un mot-clé de chaque langue par description, pour que le client
   // relie l'outil à une demande formulée en français comme en anglais.
-  const EN_KEYWORDS = ['mail', 'inbox', 'unread', 'draft', 'folder', 'attachment', 'trash', 'reply', 'forward'];
+  const EN_KEYWORDS = [
+    'mail',
+    'inbox',
+    'unread',
+    'draft',
+    'folder',
+    'attachment',
+    'trash',
+    'reply',
+    'forward',
+  ];
   const FR_KEYWORDS = [
     'courriel',
     'boîte de réception',
@@ -176,7 +186,12 @@ describe('métadonnées des outils', () => {
     for (const tool of tools) {
       assert.ok(tool.title || tool.annotations?.title, `${tool.name} : titre manquant`);
       const annotations = tool.annotations ?? {};
-      for (const hint of ['readOnlyHint', 'destructiveHint', 'idempotentHint', 'openWorldHint'] as const) {
+      for (const hint of [
+        'readOnlyHint',
+        'destructiveHint',
+        'idempotentHint',
+        'openWorldHint',
+      ] as const) {
         assert.equal(typeof annotations[hint], 'boolean', `${tool.name} : ${hint} manquant`);
       }
     }
@@ -187,7 +202,13 @@ describe('métadonnées des outils', () => {
     const readOnly = sorted(tools.filter((t) => t.annotations?.readOnlyHint).map((t) => t.name));
     assert.deepEqual(
       readOnly,
-      sorted(['inbox_overview', 'find_messages', 'read_message', 'get_attachment', 'wait_for_new_message']),
+      sorted([
+        'inbox_overview',
+        'find_messages',
+        'read_message',
+        'get_attachment',
+        'wait_for_new_message',
+      ]),
     );
   });
 

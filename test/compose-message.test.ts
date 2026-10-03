@@ -50,12 +50,21 @@ describe('planCompose : routage vers les opérations existantes', () => {
   });
 
   it('draftUid + draft → updateDraft', () => {
-    expectOperation({ deliver: 'draft', draftUid: 7, ...TO, subject: 'Objet', ...BODY }, 'update_draft');
-    expectOperation({ mode: 'reply', deliver: 'draft', draftUid: 7, ...ORIGINAL, ...BODY }, 'update_draft');
+    expectOperation(
+      { deliver: 'draft', draftUid: 7, ...TO, subject: 'Objet', ...BODY },
+      'update_draft',
+    );
+    expectOperation(
+      { mode: 'reply', deliver: 'draft', draftUid: 7, ...ORIGINAL, ...BODY },
+      'update_draft',
+    );
   });
 
   it('accepte un sujet de remplacement sur une réponse en brouillon', () => {
-    expectOperation({ mode: 'reply', deliver: 'draft', subject: 'Autre', ...ORIGINAL, ...BODY }, 'save_draft');
+    expectOperation(
+      { mode: 'reply', deliver: 'draft', subject: 'Autre', ...ORIGINAL, ...BODY },
+      'save_draft',
+    );
   });
 
   it('accepte uid sans folder (INBOX par défaut)', () => {
@@ -65,7 +74,10 @@ describe('planCompose : routage vers les opérations existantes', () => {
 
 describe('planCompose : combinaisons incohérentes', () => {
   it('refuse draftUid avec deliver send', () => {
-    expectError({ draftUid: 7, ...TO, subject: 'Objet', ...BODY }, /draftUid.*deliver: "draft".*send_draft/);
+    expectError(
+      { draftUid: 7, ...TO, subject: 'Objet', ...BODY },
+      /draftUid.*deliver: "draft".*send_draft/,
+    );
   });
 
   it('refuse un nouveau message sans destinataire', () => {
@@ -89,7 +101,10 @@ describe('planCompose : combinaisons incohérentes', () => {
   }
 
   it('refuse forward sans destinataire', () => {
-    expectError({ mode: 'forward', ...ORIGINAL, ...BODY }, /transfert exige au moins un destinataire/);
+    expectError(
+      { mode: 'forward', ...ORIGINAL, ...BODY },
+      /transfert exige au moins un destinataire/,
+    );
   });
 
   it('refuse un message sans corps (hors transfert)', () => {
@@ -103,11 +118,17 @@ describe('planCompose : combinaisons incohérentes', () => {
   });
 
   it('refuse le transfert en brouillon (aucun équivalent)', () => {
-    expectError({ mode: 'forward', deliver: 'draft', ...ORIGINAL, ...TO }, /transfert en brouillon/);
+    expectError(
+      { mode: 'forward', deliver: 'draft', ...ORIGINAL, ...TO },
+      /transfert en brouillon/,
+    );
   });
 
   it('refuse la réponse à tous en brouillon (aucun équivalent)', () => {
-    expectError({ mode: 'reply_all', deliver: 'draft', ...ORIGINAL, ...BODY }, /réponse à tous en brouillon/);
+    expectError(
+      { mode: 'reply_all', deliver: 'draft', ...ORIGINAL, ...BODY },
+      /réponse à tous en brouillon/,
+    );
   });
 });
 
@@ -134,7 +155,11 @@ describe('outils : refus avant tout accès réseau', () => {
   });
 
   it('organize_messages exige destination pour move, et seulement pour move', async () => {
-    await expectToolError('organize_messages', { folder: 'INBOX', uids: [1], action: 'move' }, /destination/);
+    await expectToolError(
+      'organize_messages',
+      { folder: 'INBOX', uids: [1], action: 'move' },
+      /destination/,
+    );
     await expectToolError(
       'organize_messages',
       { folder: 'INBOX', uids: [1], action: 'trash', destination: 'Archive' },
@@ -162,11 +187,19 @@ describe('outils : refus avant tout accès réseau', () => {
   it('manage_folders valide path / newPath selon l’action', async () => {
     await expectToolError('manage_folders', { action: 'create' }, /exige le chemin/);
     await expectToolError('manage_folders', { action: 'rename', path: 'A' }, /newPath/);
-    await expectToolError('manage_folders', { action: 'delete', path: 'A', newPath: 'B' }, /rename/);
+    await expectToolError(
+      'manage_folders',
+      { action: 'delete', path: 'A', newPath: 'B' },
+      /rename/,
+    );
     await expectToolError('manage_folders', { action: 'list', path: 'A' }, /"list" ne prend/);
   });
 
   it('find_messages exige un critère pour une recherche multi-dossiers', async () => {
-    await expectToolError('find_messages', { folders: ['INBOX', 'Archive'] }, /au moins un critère/);
+    await expectToolError(
+      'find_messages',
+      { folders: ['INBOX', 'Archive'] },
+      /au moins un critère/,
+    );
   });
 });
