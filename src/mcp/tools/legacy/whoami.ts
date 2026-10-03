@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { buildWhoami } from '../whoami.js';
-import { jsonResult } from '../result.js';
-import { logger } from '../../logger.js';
+import { buildWhoami } from '../../whoami.js';
+import { jsonResult } from '../../result.js';
+import { logger } from '../../../logger.js';
 
 const log = logger.child({ tool: 'whoami' });
 

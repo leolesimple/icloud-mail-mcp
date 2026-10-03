@@ -1,11 +1,11 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { sendNewMessage } from '../../smtp/send.js';
-import { AttachmentTooLargeError, decodeInboundAttachments } from '../../attachments.js';
-import { config } from '../../config.js';
-import { jsonResult, errorResult } from '../result.js';
-import { sendResultSchema } from '../schemas.js';
-import { logger } from '../../logger.js';
+import { sendNewMessage } from '../../../smtp/send.js';
+import { AttachmentTooLargeError, decodeInboundAttachments } from '../../../attachments.js';
+import { config } from '../../../config.js';
+import { jsonResult, errorResult } from '../../result.js';
+import { sendResultSchema } from '../../schemas.js';
+import { logger } from '../../../logger.js';
 
 const log = logger.child({ tool: 'send_message' });
 
@@ -45,7 +45,15 @@ export function registerSendMessageTool(server: McpServer): void {
       try {
         const decoded = decodeInboundAttachments(attachments, config.ATTACHMENT_MAX_BYTES);
         log.info({ to, subject }, 'sending message');
-        const result = await sendNewMessage({ to, cc, bcc, subject, text, html, attachments: decoded });
+        const result = await sendNewMessage({
+          to,
+          cc,
+          bcc,
+          subject,
+          text,
+          html,
+          attachments: decoded,
+        });
         return jsonResult(result, sendResultSchema);
       } catch (err) {
         if (err instanceof AttachmentTooLargeError) {

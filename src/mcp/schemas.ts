@@ -7,7 +7,10 @@ import type {
 } from '../imap/messages.js';
 import type { FolderInfo } from '../imap/folders.js';
 import type { BulkItemResult } from '../imap/mutations.js';
-import type { DraftResult } from '../imap/drafts.js';
+import type { DraftResult, SendDraftResult } from '../imap/drafts.js';
+import type { Thread, ThreadMessage } from '../imap/thread.js';
+import type { WhoamiGuardrails, WhoamiQuota, WhoamiReport } from './whoami.js';
+import type { InboxOverview } from './overview.js';
 
 /**
  * Schémas de sortie (`outputSchema`) des outils MCP.
@@ -194,4 +197,162 @@ export const waitForNewMessageResultSchema = z.object({
   folder: z.string(),
   timedOut: z.boolean(),
   newMessages: z.array(messageSummarySchema),
+});
+
+// --- Surface par intention (8 outils) --------------------------------------
+
+export const threadMessageSchema = schemaFor<ThreadMessage>()(
+  messageSummarySchema.extend({
+    folder: z.string(),
+    role: z.enum(['sent', 'received']),
+  }),
+);
+
+export const threadSchema = schemaFor<Thread>()(
+  z.object({
+    subject: z.string(),
+    messages: z.array(threadMessageSchema),
+  }),
+);
+
+/** `read_message` : `get_message`, plus le fil (`includeThread`). */
+export interface ReadMessageResult extends GetMessageResult {
+  thread?: Thread;
+}
+
+export const readMessageResultSchema = schemaFor<ReadMessageResult>()(
+  getMessageResultSchema.extend({ thread: threadSchema.optional() }),
+);
+
+/** `find_messages` : même contrat que `search_messages` (le listing n'a ni `folder` ni `errors`). */
+export const findMessagesResultSchema = searchMessagesResultSchema;
+
+const whoamiQuotaSchema = schemaFor<WhoamiQuota>()(
+  z.object({
+    windowHours: z.number(),
+    limit: z.number(),
+    unlimited: z.boolean(),
+    used: z.number(),
+    remaining: z.number().nullable(),
+    resetsAt: z.string().optional(),
+  }),
+);
+
+export const guardrailsSchema = schemaFor<WhoamiGuardrails>()(
+  z.object({
+    sendingEnabled: z.boolean(),
+    draftsOnly: z.boolean().optional(),
+    unrestricted: z.boolean().optional(),
+    allowlistActive: z.boolean().optional(),
+    maxSendsPerDay: z.number().optional(),
+    quota: whoamiQuotaSchema.optional(),
+  }),
+);
+
+const hostPortSchema = z.object({ host: z.string(), port: z.number() });
+
+export const whoamiReportSchema = schemaFor<WhoamiReport>()(
+  z.object({
+    server: z.object({ name: z.string(), version: z.string() }),
+    account: z.object({ email: z.string(), imap: hostPortSchema, smtp: hostPortSchema }),
+    credentials: z.object({
+      appPasswordConfigured: z.boolean(),
+      bearerTokenConfigured: z.boolean(),
+    }),
+    guardrails: guardrailsSchema,
+    imapPool: z.object({ open: z.number(), inUse: z.number(), max: z.number() }),
+    probe: z
+      .object({
+        attempted: z.literal(true),
+        ok: z.boolean(),
+        folderCount: z.number().optional(),
+        error: z.string().optional(),
+      })
+      .optional(),
+  }),
+);
+
+export const inboxOverviewSchema = schemaFor<InboxOverview>()(
+  z.object({
+    account: z.object({ email: z.string() }),
+    inbox: z.object({
+      folder: z.string(),
+      total: z.number().optional(),
+      unread: z.number(),
+      recentUnread: z.array(messageSummarySchema),
+      recent: z.array(messageSummarySchema),
+    }),
+    folders: z.array(
+      z.object({
+        path: z.string(),
+        specialUse: z.string().optional(),
+        messages: z.number().optional(),
+        unseen: z.number().optional(),
+      }),
+    ),
+    guardrails: guardrailsSchema,
+    diagnostics: whoamiReportSchema.optional(),
+  }),
+);
+
+// `compose_message` : la forme d'envoi (`sent: true`), ou un brouillon
+// (`sent: false` + `draft`), qu'il soit demandé (deliver "draft") ou imposé par
+// DRAFTS_ONLY (`reason`). `replacedUid` signale un brouillon remplacé.
+export const composeResultSchema = sendResultSchema.extend({
+  replacedUid: z.number().optional(),
+});
+
+export const sendDraftResultSchema = schemaFor<SendDraftResult>()(
+  z.object({
+    send: z
+      .object({
+        messageId: z.string(),
+        accepted: z.array(z.string()),
+        rejected: z.array(z.string()),
+        savedToSent: z.boolean().optional(),
+        markedAnswered: z.boolean().optional(),
+      })
+      .optional(),
+    reason: z.literal('DRAFTS_ONLY').optional(),
+    copiedToSent: z.boolean(),
+    draftDeleted: z.boolean(),
+  }),
+);
+
+/** Actions de `organize_messages`. Liste ouverte : les lots suivants y ajoutent archive / spam. */
+export const ORGANIZE_ACTIONS = [
+  'move',
+  'trash',
+  'read',
+  'unread',
+  'flag',
+  'unflag',
+  'answered',
+  'unanswered',
+  'junk',
+  'not_junk',
+] as const;
+
+export const organizeActionSchema = z.enum(ORGANIZE_ACTIONS);
+
+export const organizeResultSchema = z.object({
+  action: organizeActionSchema,
+  folder: z.string(),
+  // move : dossier cible ; trash : la corbeille (absent en cas d'expunge).
+  destination: z.string().optional(),
+  // trash : déplacé vers la corbeille, ou supprimé définitivement s'il y était déjà.
+  outcome: z.enum(['moved_to_trash', 'expunged']).optional(),
+  // Actions de flag : flags IMAP effectivement demandés, et mots-clés ajoutés.
+  applied: z.array(flagActionSchema).optional(),
+  keywords: z.array(z.string()).optional(),
+  results: z.array(bulkItemResultSchema),
+});
+
+export const manageFoldersResultSchema = z.object({
+  // action "list".
+  folders: z.array(folderInfoSchema).optional(),
+  // actions create / rename / delete.
+  action: z.enum(['create', 'rename', 'delete']).optional(),
+  path: z.string().optional(),
+  newPath: z.string().optional(),
 });

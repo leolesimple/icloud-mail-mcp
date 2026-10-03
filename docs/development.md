@@ -51,14 +51,17 @@ src/
   mcp/
     server.ts          Assemble le serveur MCP et enregistre les outils
     tools/             Un fichier par outil : schéma zod + appel métier
+    tools/legacy/      Anciens outils, réexposés avec LEGACY_TOOLS=true
+    overview.ts        Logique d'inbox_overview (injectable pour les tests)
+    compose-plan.ts    Validation des combinaisons de compose_message (module pur)
   imap/
     pool.ts            Pool de connexions imapflow
     mailbox.ts         withMailbox : verrou de dossier toujours relâché
     messages.ts        Lecture : list, search, get + projections
     mutations.ts       Écriture : move, delete, flags
-    drafts.ts          save_draft (IMAP APPEND)
+    drafts.ts          Brouillons : APPEND, remplacement, envoi
     threading.ts       En-têtes de réponse RFC 5322 (module pur)
-    folders.ts         list_folders
+    folders.ts         Listing et gestion des dossiers
     special-folders.ts Résolution des dossiers par flag (\Trash, \Drafts)
     errors.ts          Classification des erreurs IMAP
   smtp/
