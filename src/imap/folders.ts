@@ -62,6 +62,8 @@ export async function listFoldersOn(
   for (const info of infos) {
     try {
       const status = await client.status(info.path, { messages: true, unseen: true });
+      // imapflow renvoie `false` (sans lever) quand le serveur refuse le STATUS.
+      if (!status) continue;
       info.messages = status.messages;
       info.unseen = status.unseen;
     } catch {
