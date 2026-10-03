@@ -1,11 +1,11 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { saveDraft } from '../../imap/drafts.js';
-import { AttachmentTooLargeError, decodeInboundAttachments } from '../../attachments.js';
-import { config } from '../../config.js';
-import { jsonResult, errorResult } from '../result.js';
-import { draftResultSchema } from '../schemas.js';
-import { logger } from '../../logger.js';
+import { saveDraft } from '../../../imap/drafts.js';
+import { AttachmentTooLargeError, decodeInboundAttachments } from '../../../attachments.js';
+import { config } from '../../../config.js';
+import { jsonResult, errorResult } from '../../result.js';
+import { draftResultSchema } from '../../schemas.js';
+import { logger } from '../../../logger.js';
 
 const log = logger.child({ tool: 'save_draft' });
 

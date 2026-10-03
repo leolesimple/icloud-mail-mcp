@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { getThread } from '../../imap/thread.js';
-import { jsonResult } from '../result.js';
-import { logger } from '../../logger.js';
+import { getThread } from '../../../imap/thread.js';
+import { jsonResult } from '../../result.js';
+import { logger } from '../../../logger.js';
 
 const log = logger.child({ tool: 'get_thread' });
 

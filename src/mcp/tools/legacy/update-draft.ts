@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { updateDraft } from '../../imap/drafts.js';
-import { jsonResult, errorResult } from '../result.js';
-import { logger } from '../../logger.js';
+import { updateDraft } from '../../../imap/drafts.js';
+import { jsonResult, errorResult } from '../../result.js';
+import { logger } from '../../../logger.js';
 
 const log = logger.child({ tool: 'update_draft' });
 

@@ -37,7 +37,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 
-  // Coupe-circuit pour send_message / reply_message.
+  // Coupe-circuit pour compose_message (deliver "send") et send_draft.
   ENABLE_SENDING: envBool(true),
 
   // --- Garde-fous d'envoi (lot D) ------------------------------------------
@@ -68,6 +68,13 @@ const envSchema = z.object({
   // OFF par défaut : pas de reconnexion, l'attente se dégrade silencieusement
   // si la connexion iCloud saute. Voir docs/configuration.md.
   ENABLE_IDLE_WATCH: envBool(false),
+
+  // --- Compatibilité --------------------------------------------------------
+  // Réenregistre les anciens outils (list_messages, get_message, send_message…)
+  // en plus des nouveaux, avec leurs noms et contrats d'origine et la mention
+  // « Deprecated » en tête de description. Prévu pour une version de
+  // transition seulement. Voir docs/tools.md.
+  LEGACY_TOOLS: envBool(false),
 
   // URL publique HTTPS du serveur (ex. https://mail-mcp.exemple.com), sans
   // slash final. Optionnelle : sert uniquement à renseigner `icons`/`websiteUrl`

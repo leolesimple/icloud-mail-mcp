@@ -77,7 +77,7 @@ export async function sendMail(message: OutgoingMessage): Promise<SendResult> {
   }
   if (decision.action === 'draft') {
     throw new SmtpMessageError(
-      'DRAFTS_ONLY=true : passer par send_message / reply_message, qui déposent le message ' +
+      'DRAFTS_ONLY=true : passer par compose_message, qui dépose le message ' +
         "en brouillon au lieu de l'envoyer.",
     );
   }

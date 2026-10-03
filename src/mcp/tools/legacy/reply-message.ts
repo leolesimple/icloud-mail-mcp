@@ -1,11 +1,11 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { sendReply } from '../../smtp/send.js';
-import { AttachmentTooLargeError, decodeInboundAttachments } from '../../attachments.js';
-import { config } from '../../config.js';
-import { jsonResult, errorResult } from '../result.js';
-import { sendResultSchema } from '../schemas.js';
-import { logger } from '../../logger.js';
+import { sendReply } from '../../../smtp/send.js';
+import { AttachmentTooLargeError, decodeInboundAttachments } from '../../../attachments.js';
+import { config } from '../../../config.js';
+import { jsonResult, errorResult } from '../../result.js';
+import { sendResultSchema } from '../../schemas.js';
+import { logger } from '../../../logger.js';
 
 const log = logger.child({ tool: 'reply_message' });
 

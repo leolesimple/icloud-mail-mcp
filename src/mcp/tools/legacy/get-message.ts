@@ -1,11 +1,11 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { getMessage, getMessageSource } from '../../imap/messages.js';
-import { extractRawHeaders, prepareMessageBody } from '../message-content.js';
-import { getMessageResultSchema } from '../schemas.js';
-import { jsonResult } from '../result.js';
-import { config } from '../../config.js';
-import { logger } from '../../logger.js';
+import { getMessage, getMessageSource } from '../../../imap/messages.js';
+import { extractRawHeaders, prepareMessageBody } from '../../message-content.js';
+import { getMessageResultSchema } from '../../schemas.js';
+import { jsonResult } from '../../result.js';
+import { config } from '../../../config.js';
+import { logger } from '../../../logger.js';
 
 const log = logger.child({ tool: 'get_message' });
 

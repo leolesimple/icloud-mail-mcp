@@ -32,9 +32,10 @@ export function registerMailPrompts(server: McpServer): void {
     ({ folder }) =>
       userText(
         `Trie le dossier « ${folder ?? 'INBOX'} ».\n\n` +
-          `1. Appelle list_messages avec unreadOnly: true.\n` +
+          `1. Appelle find_messages avec unreadOnly: true.\n` +
           `2. Pour chaque message, résume-le en une phrase et recommande UNE action : ` +
-          `répondre, archiver (move_message), supprimer (delete_message), ou laisser tel quel.\n` +
+          `répondre, archiver (organize_messages, action move), supprimer (organize_messages, action trash), ` +
+          `ou laisser tel quel.\n` +
           `3. Présente le tout sous forme de tableau et attends ma validation avant toute modification.`,
       ),
   );
@@ -52,8 +53,8 @@ export function registerMailPrompts(server: McpServer): void {
     ({ folder, uid }) =>
       userText(
         `Résume le fil de discussion contenant le message UID ${uid} du dossier « ${folder} ».\n\n` +
-          `Récupère le message avec get_message. Si son champ References pointe vers d'autres messages ` +
-          `du même dossier, récupère-les aussi via search_messages pour reconstituer le fil.\n` +
+          `Récupère le message et son fil avec read_message (includeThread: true), puis lis avec ` +
+          `read_message les messages du fil dont tu as besoin.\n` +
           `Donne-moi : les points clés, les décisions prises, et ce qui attend une réponse de ma part.`,
       ),
   );
@@ -72,11 +73,12 @@ export function registerMailPrompts(server: McpServer): void {
     ({ folder, uid, instructions }) =>
       userText(
         `Prépare une réponse au message UID ${uid} du dossier « ${folder} ».\n\n` +
-          `1. Lis le message avec get_message.\n` +
+          `1. Lis le message avec read_message.\n` +
           `2. Rédige une réponse en français, concise et polie` +
           (instructions ? `, en tenant compte de : ${instructions}` : '') +
           `.\n` +
-          `3. Enregistre-la avec save_draft en renseignant replyFolder et replyUid pour garder le fil. ` +
+          `3. Enregistre-la avec compose_message (mode: "reply", deliver: "draft", folder et uid du message) ` +
+          `pour garder le fil. ` +
           `Ne l'envoie pas : je la relirai depuis mon client mail.`,
       ),
   );
