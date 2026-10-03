@@ -48,7 +48,12 @@ export function registerReadMessageTool(server: McpServer): void {
           .describe('Include the raw RFC 5322 header block (List-Unsubscribe, DKIM, debugging)'),
       },
       outputSchema: readMessageResultSchema.shape,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ folder, uid, includeThread, maxBodyChars, includeHtml, includeRawHeaders }) => {
       log.info({ folder, uid, includeThread, includeHtml, includeRawHeaders }, 'reading message');
@@ -56,7 +61,10 @@ export function registerReadMessageTool(server: McpServer): void {
         getMessage(folder, uid),
         includeThread ? getThread(folder, uid) : undefined,
       ]);
-      const { text, html, bodyTruncated } = prepareMessageBody(message, { maxBodyChars, includeHtml });
+      const { text, html, bodyTruncated } = prepareMessageBody(message, {
+        maxBodyChars,
+        includeHtml,
+      });
 
       const rawHeaders = includeRawHeaders
         ? extractRawHeaders(await getMessageSource(folder, uid))

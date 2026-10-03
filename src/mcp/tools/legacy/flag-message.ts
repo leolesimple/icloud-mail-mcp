@@ -41,7 +41,9 @@ export function registerFlagMessageTool(server: McpServer): void {
     },
     async ({ folder, uid, uids, actions, keywords }) => {
       if ((uid === undefined) === (uids === undefined)) {
-        return errorResult('Fournir exactement un de "uid" (un message) ou "uids" (jusqu\'à 200 messages).');
+        return errorResult(
+          'Fournir exactement un de "uid" (un message) ou "uids" (jusqu\'à 200 messages).',
+        );
       }
 
       if (uids) {
@@ -50,7 +52,10 @@ export function registerFlagMessageTool(server: McpServer): void {
       }
 
       log.info({ folder, uid, actions, keywords }, 'flagging message');
-      return jsonResult(await flagMessage(folder, uid as number, actions, keywords), flagResultSchema);
+      return jsonResult(
+        await flagMessage(folder, uid as number, actions, keywords),
+        flagResultSchema,
+      );
     },
   );
 }

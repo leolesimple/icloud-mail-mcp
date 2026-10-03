@@ -20,9 +20,18 @@ export function registerGetAttachmentTool(server: McpServer): void {
       inputSchema: {
         folder: z.string().min(1).default('INBOX').describe('Folder containing the message'),
         uid: z.coerce.number().int().positive().describe('IMAP UID of the message'),
-        index: z.coerce.number().int().nonnegative().describe('Attachment index, as reported by read_message'),
+        index: z.coerce
+          .number()
+          .int()
+          .nonnegative()
+          .describe('Attachment index, as reported by read_message'),
       },
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ folder, uid, index }) => {
       log.info({ folder, uid, index }, 'fetching attachment');

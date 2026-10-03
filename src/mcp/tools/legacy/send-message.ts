@@ -45,7 +45,15 @@ export function registerSendMessageTool(server: McpServer): void {
       try {
         const decoded = decodeInboundAttachments(attachments, config.ATTACHMENT_MAX_BYTES);
         log.info({ to, subject }, 'sending message');
-        const result = await sendNewMessage({ to, cc, bcc, subject, text, html, attachments: decoded });
+        const result = await sendNewMessage({
+          to,
+          cc,
+          bcc,
+          subject,
+          text,
+          html,
+          attachments: decoded,
+        });
         return jsonResult(result, sendResultSchema);
       } catch (err) {
         if (err instanceof AttachmentTooLargeError) {

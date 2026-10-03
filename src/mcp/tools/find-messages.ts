@@ -40,7 +40,9 @@ export function registerFindMessagesTool(server: McpServer): void {
         from: z.string().optional().describe('Sender address or name (partial match)'),
         to: z.string().optional(),
         text: z.string().optional().describe('Matches anywhere in headers or body'),
-        since: isoDate.optional().describe('Messages received on or after this date (ISO 8601, e.g. "2026-07-01")'),
+        since: isoDate
+          .optional()
+          .describe('Messages received on or after this date (ISO 8601, e.g. "2026-07-01")'),
         before: isoDate.optional().describe('Messages received before this date (ISO 8601)'),
         unreadOnly: z.boolean().optional().describe('Only unread messages (non lus)'),
         flagged: z.boolean().optional().describe('Only starred (flagged) messages'),
@@ -51,8 +53,16 @@ export function registerFindMessagesTool(server: McpServer): void {
           .int()
           .positive()
           .optional()
-          .describe('Pagination cursor: only messages with a UID below this value (pass a previous nextCursor)'),
-        limit: z.coerce.number().int().positive().max(200).default(50).describe('Max number of messages'),
+          .describe(
+            'Pagination cursor: only messages with a UID below this value (pass a previous nextCursor)',
+          ),
+        limit: z.coerce
+          .number()
+          .int()
+          .positive()
+          .max(200)
+          .default(50)
+          .describe('Max number of messages'),
         envelope: z
           .boolean()
           .default(false)
@@ -62,7 +72,12 @@ export function registerFindMessagesTool(server: McpServer): void {
           ),
       },
       outputSchema: findMessagesResultSchema.shape,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ folder, folders, since, before, beforeUid, envelope, limit, ...criteria }) => {
       const options: SearchMessagesOptions = {
@@ -81,7 +96,10 @@ export function registerFindMessagesTool(server: McpServer): void {
               'to, text, since, before, unreadOnly, flagged, not ou or). Pour lister un dossier, utiliser folder.',
           );
         }
-        log.info({ folders, subject: criteria.subject, from: criteria.from }, 'searching messages (multi-folder)');
+        log.info(
+          { folders, subject: criteria.subject, from: criteria.from },
+          'searching messages (multi-folder)',
+        );
         const result = await searchMessagesAcross(folders, options);
         if (result.errors) log.warn({ errors: result.errors }, 'some folders failed');
         return listResult('messages', result.messages, {
@@ -97,7 +115,10 @@ export function registerFindMessagesTool(server: McpServer): void {
         return listResult('messages', page.messages, { envelope, nextCursor: page.nextCursor });
       }
 
-      log.info({ folder, subject: criteria.subject, from: criteria.from, beforeUid }, 'searching messages');
+      log.info(
+        { folder, subject: criteria.subject, from: criteria.from, beforeUid },
+        'searching messages',
+      );
       const page = await searchMessages(folder, options);
       return listResult('messages', page.messages, { envelope, nextCursor: page.nextCursor });
     },

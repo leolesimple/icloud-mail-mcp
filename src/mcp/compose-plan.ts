@@ -28,7 +28,8 @@ export interface ComposeRequest {
 }
 
 /** Opération existante vers laquelle la requête est routée. */
-export type ComposeOperation = 'send_new' | 'send_reply' | 'send_forward' | 'save_draft' | 'update_draft';
+export type ComposeOperation =
+  'send_new' | 'send_reply' | 'send_forward' | 'save_draft' | 'update_draft';
 
 export type ComposePlan = { ok: true; operation: ComposeOperation } | { ok: false; error: string };
 
@@ -70,7 +71,9 @@ export function planCompose(request: ComposeRequest): ComposePlan {
       return fail('Un nouveau message exige un sujet ("subject").');
     }
   } else if (request.uid === undefined) {
-    return fail(`Le mode "${mode}" exige l'uid du message d'origine (et son folder, INBOX par défaut).`);
+    return fail(
+      `Le mode "${mode}" exige l'uid du message d'origine (et son folder, INBOX par défaut).`,
+    );
   }
 
   if (mode === 'forward' && !hasTo) {

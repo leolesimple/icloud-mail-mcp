@@ -15,7 +15,9 @@ export const uidsInput = z
   .array(z.coerce.number().int().positive())
   .min(1)
   .max(BULK_UID_LIMIT)
-  .describe(`IMAP UIDs to act on, 1 to ${BULK_UID_LIMIT} (a single message is a one-element array)`);
+  .describe(
+    `IMAP UIDs to act on, 1 to ${BULK_UID_LIMIT} (a single message is a one-element array)`,
+  );
 
 export const textCriteriaInput = z
   .object({

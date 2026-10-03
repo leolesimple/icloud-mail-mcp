@@ -19,8 +19,8 @@ export function registerWaitForNewMessageTool(server: McpServer): void {
         `timeoutSec is capped at ${MAX_WAIT_SECONDS}s.`,
       inputSchema: {
         folder: z.string().min(1).default('INBOX'),
-        timeoutSec: z
-          .coerce.number()
+        timeoutSec: z.coerce
+          .number()
           .int()
           .positive()
           .max(MAX_WAIT_SECONDS)
@@ -28,7 +28,12 @@ export function registerWaitForNewMessageTool(server: McpServer): void {
           .describe(`How long to wait, in seconds (max ${MAX_WAIT_SECONDS})`),
       },
       outputSchema: waitForNewMessageResultSchema.shape,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
     },
     async ({ folder, timeoutSec }) => {
       log.info({ folder, timeoutSec }, 'waiting for new message');

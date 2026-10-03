@@ -44,7 +44,10 @@ export function registerGetMessageTool(server: McpServer): void {
     async ({ folder, uid, maxBodyChars, includeHtml, includeRawHeaders }) => {
       log.info({ folder, uid, includeHtml, includeRawHeaders }, 'fetching message');
       const message = await getMessage(folder, uid);
-      const { text, html, bodyTruncated } = prepareMessageBody(message, { maxBodyChars, includeHtml });
+      const { text, html, bodyTruncated } = prepareMessageBody(message, {
+        maxBodyChars,
+        includeHtml,
+      });
 
       const rawHeaders = includeRawHeaders
         ? extractRawHeaders(await getMessageSource(folder, uid))

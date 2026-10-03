@@ -18,10 +18,19 @@ export function registerSendDraftTool(server: McpServer): void {
         'to the sending guardrails, copied to Sent (Envoyés), then removed from Drafts. If sending fails, the ' +
         'draft is left untouched. Always confirm with the user before sending.',
       inputSchema: {
-        uid: z.coerce.number().int().positive().describe('UID of the draft to send, in the Drafts folder'),
+        uid: z.coerce
+          .number()
+          .int()
+          .positive()
+          .describe('UID of the draft to send, in the Drafts folder'),
       },
       outputSchema: sendDraftResultSchema.shape,
-      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
     },
     async ({ uid }) => {
       log.info({ uid }, 'sending draft');

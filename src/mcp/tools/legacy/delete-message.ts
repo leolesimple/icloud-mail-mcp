@@ -25,7 +25,9 @@ export function registerDeleteMessageTool(server: McpServer): void {
     },
     async ({ folder, uid, uids }) => {
       if ((uid === undefined) === (uids === undefined)) {
-        return errorResult('Fournir exactement un de "uid" (un message) ou "uids" (jusqu\'à 200 messages).');
+        return errorResult(
+          'Fournir exactement un de "uid" (un message) ou "uids" (jusqu\'à 200 messages).',
+        );
       }
 
       if (uids) {

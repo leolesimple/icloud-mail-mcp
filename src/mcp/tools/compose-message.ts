@@ -43,24 +43,41 @@ export function registerComposeMessageTool(server: McpServer): void {
           .min(1)
           .optional()
           .describe('reply / reply_all / forward: folder of the original message (default INBOX)'),
-        uid: uidInput.optional().describe('reply / reply_all / forward: UID of the original message'),
+        uid: uidInput
+          .optional()
+          .describe('reply / reply_all / forward: UID of the original message'),
         to: z
           .array(z.string().email())
           .optional()
-          .describe('Recipients. Required for new and forward; for a reply, defaults to the original sender'),
-        cc: z.array(z.string().email()).optional().describe('Cc; on reply_all, overrides the derived Cc'),
+          .describe(
+            'Recipients. Required for new and forward; for a reply, defaults to the original sender',
+          ),
+        cc: z
+          .array(z.string().email())
+          .optional()
+          .describe('Cc; on reply_all, overrides the derived Cc'),
         bcc: z.array(z.string().email()).optional(),
         subject: z
           .string()
           .min(1)
           .optional()
-          .describe('Required for new. Derived from the original for reply / forward (overridable in a draft)'),
-        text: z.string().optional().describe('Plain-text body (or the note above a forwarded message)'),
+          .describe(
+            'Required for new. Derived from the original for reply / forward (overridable in a draft)',
+          ),
+        text: z
+          .string()
+          .optional()
+          .describe('Plain-text body (or the note above a forwarded message)'),
         html: z.string().optional().describe('HTML body'),
         attachments: attachmentsInput,
       },
       outputSchema: composeResultSchema.shape,
-      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
     },
     async (input) => {
       const plan = planCompose(input);
@@ -73,8 +90,14 @@ export function registerComposeMessageTool(server: McpServer): void {
       const uid = input.uid as number;
 
       try {
-        const attachments = decodeInboundAttachments(input.attachments, config.ATTACHMENT_MAX_BYTES);
-        log.info({ operation: plan.operation, mode, folder: input.folder, uid: input.uid, draftUid }, 'composing');
+        const attachments = decodeInboundAttachments(
+          input.attachments,
+          config.ATTACHMENT_MAX_BYTES,
+        );
+        log.info(
+          { operation: plan.operation, mode, folder: input.folder, uid: input.uid, draftUid },
+          'composing',
+        );
 
         switch (plan.operation) {
           case 'send_new': {
@@ -104,7 +127,16 @@ export function registerComposeMessageTool(server: McpServer): void {
             return jsonResult(result, composeResultSchema);
           }
           case 'send_forward': {
-            const result = await sendForward({ folder, uid, to: to as string[], cc, bcc, text, html, attachments });
+            const result = await sendForward({
+              folder,
+              uid,
+              to: to as string[],
+              cc,
+              bcc,
+              text,
+              html,
+              attachments,
+            });
             return jsonResult(result, composeResultSchema);
           }
           case 'save_draft':

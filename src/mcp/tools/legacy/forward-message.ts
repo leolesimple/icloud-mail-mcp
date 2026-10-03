@@ -18,7 +18,11 @@ export function registerForwardMessageTool(server: McpServer): void {
         '(headers and its own attachments preserved), with your note as the body. Subject is prefixed "Fwd:" ' +
         'unless already present. A copy is archived in "Sent" (savedToSent in the result).',
       inputSchema: {
-        folder: z.string().min(1).default('INBOX').describe('Folder containing the message to forward'),
+        folder: z
+          .string()
+          .min(1)
+          .default('INBOX')
+          .describe('Folder containing the message to forward'),
         uid: z.coerce.number().int().positive().describe('UID of the message to forward'),
         to: z.array(z.string().email()).min(1),
         cc: z.array(z.string().email()).optional(),
@@ -41,7 +45,16 @@ export function registerForwardMessageTool(server: McpServer): void {
       try {
         const decoded = decodeInboundAttachments(attachments, config.ATTACHMENT_MAX_BYTES);
         log.info({ folder, uid, to }, 'forwarding message');
-        const result = await sendForward({ folder, uid, to, cc, bcc, text, html, attachments: decoded });
+        const result = await sendForward({
+          folder,
+          uid,
+          to,
+          cc,
+          bcc,
+          text,
+          html,
+          attachments: decoded,
+        });
         return jsonResult(result);
       } catch (err) {
         if (err instanceof AttachmentTooLargeError) {
