@@ -1,0 +1,33 @@
+{
+  "branches": ["main"],
+  "plugins": [
+    "@semantic-release/commit-analyzer",
+    "@semantic-release/release-notes-generator",
+    [
+      "@semantic-release/changelog",
+      {
+        "changelogTitle": "# Changelog\n\nGénéré automatiquement par [semantic-release](https://semantic-release.gitbook.io/)\nà partir des commits [Conventional Commits](https://www.conventionalcommits.org/fr/)\nmergés sur `main` (`feat:` → minor, `fix:` → patch, `BREAKING CHANGE:` → major).\nRien à éditer ici à la main : chaque release ajoute son entrée sous ce\npréambule. Détails du pipeline dans\n[`docs/development.md`](docs/development.md#releases).\n\nLes entrées ci-dessous, jusqu'à `[0.1.4]`, sont l'historique de l'ancien\nprocessus manuel (tag `vX.Y.Z` + édition manuelle de ce fichier).\n\n---"
+      }
+    ],
+    [
+      "@semantic-release/npm",
+      {
+        "npmPublish": false
+      }
+    ],
+    [
+      "@semantic-release/git",
+      {
+        "assets": ["package.json", "package-lock.json", "CHANGELOG.md"],
+        "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+      }
+    ],
+    "@semantic-release/github",
+    [
+      "@semantic-release/exec",
+      {
+        "successCmd": "echo \"released=true\" >> \"$GITHUB_OUTPUT\"; echo \"version=${nextRelease.version}\" >> \"$GITHUB_OUTPUT\""
+      }
+    ]
+  ]
+}

@@ -1,0 +1,27 @@
+name: Commitlint
+
+# Chaque commit d'une PR doit suivre Conventional Commits : semantic-release
+# en dépend pour calculer le prochain bump de version (release.yml).
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  commitlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - uses: wagoid/commitlint-github-action@v6
