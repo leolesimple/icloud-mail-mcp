@@ -3,6 +3,10 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { config } from '../src/config.js';
 import { buildWhoami } from '../src/mcp/whoami.js';
+import { buildInboxOverview } from '../src/mcp/overview.js';
+import type { InboxOverviewDeps } from '../src/mcp/overview.js';
+import type { FolderInfo } from '../src/imap/folders.js';
+import type { MessageSummary } from '../src/imap/messages.js';
 
 // Valeurs posées par test/helpers/env.ts — ce sont les « secrets » factices qui
 // ne doivent jamais apparaître dans la sortie de whoami.
@@ -122,9 +126,179 @@ describe('buildWhoami', () => {
 
       for (const report of reports) {
         const json = JSON.stringify(report);
-        assert.ok(!json.includes(APP_PASSWORD), 'le mot de passe d’application ne doit pas apparaître');
+        assert.ok(
+          !json.includes(APP_PASSWORD),
+          'le mot de passe d’application ne doit pas apparaître',
+        );
         assert.ok(!json.includes(BEARER_TOKEN), 'le bearer token ne doit pas apparaître');
       }
     });
+  });
+});
+
+// --- inbox_overview ---------------------------------------------------------
+
+function summary(uid: number, seen: boolean): MessageSummary {
+  return { uid, subject: `Message ${uid}`, from: [], to: [], seen, flagged: false };
+}
+
+function folder(
+  path: string,
+  counts: { messages?: number; unseen?: number } = {},
+  specialUse?: string,
+): FolderInfo {
+  return {
+    path,
+    name: path,
+    delimiter: '/',
+    parentPath: '',
+    flags: [],
+    subscribed: true,
+    specialUse,
+    ...counts,
+  };
+}
+
+/** Dépendances factices : aucune connexion IMAP, sonde comprise. */
+function overviewDeps(
+  overrides: Partial<InboxOverviewDeps> = {},
+): InboxOverviewDeps & { calls: unknown[] } {
+  const calls: unknown[] = [];
+  return {
+    calls,
+    listInbox: async (opts) => {
+      calls.push(opts);
+      return opts.unreadOnly
+        ? { messages: [summary(9, false), summary(7, false)].slice(0, opts.limit) }
+        : {
+            messages: [summary(10, true), summary(9, false), summary(8, true)].slice(0, opts.limit),
+          };
+    },
+    listFolders: async () => [
+      folder('INBOX', { messages: 120, unseen: 14 }),
+      folder('Sent Messages', { messages: 30, unseen: 0 }, '\\Sent'),
+      folder('Projets'),
+    ],
+    whoami: (probe) =>
+      buildWhoami(probe, { poolStats: noPool, probe: async () => ({ folderCount: 3 }) }),
+    ...overrides,
+  };
+}
+
+describe('buildInboxOverview', () => {
+  it('résume l’INBOX : compteurs STATUS, derniers non lus et derniers messages', async () => {
+    const deps = overviewDeps();
+    const overview = await buildInboxOverview({ limit: 2, includeDiagnostics: false }, deps);
+
+    assert.equal(overview.account.email, 'test@example.com');
+    assert.equal(overview.inbox.folder, 'INBOX');
+    assert.equal(overview.inbox.total, 120);
+    assert.equal(overview.inbox.unread, 14);
+    assert.deepEqual(
+      overview.inbox.recentUnread.map((m) => m.uid),
+      [9, 7],
+    );
+    assert.deepEqual(
+      overview.inbox.recent.map((m) => m.uid),
+      [10, 9],
+    );
+    assert.deepEqual(deps.calls, [{ unreadOnly: true, limit: 2 }, { limit: 2 }]);
+  });
+
+  it('donne les compteurs de chaque dossier, sans les champs absents', async () => {
+    const overview = await buildInboxOverview(
+      { limit: 10, includeDiagnostics: false },
+      overviewDeps(),
+    );
+    assert.deepEqual(overview.folders, [
+      { path: 'INBOX', messages: 120, unseen: 14 },
+      { path: 'Sent Messages', specialUse: '\\Sent', messages: 30, unseen: 0 },
+      { path: 'Projets' },
+    ]);
+  });
+
+  it('n’annonce pas la taille de la page comme total quand d’autres non lus existent', async () => {
+    const overview = await buildInboxOverview(
+      { limit: 2, includeDiagnostics: false },
+      overviewDeps({
+        listFolders: async () => [folder('INBOX')],
+        listInbox: async (opts) => ({
+          messages: [summary(9, false), summary(7, false)],
+          ...(opts.unreadOnly ? { nextCursor: 7 } : {}),
+        }),
+      }),
+    );
+    assert.equal(overview.inbox.unread, undefined);
+    assert.equal(overview.inbox.recentUnread.length, 2);
+  });
+
+  it('retombe sur le nombre de non lus renvoyés si l’INBOX n’a pas de STATUS', async () => {
+    const overview = await buildInboxOverview(
+      { limit: 10, includeDiagnostics: false },
+      overviewDeps({ listFolders: async () => [folder('INBOX')] }),
+    );
+    assert.equal(overview.inbox.unread, 2);
+    assert.equal(overview.inbox.total, undefined);
+  });
+
+  it('expose les garde-fous actifs, comme whoami', async () => {
+    const overview = await buildInboxOverview(
+      { limit: 10, includeDiagnostics: false },
+      overviewDeps(),
+    );
+    assert.equal(overview.guardrails.sendingEnabled, config.ENABLE_SENDING);
+    assert.equal(overview.guardrails.draftsOnly, config.DRAFTS_ONLY);
+    assert.equal(overview.guardrails.allowlistActive, config.ALLOWED_RECIPIENTS_LIST.length > 0);
+    assert.equal(overview.guardrails.maxSendsPerDay, config.MAX_SENDS_PER_DAY);
+  });
+
+  it('ne sonde pas et n’inclut pas de diagnostics par défaut', async () => {
+    let probed = false;
+    const overview = await buildInboxOverview(
+      { limit: 10, includeDiagnostics: false },
+      overviewDeps({
+        whoami: (probe) => {
+          probed = probe;
+          return buildWhoami(probe, { poolStats: noPool });
+        },
+      }),
+    );
+    assert.equal(probed, false);
+    assert.equal(overview.diagnostics, undefined);
+  });
+
+  it('inclut la sonde et l’état du pool avec includeDiagnostics', async () => {
+    const overview = await buildInboxOverview(
+      { limit: 10, includeDiagnostics: true },
+      overviewDeps(),
+    );
+    assert.deepEqual(overview.diagnostics?.probe, { attempted: true, ok: true, folderCount: 3 });
+    assert.deepEqual(overview.diagnostics?.imapPool, { open: 0, inUse: 0, max: 2 });
+  });
+
+  it('ne laisse sortir aucun secret, diagnostics et sonde en échec compris', async () => {
+    const failingProbe = overviewDeps({
+      whoami: (probe) =>
+        buildWhoami(probe, {
+          poolStats: noPool,
+          probe: async () => {
+            throw new Error(`échec avec ${APP_PASSWORD} et ${BEARER_TOKEN}`);
+          },
+        }),
+    });
+    const overviews = await Promise.all([
+      buildInboxOverview({ limit: 10, includeDiagnostics: false }, overviewDeps()),
+      buildInboxOverview({ limit: 10, includeDiagnostics: true }, overviewDeps()),
+      buildInboxOverview({ limit: 10, includeDiagnostics: true }, failingProbe),
+    ]);
+
+    for (const overview of overviews) {
+      const json = JSON.stringify(overview);
+      assert.ok(
+        !json.includes(APP_PASSWORD),
+        'le mot de passe d’application ne doit pas apparaître',
+      );
+      assert.ok(!json.includes(BEARER_TOKEN), 'le bearer token ne doit pas apparaître');
+    }
   });
 });

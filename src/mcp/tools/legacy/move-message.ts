@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { moveMessage, moveMessages, BULK_UID_LIMIT } from '../../imap/mutations.js';
-import { jsonResult, errorResult } from '../result.js';
-import { moveResultSchema } from '../schemas.js';
-import { logger } from '../../logger.js';
+import { moveMessage, moveMessages, BULK_UID_LIMIT } from '../../../imap/mutations.js';
+import { jsonResult, errorResult } from '../../result.js';
+import { moveResultSchema } from '../../schemas.js';
+import { logger } from '../../../logger.js';
 
 const log = logger.child({ tool: 'move_message' });
 
@@ -26,7 +26,9 @@ export function registerMoveMessageTool(server: McpServer): void {
     },
     async ({ folder, uid, uids, destination }) => {
       if ((uid === undefined) === (uids === undefined)) {
-        return errorResult('Fournir exactement un de "uid" (un message) ou "uids" (jusqu\'à 200 messages).');
+        return errorResult(
+          'Fournir exactement un de "uid" (un message) ou "uids" (jusqu\'à 200 messages).',
+        );
       }
 
       if (uids) {

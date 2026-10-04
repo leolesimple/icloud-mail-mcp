@@ -11,7 +11,7 @@ const log = logger.child({ module: 'resources' });
  *   - `mail://folders`                              → la liste des dossiers ;
  *   - `mail://folder/{path}/message/{uid}`          → un message complet.
  *
- * Elles doublent `list_folders` / `get_message` pour les clients qui préfèrent
+ * Elles doublent `manage_folders` (action list) / `read_message` pour les clients qui préfèrent
  * référencer une ressource (mention @, pièce jointe de contexte) plutôt que
  * d'appeler un outil.
  */

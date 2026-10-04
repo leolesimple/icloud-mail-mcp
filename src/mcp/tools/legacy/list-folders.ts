@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { listFolders } from '../../imap/folders.js';
-import { listResult } from '../result.js';
-import { listFoldersResultSchema } from '../schemas.js';
-import { logger } from '../../logger.js';
+import { listFolders } from '../../../imap/folders.js';
+import { listResult } from '../../result.js';
+import { listFoldersResultSchema } from '../../schemas.js';
+import { logger } from '../../../logger.js';
 
 const log = logger.child({ tool: 'list_folders' });
 

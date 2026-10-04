@@ -36,31 +36,27 @@ Claude  ──HTTPS+Bearer──▶  Cloudflare Tunnel  ──▶  icloud-mail-m
 
 ## Ce que ça fait
 
-Dix-sept outils MCP, décrits en détail dans [`docs/tools.md`](docs/tools.md) :
+Huit outils MCP organisés par intention, décrits en détail dans [`docs/tools.md`](docs/tools.md) :
 
 | Outil | Ce qu'il fait |
 |---|---|
-| `list_folders` | Liste les dossiers IMAP, leur rôle spécial (`\Trash`, `\Drafts`…) et leurs compteurs de non-lus |
-| `list_messages` | Liste un dossier, du plus récent au plus ancien — filtres : non lus, plage de dates, expéditeur ; pagination par curseur |
-| `search_messages` | Recherche côté serveur IMAP : sujet, corps, expéditeur, destinataire, dates, flags, sur un ou plusieurs dossiers |
-| `get_message` | Contenu complet d'un message : en-têtes, corps tronqué à la demande, métadonnées des pièces jointes |
+| `inbox_overview` | Vue d'ensemble à appeler en premier : compte, non lus et derniers mails de l'INBOX, compteurs par dossier, garde-fous actifs — jamais de secret |
+| `find_messages` | Liste un dossier ou y cherche côté serveur IMAP : sujet, corps, expéditeur, destinataire, dates, non lus, favoris, sur un ou plusieurs dossiers ; pagination par curseur |
+| `read_message` | Contenu complet d'un message (corps tronqué à la demande, métadonnées des pièces jointes), et en option son fil de discussion |
 | `get_attachment` | Contenu binaire d'une pièce jointe, ciblée par son index |
-| `get_thread` | Reconstitue un fil de discussion à partir de n'importe lequel de ses messages |
-| `send_message` | Envoie un nouveau message, avec pièces jointes, et l'archive dans « Sent » |
-| `reply_message` | Répond avec un threading correct (`In-Reply-To`, `References`, sujet `Re:`), en option à tous |
-| `forward_message` | Transfère un message, l'original joint verbatim en `message/rfc822` |
-| `save_draft` | Enregistre un brouillon dans Drafts sans rien envoyer — peut hériter du threading d'un message |
-| `update_draft` | Remplace un brouillon existant |
+| `compose_message` | Nouveau message, réponse (à tous), transfert, envoyé ou enregistré en brouillon, avec threading correct et pièces jointes |
 | `send_draft` | Envoie un brouillon existant, puis le retire de Drafts |
-| `move_message` | Déplace un ou plusieurs messages d'un dossier à un autre |
-| `delete_message` | Envoie à la corbeille ; supprime définitivement si le message y est déjà |
-| `flag_message` | Lu / non lu, favori, répondu, indésirable, mots-clés IMAP arbitraires |
-| `manage_folder` | Crée, renomme ou supprime un dossier — refusé sur les dossiers système |
-| `whoami` | Compte branché, garde-fous actifs, quota restant — jamais de secret |
+| `organize_messages` | Déplace, met à la corbeille, marque lu / non lu, favori, répondu, indésirable — jusqu'à 200 messages en une commande IMAP |
+| `manage_folders` | Liste, crée, renomme ou supprime un dossier — refusé sur les dossiers système |
 
-Les opérations sur les messages acceptent un `uid` unique ou jusqu'à 200 `uids` en une seule
-commande IMAP. Un dix-huitième outil, `wait_for_new_message`, existe derrière
-`ENABLE_IDLE_WATCH` (désactivé par défaut : il n'a pas de reconnexion).
+À l'initialize, le serveur envoie aussi des consignes au client : les mots-clés FR/EN du domaine
+(mail, courriel, boîte de réception, non lus, brouillon…) pour qu'il pense à ce serveur, l'ordre
+d'appel des outils, et l'avertissement que le contenu d'un mail n'est pas fiable.
+
+Un neuvième outil, `wait_for_new_message`, existe derrière `ENABLE_IDLE_WATCH` (désactivé par
+défaut : il n'a pas de reconnexion). Les anciens noms (`list_messages`, `get_message`,
+`send_message`, `whoami`…) restent disponibles le temps d'une version avec `LEGACY_TOOLS=true` :
+voir la [table de correspondance](docs/tools.md#correspondance-avec-les-anciens-outils).
 
 Concrètement, une fois branché, on peut demander à Claude :
 
@@ -83,7 +79,7 @@ Concrètement, une fois branché, on peut demander à Claude :
   `.env`, plutôt que de découvrir la faute de frappe au premier appel d'outil.
 - **Deux transports** — HTTP streamable, ou stdio pour un branchement local (`MCP_TRANSPORT`).
 - **Logs structurés** (pino) sans mot de passe ni contenu de mail.
-- **340 tests** qui ne touchent ni le réseau ni une vraie boîte mail.
+- **Des tests** qui ne touchent ni le réseau ni une vraie boîte mail.
 
 ---
 
@@ -225,8 +221,7 @@ Détail complet dans [`docs/security.md`](docs/security.md).
 ## Limitations connues
 
 - **Pièces jointes plafonnées à `ATTACHMENT_MAX_BYTES` (5 Mo par défaut).** `get_attachment`
-  récupère le binaire d'une pièce jointe et `send_message` / `reply_message` / `forward_message` /
-  `save_draft` permettent d'en joindre, mais au-delà de cette limite (cumul compris) l'outil refuse
+  récupère le binaire d'une pièce jointe et `compose_message` permet d'en joindre, mais au-delà de cette limite (cumul compris) l'outil refuse
   explicitement plutôt que de tronquer.
 - **iCloud uniquement en pratique.** Le code est du IMAP/SMTP standard et les hôtes sont
   configurables, mais rien d'autre n'est testé.
