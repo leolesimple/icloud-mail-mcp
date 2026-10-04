@@ -173,6 +173,34 @@ describe('parseConfig', () => {
     });
   });
 
+  describe('CONFIRM_SECRET', () => {
+    it('est optionnel', () => {
+      assert.equal(parseConfig({ ...validEnv }).CONFIRM_SECRET, undefined);
+    });
+
+    it('traite une valeur vide comme absente', () => {
+      assert.equal(parseConfig({ ...validEnv, CONFIRM_SECRET: '' }).CONFIRM_SECRET, undefined);
+    });
+
+    it('accepte un secret de 32 caractères', () => {
+      const secret = 'a'.repeat(32);
+      assert.equal(parseConfig({ ...validEnv, CONFIRM_SECRET: secret }).CONFIRM_SECRET, secret);
+    });
+
+    it('rejette un secret trop court sans le recopier dans l’erreur', () => {
+      const secret = 'secret-trop-court';
+      assert.throws(
+        () => parseConfig({ ...validEnv, CONFIRM_SECRET: secret }),
+        (err: unknown) => {
+          const message = (err as Error).message;
+          assert.match(message, /CONFIRM_SECRET doit faire au moins 32 caractères/);
+          assert.ok(!message.includes(secret));
+          return true;
+        },
+      );
+    });
+  });
+
   describe('envBool', () => {
     for (const value of ['false', '0', 'no', 'FALSE ', ' No ']) {
       it(`traite ${JSON.stringify(value)} comme faux`, () => {
