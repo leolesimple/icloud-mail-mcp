@@ -92,7 +92,9 @@ describe('jetons de confirmation', () => {
     it('bigint et chaîne ne se confondent pas', () => {
       const tokens = service();
       const { token } = tokens.issue(OP, { params: { n: 1n } });
-      rejects(() => tokens.verify(token, OP, { params: { n: '1' } }), 'mismatch');
+      for (const n of ['1', 'bigint:1', '1n', 1]) {
+        rejects(() => tokens.verify(token, OP, { params: { n } }), 'mismatch');
+      }
     });
   });
 

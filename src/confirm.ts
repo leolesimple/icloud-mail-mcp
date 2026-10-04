@@ -87,12 +87,14 @@ export interface ConfirmTokenServiceOptions {
 }
 
 /**
- * Sérialisation JSON canonique : clés d'objet triées, bigint en chaîne
- * préfixée (pour ne pas confondre `1n` et `"1"`), `undefined` retiré des
- * objets comme le fait `JSON.stringify`.
+ * Sérialisation canonique, proche de JSON : clés d'objet triées, `undefined`
+ * retiré des objets comme le fait `JSON.stringify`. Un bigint s'écrit sans
+ * guillemets avec le suffixe `n` (`1n`) : aucune chaîne (toujours entre
+ * guillemets) ni aucun nombre ne produit la même sortie. Le résultat n'est
+ * que haché, jamais relu.
  */
 function canonicalJson(value: unknown): string {
-  if (typeof value === 'bigint') return JSON.stringify(`bigint:${value.toString()}`);
+  if (typeof value === 'bigint') return `${value.toString()}n`;
   if (value === undefined) return 'null';
   if (value === null || typeof value !== 'object') {
     if (typeof value === 'function' || typeof value === 'symbol') {
