@@ -56,8 +56,12 @@ export type ConfirmFlowOutcome<T> =
 
 /** Le client sait-il afficher un formulaire d'elicitation ? */
 export function supportsFormElicitation(host: ElicitationHost): boolean {
-  // Le SDK normalise `elicitation: {}` en `{ form: {} }` (rétrocompatibilité).
-  return Boolean(host.getClientCapabilities()?.elicitation?.form);
+  // `elicitation: {}` (clients antérieurs aux modes form/url) vaut support du
+  // formulaire. Le SDK le normalise déjà à l'initialize, mais on ne dépend pas
+  // de l'hôte : rater ce cas ferait retomber sur le jeton, sans humain.
+  const elicitation = host.getClientCapabilities()?.elicitation;
+  if (!elicitation) return false;
+  return elicitation.form !== undefined || Object.keys(elicitation).length === 0;
 }
 
 /**

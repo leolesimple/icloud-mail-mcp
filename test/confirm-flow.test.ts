@@ -1,16 +1,20 @@
 import './helpers/env.js';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import type {
-  ClientCapabilities,
-  ElicitRequestFormParams,
-  ElicitResult,
+import {
+  ElicitRequestSchema,
+  type ClientCapabilities,
+  type ElicitRequestFormParams,
+  type ElicitResult,
 } from '@modelcontextprotocol/sdk/types.js';
 import { ConfirmTokenError, createConfirmTokenService } from '../src/confirm.js';
 import {
   confirmationResult,
   runConfirmFlow,
+  supportsFormElicitation,
   type ElicitationHost,
 } from '../src/mcp/confirm-flow.js';
 
@@ -46,6 +50,81 @@ function counter() {
 function tokens() {
   return createConfirmTokenService({ secret: 'secret-de-test-0123456789abcdef-0123456789' });
 }
+
+describe('supportsFormElicitation', () => {
+  const cases: [ClientCapabilities | undefined, boolean][] = [
+    [undefined, false],
+    [{}, false],
+    [{ elicitation: {} }, true],
+    [{ elicitation: { form: {} } }, true],
+    [{ elicitation: { form: {}, url: {} } }, true],
+    [{ elicitation: { url: {} } }, false],
+  ];
+  for (const [caps, expected] of cases) {
+    it(`${JSON.stringify(caps)} → ${expected}`, () => {
+      assert.equal(supportsFormElicitation(host(caps).host), expected);
+    });
+  }
+});
+
+describe('runConfirmFlow de bout en bout (client MCP en mémoire)', () => {
+  async function connect(capabilities: ClientCapabilities, answer: ElicitResult) {
+    const server = new Server({ name: 'test', version: '0' }, { capabilities: {} });
+    const client = new Client({ name: 'client', version: '0' }, { capabilities });
+    const messages: string[] = [];
+    client.setRequestHandler(ElicitRequestSchema, async (request) => {
+      messages.push(request.params.message);
+      return answer;
+    });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    return { server, client, messages };
+  }
+
+  for (const caps of [{ elicitation: {} }, { elicitation: { form: {} } }] as ClientCapabilities[]) {
+    it(`${JSON.stringify(caps)} : demande à l'utilisateur puis exécute`, async () => {
+      const { server, client, messages } = await connect(caps, {
+        action: 'accept',
+        content: { confirm: true },
+      });
+      try {
+        const exec = counter();
+        const outcome = await runConfirmFlow({
+          host: server,
+          operation: 'empty_folder',
+          binding: BINDING,
+          summary: SUMMARY,
+          execute: exec.execute,
+          tokens: tokens(),
+        });
+        assert.equal(outcome.status, 'executed');
+        assert.equal(exec.calls, 1);
+        assert.equal(messages.length, 1);
+        assert.match(messages[0] ?? '', /Junk/);
+      } finally {
+        await client.close();
+      }
+    });
+  }
+
+  it('un refus côté client ne déclenche rien', async () => {
+    const { server, client } = await connect({ elicitation: {} }, { action: 'decline' });
+    try {
+      const exec = counter();
+      const outcome = await runConfirmFlow({
+        host: server,
+        operation: 'empty_folder',
+        binding: BINDING,
+        summary: SUMMARY,
+        execute: exec.execute,
+      });
+      assert.equal(outcome.status, 'declined');
+      assert.equal(exec.calls, 0);
+    } finally {
+      await client.close();
+    }
+  });
+});
 
 describe('runConfirmFlow', () => {
   it('le Server du SDK satisfait ElicitationHost', () => {
