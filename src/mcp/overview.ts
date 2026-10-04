@@ -31,8 +31,11 @@ export interface InboxOverview {
     folder: string;
     /** Nombre total de messages, d'après STATUS. Absent si l'INBOX n'a pas été listée. */
     total?: number;
-    /** Nombre de non lus, d'après STATUS (à défaut : ceux renvoyés dans `recentUnread`). */
-    unread: number;
+    /**
+     * Nombre de non lus, d'après STATUS. À défaut, le nombre de non lus renvoyés
+     * s'ils tiennent tous dans la page ; absent sinon (le compte serait faux).
+     */
+    unread?: number;
     /** Les `limit` derniers non lus, du plus récent au plus ancien. */
     recentUnread: MessageSummary[];
     /** Les `limit` derniers messages, lus ou non. */
@@ -74,13 +77,16 @@ export async function buildInboxOverview(
   ]);
 
   const inboxInfo = folderList.find((folder) => folder.path.toUpperCase() === INBOX);
+  const unread =
+    inboxInfo?.unseen ??
+    (unreadPage.nextCursor === undefined ? unreadPage.messages.length : undefined);
 
   const overview: InboxOverview = {
     account: { email: account.email },
     inbox: {
       folder: inboxInfo?.path ?? INBOX,
       ...(inboxInfo?.messages !== undefined ? { total: inboxInfo.messages } : {}),
-      unread: inboxInfo?.unseen ?? unreadPage.messages.length,
+      ...(unread !== undefined ? { unread } : {}),
       recentUnread: unreadPage.messages,
       recent: recentPage.messages,
     },

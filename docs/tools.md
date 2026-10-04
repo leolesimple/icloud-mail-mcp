@@ -78,7 +78,7 @@ l'appeler **en premier** pour toute demande qui touche aux mails. Remplace `whoa
   "inbox": {
     "folder": "INBOX",
     "total": 1284,            // STATUS ; absent si l'INBOX n'a pas pu être comptée
-    "unread": 17,             // STATUS ; à défaut, le nombre de non lus renvoyés
+    "unread": 17,             // STATUS ; à défaut, compté seulement si tous tiennent dans la page, absent sinon
     "recentUnread": [ /* les `limit` derniers non lus, résumés comme dans find_messages */ ],
     "recent": [ /* les `limit` derniers messages, lus ou non */ ]
   },

@@ -217,6 +217,21 @@ describe('buildInboxOverview', () => {
     ]);
   });
 
+  it('n’annonce pas la taille de la page comme total quand d’autres non lus existent', async () => {
+    const overview = await buildInboxOverview(
+      { limit: 2, includeDiagnostics: false },
+      overviewDeps({
+        listFolders: async () => [folder('INBOX')],
+        listInbox: async (opts) => ({
+          messages: [summary(9, false), summary(7, false)],
+          ...(opts.unreadOnly ? { nextCursor: 7 } : {}),
+        }),
+      }),
+    );
+    assert.equal(overview.inbox.unread, undefined);
+    assert.equal(overview.inbox.recentUnread.length, 2);
+  });
+
   it('retombe sur le nombre de non lus renvoyés si l’INBOX n’a pas de STATUS', async () => {
     const overview = await buildInboxOverview(
       { limit: 10, includeDiagnostics: false },

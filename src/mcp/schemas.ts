@@ -278,7 +278,7 @@ export const inboxOverviewSchema = schemaFor<InboxOverview>()(
     inbox: z.object({
       folder: z.string(),
       total: z.number().optional(),
-      unread: z.number(),
+      unread: z.number().optional(),
       recentUnread: z.array(messageSummarySchema),
       recent: z.array(messageSummarySchema),
     }),
