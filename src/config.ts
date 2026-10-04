@@ -53,6 +53,15 @@ const envSchema = z.object({
   // Lève tous les garde-fous d'envoi. À n'utiliser qu'en connaissance de cause.
   UNRESTRICTED: envBool(false),
 
+  // --- Jetons de confirmation (lot 2) -------------------------------------
+  // Secret HMAC des jetons de confirmation des opérations destructives.
+  // Optionnel : absent ou vide, un secret aléatoire est tiré au démarrage
+  // (les jetons ne survivent pas à un redémarrage, sans gravité vu leur TTL).
+  CONFIRM_SECRET: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.string().min(32, 'CONFIRM_SECRET doit faire au moins 32 caractères').optional(),
+  ),
+
   // --- Protocole MCP / sessions (lots C, E) -------------------------------
   // Plafond d'appels par minute et par session.
   RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(120),

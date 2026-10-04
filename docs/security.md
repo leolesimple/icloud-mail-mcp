@@ -81,6 +81,45 @@ pas un mode de test : c'est un incident. À n'utiliser que sur une instance jeta
 
 ---
 
+## Confirmation des opérations destructives
+
+Les opérations irréversibles (vidage de la corbeille ou des indésirables, suppression définitive,
+envoi en mode confirmé) s'appuient sur un mécanisme de confirmation commun
+([`src/confirm.ts`](../src/confirm.ts), [`src/mcp/confirm-flow.ts`](../src/mcp/confirm-flow.ts)).
+Il est branché sur les outils au fil des lots qui les introduisent.
+
+**Menace couverte.** Un contenu de mail (injection de prompt) ou un agent qui enchaîne les appels ne
+peut pas déclencher seul une opération destructive en un appel. Il faut :
+
+- soit **l'accord explicite de l'utilisateur**, demandé par le serveur via l'*elicitation* MCP
+  quand le client la supporte : formulaire avec une case à cocher, affiché par le client hors du
+  contrôle du modèle. Un refus ou une annulation renvoie un résultat non-erreur (`declined` /
+  `cancelled`) : rien n'est fait, et le modèle n'est pas incité à réessayer ;
+- soit, à défaut, **un aller-retour avec jeton** : le premier appel n'exécute rien et renvoie un
+  jeton avec un résumé de l'opération ; seul le même appel, refait avec ce jeton, l'exécute.
+
+Le jeton est un HMAC-SHA256 (secret `CONFIRM_SECRET`, ou aléatoire au démarrage) qui lie
+l'opération, le dossier, son UIDVALIDITY et une empreinte des paramètres (UID, destinataires…). Il
+expire après 2 minutes, ne sert qu'une fois, et se vérifie en temps constant. Un jeton émis pour
+vider `Junk` ne vide pas `Deleted Messages`, ni le même dossier après une resynchronisation
+(UIDVALIDITY changée), ni avec d'autres UID.
+
+**Limites.**
+
+- Sans elicitation, le jeton prouve **un aller-retour, pas une intention humaine** : un agent
+  déterminé peut refaire l'appel avec le jeton qu'il vient de recevoir. Le résumé renvoyé et la
+  consigne de demander l'accord de l'utilisateur ralentissent l'enchaînement et le rendent visible
+  dans la conversation, sans l'empêcher. Seule l'elicitation fait intervenir l'utilisateur.
+- Avec elicitation, la garantie vaut ce que vaut le client : un client qui accepterait le formulaire
+  automatiquement l'annule.
+- Le jeton est consommé à la vérification, avant l'exécution : si l'opération échoue ensuite, il
+  faut en redemander un.
+- La liste des jetons consommés vit en mémoire : elle est perdue au redémarrage, comme les jetons
+  eux-mêmes quand le secret est aléatoire. Avec un `CONFIRM_SECRET` fixe, un jeton déjà utilisé
+  redevient valable après un redémarrage, jusqu'à son expiration (2 min au plus).
+
+---
+
 ## Ce qui reste à votre charge
 
 ### Le bearer token

@@ -164,6 +164,20 @@ Les clés booléennes (`DRAFTS_ONLY`, `UNRESTRICTED`) suivent la même règle qu
 
 ---
 
+## Jetons de confirmation
+
+| Variable | Défaut | Description |
+|---|---|---|
+| `CONFIRM_SECRET` | `''` (vide) | Secret HMAC des jetons de confirmation des opérations destructives. Au moins 32 caractères, sinon le démarrage échoue. Vide ou absent : un secret aléatoire est tiré au démarrage. |
+
+Les jetons durent 2 minutes : les perdre au redémarrage est sans conséquence, d'où un secret
+optionnel. Le fixer n'a d'intérêt que pour garder les jetons valides à travers un redémarrage
+rapide. Générez-le avec `openssl rand -hex 32` ; ne réutilisez ni `MCP_BEARER_TOKEN` ni le mot de
+passe d'application. Il n'apparaît dans aucun log (expurgé par pino) ni dans aucune réponse d'outil.
+Voir [`security.md`](security.md#confirmation-des-opérations-destructives).
+
+---
+
 ## Protocole MCP et sessions
 
 | Variable | Défaut | Description |
