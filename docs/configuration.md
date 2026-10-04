@@ -66,7 +66,7 @@ si le serveur refuse de passer en TLS, l'envoi échoue au lieu de partir en clai
 | Variable | Défaut | Description |
 |---|---|---|
 | `MCP_TRANSPORT` | `http` | `http`, `stdio` ou `both`. Voir [deployment.md](deployment.md#choisir-le-transport). |
-| `MAX_BODY_CHARS` | `20000` | Plafond par défaut, en caractères, du corps renvoyé par `get_message`. Surchargeable par appel via `maxBodyChars`. |
+| `MAX_BODY_CHARS` | `20000` | Plafond par défaut, en caractères, du corps renvoyé par `read_message`. Surchargeable par appel via `maxBodyChars`. |
 
 En `stdio`, stdout porte le canal JSON-RPC : le serveur bascule automatiquement ses logs sur stderr.
 
@@ -99,7 +99,7 @@ serveur — une session qu'un client abandonne sans `DELETE` est nettoyée autom
 
 ## Garde-fous d'envoi
 
-`send_message` et `reply_message` passent par une décision graduée
+`compose_message` (`deliver: "send"`) et `send_draft` passent par une décision graduée
 ([`src/smtp/guards.ts`](../src/smtp/guards.ts)), évaluée dans cet ordre :
 
 | Variable | Défaut | Effet |
@@ -187,6 +187,27 @@ le détecte pas et se contente d'expirer avec `timedOut: true` — un nouveau me
 entre-temps est manqué **sans le moindre signal**. Tant que la version avec reconnexion n'est pas
 faite ([#20](https://github.com/leolesimple/icloud-mail-mcp/issues/20)), l'outil n'est exposé que si vous
 l'activez explicitement, en connaissance de cause.
+
+Reconnus comme « activé » : toute valeur autre que `false`, `0`, `no` (casse et espaces ignorés).
+
+---
+
+## Compatibilité des outils
+
+| Variable | Défaut | Description |
+|---|---|---|
+| `LEGACY_TOOLS` | `false` | `true` réenregistre les anciens outils en plus des nouveaux |
+
+Les 17 outils historiques ont été regroupés en 8 outils organisés par intention (voir
+[docs/tools.md](tools.md)). Avec `LEGACY_TOOLS=true`, les 15 anciens noms qui ont disparu
+(`list_messages`, `search_messages`, `get_message`, `get_thread`, `send_message`, `reply_message`,
+`forward_message`, `save_draft`, `update_draft`, `move_message`, `delete_message`, `flag_message`,
+`list_folders`, `manage_folder`, `whoami`) sont exposés **en plus** des nouveaux, avec leurs
+contrats d'origine et une description qui commence par « Deprecated: use … ». `get_attachment` et
+`send_draft` gardent leur nom et ne sont donc pas dupliqués.
+
+Prévu pour une version de transition : le temps de mettre à jour un client ou un prompt qui cite
+les anciens noms. La variable disparaîtra avec eux.
 
 Reconnus comme « activé » : toute valeur autre que `false`, `0`, `no` (casse et espaces ignorés).
 

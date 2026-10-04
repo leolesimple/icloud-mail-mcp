@@ -104,7 +104,7 @@ verrou sur le dossier, exécute le travail, puis **libère toujours le verrou av
 même en cas d'erreur. Un verrou de boîte non libéré fige toutes les opérations suivantes sur cette
 connexion.
 
-Les lectures (`list_messages`, `search_messages`, `get_message`) passent en `readOnly: true` : le
+Les lectures (`find_messages`, `read_message`, `inbox_overview`) passent en `readOnly: true` : le
 dossier est ouvert avec `EXAMINE` plutôt que `SELECT`, ce qui évite que le serveur marque les
 messages comme lus au passage.
 

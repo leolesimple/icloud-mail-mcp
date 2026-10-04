@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { manageFolder } from '../../imap/folders.js';
-import { jsonResult, errorResult } from '../result.js';
-import { logger } from '../../logger.js';
+import { manageFolder } from '../../../imap/folders.js';
+import { jsonResult, errorResult } from '../../result.js';
+import { logger } from '../../../logger.js';
 
 const log = logger.child({ tool: 'manage_folder' });
 

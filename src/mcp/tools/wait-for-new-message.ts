@@ -13,13 +13,14 @@ export function registerWaitForNewMessageTool(server: McpServer): void {
     {
       title: 'Wait for new message',
       description:
-        'Blocks until a new message arrives in the given folder, or until timeoutSec elapses. Uses a dedicated ' +
-        'IMAP connection outside the pool. Returns { timedOut, newMessages }: a reached timeout is not an error. ' +
+        'Waits until a new email (nouveau courriel) arrives in a mail folder (INBOX / boîte de réception by ' +
+        'default), or until timeoutSec elapses. Uses a dedicated IMAP IDLE connection outside the pool. ' +
+        'Returns { timedOut, newMessages }: a reached timeout is not an error. ' +
         `timeoutSec is capped at ${MAX_WAIT_SECONDS}s.`,
       inputSchema: {
         folder: z.string().min(1).default('INBOX'),
-        timeoutSec: z
-          .coerce.number()
+        timeoutSec: z.coerce
+          .number()
           .int()
           .positive()
           .max(MAX_WAIT_SECONDS)
@@ -27,6 +28,12 @@ export function registerWaitForNewMessageTool(server: McpServer): void {
           .describe(`How long to wait, in seconds (max ${MAX_WAIT_SECONDS})`),
       },
       outputSchema: waitForNewMessageResultSchema.shape,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
     },
     async ({ folder, timeoutSec }) => {
       log.info({ folder, timeoutSec }, 'waiting for new message');

@@ -1,4 +1,5 @@
 import { simpleParser } from 'mailparser';
+import type { ParsedMail } from 'mailparser';
 import type { ImapFlow } from 'imapflow';
 import { imapPool } from './pool.js';
 import { classifyImapError } from './errors.js';
@@ -154,6 +155,21 @@ export interface SendDraftResult {
 }
 
 /**
+ * Pièces jointes d'un brouillon relu, à réémettre avec lui (images inline
+ * comprises, avec leur Content-ID). Sans elles, l'envoi partirait sans ses
+ * pièces jointes alors que la copie archivée dans Sent les contient.
+ */
+export function draftAttachments(parsed: Pick<ParsedMail, 'attachments'>): ComposeAttachment[] {
+  return parsed.attachments.map((attachment, index) => ({
+    filename: attachment.filename ?? `piece-jointe-${index + 1}`,
+    contentType: attachment.contentType,
+    content: attachment.content,
+    contentDisposition: attachment.contentDisposition === 'inline' ? 'inline' : 'attachment',
+    cid: attachment.cid,
+  }));
+}
+
+/**
  * Cœur testable de l'envoi d'un brouillon. Ordre : lire la source, envoyer
  * (chemin SMTP normal, coupe-circuit ENABLE_SENDING inclus), copier dans Sent,
  * puis seulement supprimer le brouillon. Si l'envoi échoue, le brouillon reste
@@ -215,6 +231,7 @@ export async function sendDraftOn(
       : parsed.references
         ? [parsed.references]
         : undefined,
+    attachments: draftAttachments(parsed),
   });
 
   sendQuota.record();

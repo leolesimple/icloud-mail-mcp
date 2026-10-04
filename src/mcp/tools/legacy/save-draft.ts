@@ -1,11 +1,11 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { saveDraft } from '../../imap/drafts.js';
-import { AttachmentTooLargeError, decodeInboundAttachments } from '../../attachments.js';
-import { config } from '../../config.js';
-import { jsonResult, errorResult } from '../result.js';
-import { draftResultSchema } from '../schemas.js';
-import { logger } from '../../logger.js';
+import { saveDraft } from '../../../imap/drafts.js';
+import { AttachmentTooLargeError, decodeInboundAttachments } from '../../../attachments.js';
+import { config } from '../../../config.js';
+import { jsonResult, errorResult } from '../../result.js';
+import { draftResultSchema } from '../../schemas.js';
+import { logger } from '../../../logger.js';
 
 const log = logger.child({ tool: 'save_draft' });
 
@@ -16,18 +16,29 @@ export function registerSaveDraftTool(server: McpServer): void {
       title: 'Save draft',
       description:
         'Composes a message and saves it to the Drafts folder via IMAP APPEND, without sending it. ' +
-        "Not affected by ENABLE_SENDING. To draft a reply with correct threading, pass replyFolder/replyUid " +
+        'Not affected by ENABLE_SENDING. To draft a reply with correct threading, pass replyFolder/replyUid ' +
         '(subject and "to" default from the original message if omitted). Attachments are passed as ' +
         'base64-encoded content.',
       inputSchema: {
-        to: z.array(z.string().email()).optional().describe('Required unless replyFolder/replyUid is given'),
+        to: z
+          .array(z.string().email())
+          .optional()
+          .describe('Required unless replyFolder/replyUid is given'),
         cc: z.array(z.string().email()).optional(),
         bcc: z.array(z.string().email()).optional(),
         subject: z.string().optional().describe('Required unless replyFolder/replyUid is given'),
         text: z.string().optional(),
         html: z.string().optional(),
-        replyFolder: z.string().optional().describe('Folder of the message being replied to, for threading'),
-        replyUid: z.coerce.number().int().positive().optional().describe('UID of the message being replied to'),
+        replyFolder: z
+          .string()
+          .optional()
+          .describe('Folder of the message being replied to, for threading'),
+        replyUid: z.coerce
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe('UID of the message being replied to'),
         attachments: z
           .array(
             z.object({

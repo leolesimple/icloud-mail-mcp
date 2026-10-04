@@ -1,11 +1,11 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { searchMessages, searchMessagesAcross } from '../../imap/messages.js';
-import type { SearchMessagesOptions } from '../../imap/messages.js';
-import { hasSearchCriteria } from '../../imap/search-query.js';
-import { listResult, errorResult } from '../result.js';
-import { searchMessagesResultSchema } from '../schemas.js';
-import { logger } from '../../logger.js';
+import { searchMessages, searchMessagesAcross } from '../../../imap/messages.js';
+import type { SearchMessagesOptions } from '../../../imap/messages.js';
+import { hasSearchCriteria } from '../../../imap/search-query.js';
+import { listResult, errorResult } from '../../result.js';
+import { searchMessagesResultSchema } from '../../schemas.js';
+import { logger } from '../../../logger.js';
 
 const log = logger.child({ tool: 'search_messages' });
 

@@ -1,11 +1,11 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { getMessage, getMessageSource } from '../../imap/messages.js';
-import { extractRawHeaders, prepareMessageBody } from '../message-content.js';
-import { getMessageResultSchema } from '../schemas.js';
-import { jsonResult } from '../result.js';
-import { config } from '../../config.js';
-import { logger } from '../../logger.js';
+import { getMessage, getMessageSource } from '../../../imap/messages.js';
+import { extractRawHeaders, prepareMessageBody } from '../../message-content.js';
+import { getMessageResultSchema } from '../../schemas.js';
+import { jsonResult } from '../../result.js';
+import { config } from '../../../config.js';
+import { logger } from '../../../logger.js';
 
 const log = logger.child({ tool: 'get_message' });
 
@@ -44,7 +44,10 @@ export function registerGetMessageTool(server: McpServer): void {
     async ({ folder, uid, maxBodyChars, includeHtml, includeRawHeaders }) => {
       log.info({ folder, uid, includeHtml, includeRawHeaders }, 'fetching message');
       const message = await getMessage(folder, uid);
-      const { text, html, bodyTruncated } = prepareMessageBody(message, { maxBodyChars, includeHtml });
+      const { text, html, bodyTruncated } = prepareMessageBody(message, {
+        maxBodyChars,
+        includeHtml,
+      });
 
       const rawHeaders = includeRawHeaders
         ? extractRawHeaders(await getMessageSource(folder, uid))
