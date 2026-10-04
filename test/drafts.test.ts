@@ -1,7 +1,9 @@
 import './helpers/env.js';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { sendDraftOn, updateDraftOn } from '../src/imap/drafts.js';
+import { simpleParser } from 'mailparser';
+import { draftAttachments, sendDraftOn, updateDraftOn } from '../src/imap/drafts.js';
+import { composeRaw } from '../src/smtp/compose.js';
 import { SmtpMessageError } from '../src/smtp/errors.js';
 import { FakeMail } from './helpers/fake-imap.js';
 
@@ -94,5 +96,53 @@ describe('sendDraftOn (B3)', () => {
       /destinataire/,
     );
     assert.equal(mail.messagesIn('Drafts').length, 1);
+  });
+});
+
+describe('draftAttachments', () => {
+  it('réémet les pièces jointes du brouillon, inline comprises', async () => {
+    const pdf = Buffer.from('%PDF-1.4 contenu factice');
+    const png = Buffer.from('89504e470d0a1a0a', 'hex');
+    const draft = await composeRaw({
+      to: ['dest@example.com'],
+      subject: 'Avec pièces jointes',
+      text: 'Voir pièces jointes.',
+      html: '<p>Logo : <img src="cid:logo@x"></p>',
+      attachments: [
+        { filename: 'facture.pdf', contentType: 'application/pdf', content: pdf },
+        {
+          filename: 'logo.png',
+          contentType: 'image/png',
+          content: png,
+          contentDisposition: 'inline',
+          cid: 'logo@x',
+        },
+      ],
+    });
+
+    const attachments = draftAttachments(await simpleParser(draft));
+    assert.equal(attachments.length, 2);
+    const file = attachments.find((a) => a.filename === 'facture.pdf');
+    const logo = attachments.find((a) => a.filename === 'logo.png');
+    assert.equal(file!.contentType, 'application/pdf');
+    assert.equal(file!.contentDisposition, 'attachment');
+    assert.ok(file!.content.equals(pdf));
+    assert.equal(logo!.contentDisposition, 'inline');
+    assert.equal(logo!.cid, 'logo@x');
+    assert.ok(logo!.content.equals(png));
+
+    // Recomposées, elles sont bien dans le message qui partirait.
+    const resent = await simpleParser(
+      await composeRaw({ to: ['dest@example.com'], subject: 'x', text: 'x', attachments }),
+    );
+    assert.deepEqual(
+      resent.attachments.map((a) => a.filename).sort(),
+      ['facture.pdf', 'logo.png'],
+    );
+  });
+
+  it('renvoie une liste vide pour un brouillon sans pièce jointe', async () => {
+    const draft = await composeRaw({ to: ['dest@example.com'], subject: 'Simple', text: 'Corps' });
+    assert.deepEqual(draftAttachments(await simpleParser(draft)), []);
   });
 });

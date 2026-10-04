@@ -14,9 +14,10 @@ export function registerSendDraftTool(server: McpServer): void {
       title: 'Send draft',
       description:
         'Sends an existing draft (brouillon) of the Drafts folder, by its UID (as returned by ' +
-        'compose_message with deliver "draft"). The stored email is sent as is through iCloud SMTP, subject ' +
-        'to the sending guardrails, copied to Sent (Envoyés), then removed from Drafts. If sending fails, the ' +
-        'draft is left untouched. Always confirm with the user before sending.',
+        'compose_message with deliver "draft"). The stored email (body, attachments, threading) is ' +
+        'sent through iCloud SMTP, subject to the sending guardrails, copied to Sent (Envoyés), then ' +
+        'removed from Drafts. If sending fails, the draft is left untouched. Always confirm with the ' +
+        'user before sending.',
       inputSchema: {
         uid: z.coerce
           .number()
