@@ -1,6 +1,6 @@
 # Référence des outils
 
-Les huit outils exposés par le serveur MCP, organisés par intention (neuf avec
+Les dix outils exposés par le serveur MCP, organisés par intention (onze avec
 `wait_for_new_message`, désactivé par défaut), plus ses [resources et prompts](#resources-et-prompts).
 Les descriptions transmises au client sont en anglais, avec les synonymes français entre parenthèses
 (« unread (non lus) », « draft (brouillon) »…) ; cette page en donne la version détaillée.
@@ -11,6 +11,8 @@ Les descriptions transmises au client sont en anglais, avec les synonymes franç
 | [`find_messages`](#find_messages) | Lister ou rechercher des messages | oui |
 | [`read_message`](#read_message) | Lire un message, et en option son fil | oui |
 | [`get_attachment`](#get_attachment) | Télécharger une pièce jointe | oui |
+| [`get_attachments`](#get_attachments) | Télécharger plusieurs pièces jointes en un appel | oui |
+| [`export_message`](#export_message) | Exporter un message brut (EML) | oui |
 | [`compose_message`](#compose_message) | Écrire, répondre, transférer, ou enregistrer en brouillon | non |
 | [`send_draft`](#send_draft) | Envoyer un brouillon existant | non |
 | [`organize_messages`](#organize_messages) | Déplacer, mettre à la corbeille, marquer | non |
@@ -40,7 +42,8 @@ Le texte exact est `SERVER_INSTRUCTIONS`, dans [src/mcp/server.ts](../src/mcp/se
   envoient des mails vers l'extérieur). `compose_message`, `send_draft`, `organize_messages` et
   `manage_folders` sont `destructiveHint: true` : un envoi est irréversible, un brouillon peut être
   remplacé, un message déjà dans la corbeille est supprimé définitivement.
-- **Sorties structurées.** Chaque outil (sauf `get_attachment`) déclare un `outputSchema` et renvoie
+- **Sorties structurées.** Chaque outil (sauf `get_attachment`, `get_attachments` et
+  `export_message`, qui renvoient du binaire) déclare un `outputSchema` et renvoie
   sa réponse en `structuredContent` (objet validé contre le schéma) **et** dans un bloc texte JSON
   (pour les clients qui ne lisent pas le structuré).
 - **Listes** (`find_messages`, `manage_folders` en `list`) : `structuredContent` porte **toujours**
@@ -370,6 +373,107 @@ Aucun format ne renvoie de bloc `resource` : Claude Desktop les refuse pour les 
 Au-delà de `ATTACHMENT_MAX_BYTES` (5 Mo par défaut), l'outil **refuse** en indiquant la taille
 réelle et la limite : jamais de troncature silencieuse d'un binaire. La limite vaut aussi pour le
 format `url`, au moment de l'émission du lien comme à son téléchargement.
+
+---
+
+### `get_attachments`
+
+Plusieurs pièces jointes en **un seul appel**, éventuellement de messages et de dossiers différents.
+
+| Paramètre | Type | Défaut | Description |
+|---|---|---|---|
+| `items` | `{ folder, uid, index }[]` | *(requis)* | 1 à 25 pièces jointes ; `folder` vaut `INBOX` par défaut, `index` comme pour `get_attachment` |
+| `format` | `auto` \| `text_base64` \| `url` | `auto` | Même paramètre que [`get_attachment`](#get_attachment) |
+
+Les éléments sont regroupés par message (`folder`, `uid`) : chaque message n'est téléchargé et
+parsé **qu'une fois**, quel que soit le nombre d'index demandés.
+
+Le premier bloc est un `text` contenant le récapitulatif JSON `{ succeeded, failed, items }`, avec
+un résultat par élément, **dans l'ordre de la demande** :
+
+- succès : `{ folder, uid, index, ok: true, filename, contentType, size, … }` complété selon le
+  format : `contentBase64` (`text_base64`, et `auto` hors images), `url` + `expiresAt` (`url`), ou
+  `imageBlock: true` pour une image en `auto` ;
+- échec : `{ folder, uid, index, ok: false, error }`.
+
+En `auto`, chaque image suit le récapitulatif : une ligne `text` qui la situe
+(`items[0] : photo.png (folder "INBOX", uid 4512, index 1)`), puis son bloc `image`
+(`data` + `mimeType`, comme `get_attachment`).
+
+```json
+{
+  "succeeded": 1,
+  "failed": 1,
+  "items": [
+    {
+      "folder": "INBOX",
+      "uid": 4512,
+      "index": 0,
+      "ok": true,
+      "filename": "facture.pdf",
+      "contentType": "application/pdf",
+      "size": 48213,
+      "contentBase64": "JVBERi0xLjcK…"
+    },
+    {
+      "folder": "INBOX",
+      "uid": 4512,
+      "index": 3,
+      "ok": false,
+      "error": "Pièce jointe #3 introuvable pour le message UID 4512 (2 pièce(s) jointe(s))"
+    }
+  ]
+}
+```
+
+**Échecs partiels.** Un élément en échec — message ou index introuvable, pièce jointe au-delà de
+`ATTACHMENT_MAX_BYTES`, limite cumulée dépassée — porte son `error` sans faire échouer le lot. Seule
+une erreur d'authentification ou réseau IMAP, qui touche la connexion entière, fait échouer l'appel
+(même logique que `find_messages` sur plusieurs dossiers).
+
+**Limites de taille.**
+
+- Chaque pièce jointe est soumise à `ATTACHMENT_MAX_BYTES` (5 Mo par défaut), comme avec
+  `get_attachment`, quel que soit le format.
+- En `auto` et `text_base64`, le **total** des contenus renvoyés dans la réponse est lui aussi
+  plafonné à `ATTACHMENT_MAX_BYTES` : un appel ne renvoie jamais plus qu'une seule pièce jointe de
+  taille maximale. Les éléments sont comptés dans l'ordre de la demande ; celui qui ferait dépasser
+  le plafond échoue (`error` explicite), les suivants plus petits passent encore. Le redemander dans
+  un autre appel, ou utiliser `format: "url"`.
+- Le format `url` n'a pas de plafond cumulé (aucun contenu dans la réponse) : un lien par élément,
+  cible `attachment`, valable 15 minutes et une seule fois.
+
+---
+
+### `export_message`
+
+Message **brut** au format EML (`message/rfc822`) : en-têtes, corps et pièces jointes, tel que
+stocké sur le serveur. Utile pour archiver un message ou l'ouvrir dans un autre client.
+
+| Paramètre | Type | Défaut | Description |
+|---|---|---|---|
+| `folder` | string | `INBOX` | Dossier contenant le message |
+| `uid` | number | *(requis)* | UID IMAP du message |
+| `format` | `auto` \| `text_base64` \| `url` | `auto` | Forme du retour, voir ci-dessous |
+
+- **`auto`** et **`text_base64`** (identiques : un EML n'est jamais une image) : bloc `text`
+  contenant le JSON `{ filename, contentType, size, contentBase64 }`, avec
+  `filename: "message-<uid>.eml"` et `contentType: "message/rfc822"`.
+- **`url`** : JSON `{ url, expiresAt, filename, contentType, size }`, lien signé de cible
+  `message` servi par `GET /download/<jeton>`, valable **15 minutes** et **une seule fois**. Exige
+  `PUBLIC_BASE_URL`.
+
+```json
+{
+  "filename": "message-4512.eml",
+  "contentType": "message/rfc822",
+  "size": 61873,
+  "contentBase64": "UmV0dXJuLVBhdGg6IDwuLi4+DQo…"
+}
+```
+
+Un message au-delà de `ATTACHMENT_MAX_BYTES` est **refusé** (taille réelle et limite indiquées),
+jamais tronqué ; la limite vaut aussi pour le lien, à l'émission comme au téléchargement.
 
 ---
 

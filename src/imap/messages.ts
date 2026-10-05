@@ -340,6 +340,37 @@ export async function getMessageSource(folder: string, uid: number): Promise<Buf
   );
 }
 
+/**
+ * Toutes les pièces jointes d'un message, en un seul téléchargement et un seul
+ * parsing : `get_attachments` regroupe ses éléments par message pour ne pas
+ * re-télécharger la source à chaque index. Positions identiques à `getMessage`.
+ */
+export async function getMessageAttachments(
+  folder: string,
+  uid: number,
+  withMailboxFn: WithMailbox = withMailbox,
+): Promise<AttachmentContent[]> {
+  return withMailboxFn(
+    folder,
+    async (client) => {
+      const fetched = await client.fetchOne(uid, { uid: true, source: true }, { uid: true });
+      if (!fetched || !fetched.source) {
+        throw new Error(`Message UID ${uid} introuvable dans "${folder}"`);
+      }
+
+      const parsed = await simpleParser(fetched.source);
+      return parsed.attachments.map((attachment, index) => ({
+        index,
+        filename: attachment.filename,
+        contentType: attachment.contentType,
+        size: attachment.content.length,
+        content: attachment.content,
+      }));
+    },
+    { readOnly: true },
+  );
+}
+
 /** Contenu binaire d'une pièce jointe, ciblée par son `index` (voir `getMessage`). */
 export async function getAttachment(
   folder: string,

@@ -80,7 +80,7 @@ En `stdio`, stdout porte le canal JSON-RPC : le serveur bascule automatiquement 
 | `MCP_BEARER_TOKEN` | **requis** | Token attendu sur `/mcp`, en `Authorization: Bearer <token>` ou `X-Api-Key: <token>` (jeton brut, pour les connecteurs claude.ai). 16 caractères minimum. Toujours requis, même en `stdio` (où il ne sert pas). |
 | `RATE_LIMIT_PER_MINUTE` | `120` | Requêtes `/mcp` autorisées par IP et par minute (fenêtre glissante). Au-delà : `429`. `/health` n'est jamais limité. |
 | `SESSION_TTL_MS` | `1800000` | Inactivité (en ms) au-delà de laquelle une session MCP est évincée et son transport fermé. 30 min par défaut. |
-| `PUBLIC_BASE_URL` | `''` (vide) | URL publique HTTPS du serveur, sans slash final (ex. `https://mail-mcp.exemple.com`). Renseigne `icons`/`websiteUrl` dans les métadonnées `Implementation` du protocole MCP, pour les clients qui les affichent, et sert de base aux liens de téléchargement (`get_attachment`, `format: "url"`). Vide = ces champs ne sont pas envoyés et le format `url` est refusé. |
+| `PUBLIC_BASE_URL` | `''` (vide) | URL publique HTTPS du serveur, sans slash final (ex. `https://mail-mcp.exemple.com`). Renseigne `icons`/`websiteUrl` dans les métadonnées `Implementation` du protocole MCP, pour les clients qui les affichent, et sert de base aux liens de téléchargement (`get_attachment`, `get_attachments`, `export_message`, `format: "url"`). Vide = ces champs ne sont pas envoyés et le format `url` est refusé. |
 
 Générer le token avec :
 
@@ -194,7 +194,7 @@ Voir [`security.md`](security.md#confirmation-des-opérations-destructives).
 
 | Variable | Défaut | Description |
 |---|---|---|
-| `DOWNLOAD_URL_SECRET` | `''` (vide) | Secret HMAC des liens de téléchargement signés (`get_attachment`, `format: "url"`, servis par `GET /download/<jeton>`). Au moins 32 caractères, sinon le démarrage échoue. Vide ou absent : un secret aléatoire est tiré au démarrage. |
+| `DOWNLOAD_URL_SECRET` | `''` (vide) | Secret HMAC des liens de téléchargement signés (`get_attachment`, `get_attachments`, `export_message`, `format: "url"`, servis par `GET /download/<jeton>`). Au moins 32 caractères, sinon le démarrage échoue. Vide ou absent : un secret aléatoire est tiré au démarrage. |
 
 Même logique que `CONFIRM_SECRET` : un lien dure 15 minutes, le perdre au redémarrage est sans
 gravité, d'où un secret optionnel. Générez-le avec `openssl rand -hex 32`, distinct de
