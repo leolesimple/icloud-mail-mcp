@@ -323,8 +323,8 @@ describe('attachments et inline', () => {
 
   it('décrit chaque pièce jointe du BODYSTRUCTURE et marque les parties intégrées', () => {
     assert.deepEqual(attachmentParts(withLogo), [
-      { mimeType: 'image/png', filename: 'logo.png', size: 2048, inline: true },
-      { mimeType: 'application/pdf', filename: 'Facture.pdf', size: 40960, inline: false },
+      { contentType: 'image/png', filename: 'logo.png', size: 2048, inline: true },
+      { contentType: 'application/pdf', filename: 'Facture.pdf', size: 40960, inline: false },
     ]);
   });
 
@@ -342,7 +342,7 @@ describe('attachments et inline', () => {
 
     const filtered = await fetchPage(client, { hasAttachment: true }, 10);
     assert.deepEqual(
-      filtered.messages[0]?.attachments?.map((a) => [a.mimeType, a.inline]),
+      filtered.messages[0]?.attachments?.map((a) => [a.contentType, a.inline]),
       [
         ['image/png', true],
         ['application/pdf', false],

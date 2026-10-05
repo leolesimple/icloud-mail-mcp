@@ -234,7 +234,7 @@ export const readMessageResultSchema = schemaFor<ReadMessageResult>()(
  */
 export const attachmentPartSchema = schemaFor<AttachmentPart>()(
   z.object({
-    mimeType: z.string(),
+    contentType: z.string(),
     filename: z.string().optional(),
     size: z.number().optional(),
     inline: z.boolean(),

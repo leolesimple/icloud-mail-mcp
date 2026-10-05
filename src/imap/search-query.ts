@@ -140,7 +140,7 @@ export function attachmentFilterOf(criteria: SearchCriteria): AttachmentFilter |
 /** Pièce jointe lue dans le BODYSTRUCTURE, telle que la renvoie `find_messages`. */
 export interface AttachmentPart {
   /** Type MIME, en minuscules. */
-  mimeType: string;
+  contentType: string;
   filename?: string;
   /** Taille de la partie encodée (base64…), donc un peu plus que le fichier. */
   size?: number;
@@ -183,7 +183,7 @@ export function attachmentParts(structure: MessageStructureObject | undefined): 
     if (!isMultipart && isAttachmentPart(node)) {
       const filename = node.dispositionParameters?.filename || node.parameters?.name;
       parts.push({
-        mimeType: node.type.toLowerCase(),
+        contentType: node.type.toLowerCase(),
         ...(filename ? { filename } : {}),
         ...(node.size !== undefined ? { size: node.size } : {}),
         inline: isInlinePart(node.disposition, node.id),
@@ -198,7 +198,7 @@ export function attachmentParts(structure: MessageStructureObject | undefined): 
 
 /** Types MIME (en minuscules) des pièces jointes d'un BODYSTRUCTURE. */
 export function attachmentTypes(structure: MessageStructureObject | undefined): string[] {
-  return attachmentParts(structure).map((part) => part.mimeType);
+  return attachmentParts(structure).map((part) => part.contentType);
 }
 
 /** True si le BODYSTRUCTURE d'un message satisfait le filtre pièces jointes. */

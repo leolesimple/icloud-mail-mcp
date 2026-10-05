@@ -181,7 +181,7 @@ filtre pièces jointes peut lire beaucoup de `BODYSTRUCTURE` dans un gros dossie
 préférence à `from`, `since`…
 
 Avec un filtre pièces jointes, chaque message porte en plus `attachments`, lu dans le même
-`BODYSTRUCTURE` : `[{ mimeType, filename?, size?, inline }]`. `size` est la taille de la partie
+`BODYSTRUCTURE` : `[{ contentType, filename?, size?, inline }]`. `size` est la taille de la partie
 encodée (base64 : environ un tiers de plus que le fichier). `inline: true` marque une partie
 **affichée dans le corps** plutôt que jointe (disposition `inline`, ou Content-ID sans disposition
 `attachment` : images intégrées au HTML, logos de signature). Ces parties comptent pour
@@ -246,8 +246,8 @@ les ajoute. Un critère reste obligatoire (un filtre pièces jointes en est un).
     "folder": "INBOX",
     "subject": "Votre facture Apple",
     "attachments": [
-      { "mimeType": "image/png", "filename": "logo.png", "size": 2048, "inline": true },
-      { "mimeType": "application/pdf", "filename": "Facture.pdf", "size": 40960, "inline": false }
+      { "contentType": "image/png", "filename": "logo.png", "size": 2048, "inline": true },
+      { "contentType": "application/pdf", "filename": "Facture.pdf", "size": 40960, "inline": false }
     ]
   }
 ]
