@@ -18,7 +18,14 @@ export const logger = pino(
     level: config.LOG_LEVEL,
     timestamp: pino.stdTimeFunctions.isoTime,
     redact: {
-      paths: ['*.password', '*.pass', '*.ICLOUD_APP_PASSWORD', '*.token', '*.CONFIRM_SECRET'],
+      paths: [
+        '*.password',
+        '*.pass',
+        '*.ICLOUD_APP_PASSWORD',
+        '*.token',
+        '*.CONFIRM_SECRET',
+        '*.DOWNLOAD_URL_SECRET',
+      ],
       censor: '[redacted]',
     },
   },

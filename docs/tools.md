@@ -341,15 +341,35 @@ Contenu binaire d'**une** pièce jointe, ciblée par l'`index` renvoyé par `rea
 | `folder` | string | `INBOX` | Dossier contenant le message |
 | `uid` | number | *(requis)* | UID IMAP du message |
 | `index` | number | *(requis)* | Index de la pièce jointe (tel que renvoyé par `read_message`) |
+| `format` | `auto` \| `text_base64` \| `url` | `auto` | Forme du retour, voir ci-dessous |
 
-Le retour n'est pas du JSON mais un bloc de contenu MCP :
+Le retour dépend de `format` :
 
-- une **image** → bloc `image` (`data` en base64 + `mimeType`) ;
-- tout autre type → bloc `resource` (`blob` en base64 + `mimeType` + `uri`
-  `mail://<dossier>/<uid>/attachments/<index>`).
+- **`auto`** (défaut) : une **image** → bloc `image` (`data` en base64 + `mimeType`) ; tout autre
+  type (PDF, documents…) → bloc `text` contenant le JSON
+  `{ filename, contentType, size, contentBase64 }`.
+- **`text_base64`** : toujours ce bloc `text` JSON, images comprises.
+- **`url`** : bloc `text` contenant le JSON `{ url, expiresAt, filename, contentType, size }`, sans le
+  contenu. `url` est un lien de téléchargement signé (`<PUBLIC_BASE_URL>/download/<jeton>`),
+  valable **15 minutes** et **une seule fois** ; `expiresAt` est au format ISO 8601. Exige
+  `PUBLIC_BASE_URL` : sans elle, l'outil renvoie une erreur explicite. Voir
+  [security.md](security.md#liens-de-téléchargement).
+
+Aucun format ne renvoie de bloc `resource` : Claude Desktop les refuse pour les types binaires
+(« not currently supported »), ce qui rendait les PDF illisibles.
+
+```json
+{
+  "filename": "facture.pdf",
+  "contentType": "application/pdf",
+  "size": 48213,
+  "contentBase64": "JVBERi0xLjcK…"
+}
+```
 
 Au-delà de `ATTACHMENT_MAX_BYTES` (5 Mo par défaut), l'outil **refuse** en indiquant la taille
-réelle et la limite : jamais de troncature silencieuse d'un binaire.
+réelle et la limite : jamais de troncature silencieuse d'un binaire. La limite vaut aussi pour le
+format `url`, au moment de l'émission du lien comme à son téléchargement.
 
 ---
 

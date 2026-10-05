@@ -120,6 +120,54 @@ vider `Junk` ne vide pas `Deleted Messages`, ni le même dossier après une resy
 
 ---
 
+## Liens de téléchargement
+
+`get_attachment` avec `format: "url"` renvoie, au lieu du contenu, un lien
+`<PUBLIC_BASE_URL>/download/<jeton>` ([`src/download-links.ts`](../src/download-links.ts)). Il sert
+aux clients qui ne savent pas afficher un binaire renvoyé dans la réponse MCP.
+
+**Menace.** `/download` est la seule route qui sert du contenu de la boîte **sans bearer** : le
+client ouvre le lien hors du protocole MCP (navigateur, outil de téléchargement) et ne peut pas
+joindre le token. Le lien porte donc lui-même son autorisation, et quiconque le détient peut
+récupérer le fichier tant qu'il est valide. Il faut qu'il ne donne accès qu'à ce fichier, peu de
+temps, une fois, et qu'on ne puisse ni le deviner ni le modifier.
+
+**Le jeton.** Un payload (cible, expiration, nonce aléatoire de 16 octets) suivi de son HMAC-SHA256,
+le tout en base64url. La cible est précise : `{ kind: "attachment", folder, uid, index }` (ou
+`{ kind: "message", folder, uid }`, prévu pour l'export d'un message brut). Le secret est
+`DOWNLOAD_URL_SECRET`, ou 32 octets aléatoires tirés au démarrage. La signature est vérifiée en temps
+constant (`timingSafeEqual`) **avant** toute lecture du payload : changer le dossier, l'UID, l'index
+ou l'expiration invalide le jeton.
+
+**Durée et usage unique.** Un lien expire 15 minutes après son émission et n'est servi qu'une fois :
+le nonce est consommé à la première requête valide, avant la lecture IMAP. Les nonces consommés
+restent en mémoire jusqu'à leur expiration, puis sont purgés (à chaque vérification et au balayage
+périodique du serveur). Seuls des jetons authentiques y entrent : un tiers ne peut pas faire
+grossir cette liste.
+
+**Réponse.** Tout refus — jeton illisible, falsifié, expiré, déjà utilisé, ou cible disparue —
+répond le même `404 Not found`, sans détail ; le motif ne va qu'aux logs, le jeton jamais. Le
+contenu est servi avec `Content-Disposition: attachment` (nom de fichier assaini : ni chemin, ni
+caractère de contrôle, ni guillemet), `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`,
+`Referrer-Policy: no-referrer` et une CSP `default-src 'none'; sandbox` : un HTML ou un SVG joint
+est téléchargé, jamais interprété sur le domaine du serveur. `ATTACHMENT_MAX_BYTES` s'applique
+(`413` au-delà). La route passe par le rate limit de `/mcp`. Un `HEAD` est refusé (`405`) pour
+qu'un aperçu de lien ne consomme pas le jeton.
+
+**Limites.**
+
+- Le lien **est** l'autorisation : collé dans une conversation, un ticket ou un historique de
+  navigateur, il donne le fichier à qui l'ouvre le premier pendant 15 minutes.
+- La cible circule **en clair** dans l'URL (encodée, non chiffrée) : nom du dossier, UID et index
+  apparaissent dans les logs du tunnel ou d'un proxy. Aucun contenu de message n'y figure.
+- Un outil qui précharge les liens (aperçu, antivirus) en `GET` consomme le jeton : il faut alors en
+  redemander un. Même chose si la lecture IMAP échoue après la consommation.
+- La liste des nonces consommés vit en mémoire : avec un `DOWNLOAD_URL_SECRET` fixe, un lien déjà
+  utilisé redevient valable après un redémarrage, jusqu'à son expiration (15 min au plus). Sans
+  secret fixe, tous les liens meurent au redémarrage.
+
+---
+
 ## Ce qui reste à votre charge
 
 ### Le bearer token
@@ -184,6 +232,7 @@ Deux garde-fous à connaître :
 | Endpoint | Authentifié | Ce qu'il révèle |
 |---|---|---|
 | `POST/GET/DELETE /mcp` | oui | Tout, avec un token valide. Rate-limité par IP (`429` au-delà). |
+| `GET /download/<jeton>` | **non** (jeton signé) | Le fichier désigné par le jeton, une fois, pendant 15 min ; `404` générique sinon. Rate-limité par IP. Voir [Liens de téléchargement](#liens-de-téléchargement). |
 | `GET /health` | **non** | `{"status":"ok","version":"<x.y.z>"}` — statut et version du serveur, rien d'autre (aucune configuration, aucun secret). Jamais rate-limité. |
 
 Aucune autre route n'est déclarée : tout le reste renvoie le 404 par défaut d'Express.

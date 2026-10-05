@@ -65,6 +65,15 @@ const envSchema = z.object({
     z.string().min(32, 'CONFIRM_SECRET doit faire au moins 32 caractères').optional(),
   ),
 
+  // --- Liens de téléchargement (get_attachment format "url") ---------------
+  // Secret HMAC des liens signés servis par GET /download/:token. Optionnel :
+  // absent ou vide, un secret aléatoire est tiré au démarrage (les liens, valables
+  // 15 min, ne survivent pas à un redémarrage). Même logique que CONFIRM_SECRET.
+  DOWNLOAD_URL_SECRET: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.string().min(32, 'DOWNLOAD_URL_SECRET doit faire au moins 32 caractères').optional(),
+  ),
+
   // --- Protocole MCP / sessions (lots C, E) -------------------------------
   // Plafond d'appels par minute et par session.
   RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(120),
@@ -89,9 +98,11 @@ const envSchema = z.object({
   LEGACY_TOOLS: envBool(false),
 
   // URL publique HTTPS du serveur (ex. https://mail-mcp.exemple.com), sans
-  // slash final. Optionnelle : sert uniquement à renseigner `icons`/`websiteUrl`
-  // dans les métadonnées `Implementation` du protocole MCP (favicon affiché par
-  // les clients qui les lisent). Absente = ces champs ne sont pas envoyés.
+  // slash final. Optionnelle : renseigne `icons`/`websiteUrl` dans les
+  // métadonnées `Implementation` du protocole MCP (favicon affiché par les
+  // clients qui les lisent) et sert de base aux liens de téléchargement
+  // (get_attachment format "url"). Absente = ces champs ne sont pas envoyés
+  // et le format "url" est refusé.
   PUBLIC_BASE_URL: z
     .string()
     .default('')
