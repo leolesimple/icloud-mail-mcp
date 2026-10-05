@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { listMessages, searchMessages, searchMessagesAcross } from '../../imap/messages.js';
-import type { MessageSummary, SearchMessagesOptions } from '../../imap/messages.js';
+import type { FoundMessageSummary, SearchMessagesOptions } from '../../imap/messages.js';
 import { listFolders, searchableFolderPaths } from '../../imap/folders.js';
 import { hasSearchCriteria } from '../../imap/search-query.js';
 import { listResult, errorResult } from '../result.js';
@@ -11,7 +11,10 @@ import { logger } from '../../logger.js';
 
 const log = logger.child({ tool: 'find_messages' });
 
-/** Champs d'un message que `fields` peut demander (`folder` : multi-dossiers seulement). */
+/**
+ * Champs d'un message que `fields` peut demander (`folder` : multi-dossiers
+ * seulement ; `attachments` : seulement avec un filtre pièces jointes).
+ */
 export const MESSAGE_FIELDS = [
   'uid',
   'subject',
@@ -22,7 +25,8 @@ export const MESSAGE_FIELDS = [
   'flagged',
   'size',
   'folder',
-] as const satisfies readonly (keyof MessageSummary | 'folder')[];
+  'attachments',
+] as const satisfies readonly (keyof FoundMessageSummary | 'folder')[];
 
 export type MessageField = (typeof MESSAGE_FIELDS)[number];
 
@@ -59,7 +63,9 @@ export function registerFindMessagesTool(server: McpServer): void {
         'tagged with its "folder", no cursor is returned, and a failing folder is reported in "errors". ' +
         'hasAttachment / attachmentType (MIME type like "application/pdf", or prefix like "image/") filter ' +
         'on attachments (pièces jointes), e.g. invoices: { folders: "*", attachmentType: "application/pdf", ' +
-        'from: "apple.com" }. fields keeps only some fields of each message (uid is always returned). ' +
+        'from: "apple.com" }; each message then lists its attachments, with inline: true for parts ' +
+        'shown in the body (embedded images, signature logos) rather than attached. ' +
+        'fields keeps only some fields of each message (uid is always returned). ' +
         'Use read_message to open a message.',
       inputSchema: {
         folder: z

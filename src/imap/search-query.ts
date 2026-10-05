@@ -137,31 +137,68 @@ export function attachmentFilterOf(criteria: SearchCriteria): AttachmentFilter |
   return { present: criteria.hasAttachment };
 }
 
+/** Pièce jointe lue dans le BODYSTRUCTURE, telle que la renvoie `find_messages`. */
+export interface AttachmentPart {
+  /** Type MIME, en minuscules. */
+  mimeType: string;
+  filename?: string;
+  /** Taille de la partie encodée (base64…), donc un peu plus que le fichier. */
+  size?: number;
+  /**
+   * Partie affichée dans le corps plutôt que jointe : disposition `inline`, ou
+   * Content-ID sans disposition `attachment` (image référencée par le HTML).
+   */
+  inline: boolean;
+}
+
 function isAttachmentPart(node: MessageStructureObject): boolean {
   if (node.disposition?.toLowerCase() === 'attachment') return true;
   return Boolean(node.dispositionParameters?.filename || node.parameters?.name);
 }
 
 /**
- * Types MIME (en minuscules) des pièces jointes d'un BODYSTRUCTURE. Est une
- * pièce jointe toute partie feuille marquée `Content-Disposition: attachment`,
- * ou portant un nom de fichier (`filename` de disposition, `name` de type).
- * Un message joint (message/rfc822) compte pour une pièce jointe, sans
- * descendre dans ses propres parties.
+ * Règle `inline` commune à find_messages (BODYSTRUCTURE) et read_message
+ * (mailparser) : disposition `inline`, ou Content-ID sans disposition `attachment`.
  */
-export function attachmentTypes(structure: MessageStructureObject | undefined): string[] {
+export function isInlinePart(
+  disposition: string | undefined,
+  contentId: string | undefined,
+): boolean {
+  const kind = disposition?.toLowerCase();
+  return kind === 'inline' || (Boolean(contentId) && kind !== 'attachment');
+}
+
+/**
+ * Pièces jointes d'un BODYSTRUCTURE. Est une pièce jointe toute partie feuille
+ * marquée `Content-Disposition: attachment`, ou portant un nom de fichier
+ * (`filename` de disposition, `name` de type) : une image intégrée nommée en
+ * est donc une, signalée par `inline`. Un message joint (message/rfc822) compte
+ * pour une pièce jointe, sans descendre dans ses propres parties.
+ */
+export function attachmentParts(structure: MessageStructureObject | undefined): AttachmentPart[] {
   if (!structure) return [];
-  const types: string[] = [];
+  const parts: AttachmentPart[] = [];
   const visit = (node: MessageStructureObject): void => {
     const isMultipart = node.type.toLowerCase().startsWith('multipart/');
     if (!isMultipart && isAttachmentPart(node)) {
-      types.push(node.type.toLowerCase());
+      const filename = node.dispositionParameters?.filename || node.parameters?.name;
+      parts.push({
+        mimeType: node.type.toLowerCase(),
+        ...(filename ? { filename } : {}),
+        ...(node.size !== undefined ? { size: node.size } : {}),
+        inline: isInlinePart(node.disposition, node.id),
+      });
       return;
     }
     for (const child of node.childNodes ?? []) visit(child);
   };
   visit(structure);
-  return types;
+  return parts;
+}
+
+/** Types MIME (en minuscules) des pièces jointes d'un BODYSTRUCTURE. */
+export function attachmentTypes(structure: MessageStructureObject | undefined): string[] {
+  return attachmentParts(structure).map((part) => part.mimeType);
 }
 
 /** True si le BODYSTRUCTURE d'un message satisfait le filtre pièces jointes. */
