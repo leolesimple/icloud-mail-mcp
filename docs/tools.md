@@ -180,8 +180,17 @@ s'applique **avant** la troncature à `limit`, et la pagination reste exacte. Sa
 filtre pièces jointes peut lire beaucoup de `BODYSTRUCTURE` dans un gros dossier : l'associer de
 préférence à `from`, `since`…
 
+Avec un filtre pièces jointes, chaque message porte en plus `attachments`, lu dans le même
+`BODYSTRUCTURE` : `[{ mimeType, filename?, size?, inline }]`. `size` est la taille de la partie
+encodée (base64 : environ un tiers de plus que le fichier). `inline: true` marque une partie
+**affichée dans le corps** plutôt que jointe (disposition `inline`, ou Content-ID sans disposition
+`attachment` : images intégrées au HTML, logos de signature). Ces parties comptent pour
+`hasAttachment` et `attachmentType` ; c'est à l'agent d'écarter les `inline` s'il ne veut que les
+« vraies » pièces jointes. Sans filtre pièces jointes, `attachments` est absent : le lire coûterait
+une commande de plus par page.
+
 **Champs** (`fields`) — parmi `uid`, `subject`, `from`, `to`, `date`, `seen`, `flagged`, `size`,
-`folder` (toute autre valeur est refusée). `uid` est toujours renvoyé, et `folder` aussi en recherche
+`folder`, `attachments` (toute autre valeur est refusée). `uid` est toujours renvoyé, et `folder` aussi en recherche
 multi-dossiers ; `fields: ["subject", "date"]` donne `{ "uid", "subject", "date" }` par message.
 
 **Forme de la réponse** — bloc texte = **tableau nu** par défaut ; `structuredContent` toujours
@@ -230,10 +239,17 @@ les ajoute. Un critère reste obligatoire (un filtre pièces jointes en est un).
 
 ```jsonc
 // find_messages avec folders: "*", hasAttachment: true, attachmentType: "application/pdf",
-// from: "apple.com", fields: ["subject", "date"] → les factures Apple de tous les dossiers
+// from: "apple.com", fields: ["subject", "attachments"] → les factures Apple de tous les dossiers
 [
-  { "uid": 812, "folder": "INBOX", "subject": "Votre facture Apple", "date": "2026-09-01T…" },
-  { "uid": 77, "folder": "Archive", "subject": "Votre facture Apple", "date": "2026-08-01T…" }
+  {
+    "uid": 812,
+    "folder": "INBOX",
+    "subject": "Votre facture Apple",
+    "attachments": [
+      { "mimeType": "image/png", "filename": "logo.png", "size": 2048, "inline": true },
+      { "mimeType": "application/pdf", "filename": "Facture.pdf", "size": 40960, "inline": false }
+    ]
+  }
 ]
 ```
 
@@ -273,7 +289,8 @@ discussion. Remplace `get_message` et `get_thread`.
   "html": false,                            // string seulement si includeHtml: true
   "bodyTruncated": false,                    // true dès qu'une partie a été coupée à maxBodyChars
   "attachments": [
-    { "index": 0, "filename": "facture.pdf", "contentType": "application/pdf", "size": 18234 }
+    { "index": 0, "filename": "facture.pdf", "contentType": "application/pdf", "size": 18234, "inline": false },
+    { "index": 1, "filename": "logo.png", "contentType": "image/png", "size": 2048, "contentId": "logo@exemple.fr", "inline": true }
   ],
   "rawHeaders": "From: …\r\nSubject: …",     // seulement si includeRawHeaders: true
   "thread": { /* seulement si includeThread: true, voir ci-dessous */ }
@@ -289,6 +306,9 @@ Points clés :
 - `includeRawHeaders` ne renvoie que le bloc d'en-têtes, **pas** le corps brut.
 - **Le contenu binaire des pièces jointes n'est pas renvoyé**, seulement leurs métadonnées. Chaque
   pièce jointe porte un `index` stable : le passer à [`get_attachment`](#get_attachment).
+- `inline: true` signale une partie **affichée dans le corps** plutôt que jointe (image intégrée au
+  HTML, logo de signature) : disposition `inline`, Content-ID sans disposition `attachment`, ou
+  partie d'un `multipart/related`. Même règle que le champ `attachments` de `find_messages`.
 - **Lire ne marque pas lu** : le dossier est ouvert en lecture seule (`EXAMINE`), le flag `\Seen`
   n'est pas posé. Utiliser `organize_messages` (`action: "read"`) pour le faire explicitement.
 
