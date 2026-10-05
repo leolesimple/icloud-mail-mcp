@@ -8,6 +8,9 @@ import { createMailMcpServer } from '../mcp/server.js';
 import { bearerAuth } from './auth.js';
 import { clientIp } from './client-ip.js';
 import { SlidingWindowRateLimiter } from './rate-limit.js';
+import { contentDisposition, downloadLinks } from '../download-links.js';
+import type { DownloadLinkService, DownloadTarget } from '../download-links.js';
+import { getAttachment, getMessageSource } from '../imap/messages.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { serverVersion } from '../version.js';
@@ -44,6 +47,34 @@ export interface HttpServerOptions {
   rateLimitPerMinute?: number;
   /** Période du balayage TTL + purge du limiteur. Défaut : `sessionTtlMs / 2`, borné à [10 s, 5 min]. */
   sweepIntervalMs?: number;
+  /** Dépendances de `GET /download/:token`, injectables pour les tests. */
+  download?: DownloadOptions;
+}
+
+export interface DownloadOptions {
+  /** Défaut : le service partagé `downloadLinks`. */
+  links?: DownloadLinkService;
+  /** Défaut : `getAttachment` (IMAP). */
+  fetchAttachment?: typeof getAttachment;
+  /** Défaut : `getMessageSource` (IMAP). */
+  fetchMessageSource?: typeof getMessageSource;
+  /** Taille maximale servie. Défaut : `config.ATTACHMENT_MAX_BYTES`. */
+  maxBytes?: number;
+}
+
+/** Contenu servi par `/download`, quelle que soit la cible. */
+interface DownloadFile {
+  filename: string;
+  mimeType: string;
+  content: Buffer;
+}
+
+/** Type MIME servi tel quel s'il est bien formé, sinon `application/octet-stream`. */
+function safeMimeType(mimeType: string): string {
+  const trimmed = mimeType.trim().toLowerCase();
+  return /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/.test(trimmed)
+    ? trimmed
+    : 'application/octet-stream';
 }
 
 export interface HttpServer {
@@ -62,6 +93,11 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
 
   const sessions = new Map<string, Session>();
   const rateLimiter = new SlidingWindowRateLimiter(rateLimitPerMinute);
+
+  const links = options.download?.links ?? downloadLinks;
+  const fetchAttachment = options.download?.fetchAttachment ?? getAttachment;
+  const fetchMessageSource = options.download?.fetchMessageSource ?? getMessageSource;
+  const downloadMaxBytes = options.download?.maxBytes ?? config.ATTACHMENT_MAX_BYTES;
 
   function touch(sessionId: string | undefined): Session | undefined {
     const session = typeof sessionId === 'string' ? sessions.get(sessionId) : undefined;
@@ -88,6 +124,7 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
   function sweep(): void {
     evictIdleSessions();
     rateLimiter.sweep();
+    links.sweep();
   }
 
   // .unref() est indispensable : sans lui, ce timer empêche le process de
@@ -103,7 +140,7 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
     }
     const key = clientIp(req);
     if (!rateLimiter.allow(key)) {
-      log.warn({ ip: key }, 'rate limit exceeded on /mcp');
+      log.warn({ ip: key, path: req.path }, 'rate limit exceeded');
       res.status(429).json({
         jsonrpc: '2.0',
         error: { code: -32002, message: 'Too Many Requests: rate limit exceeded' },
@@ -224,6 +261,82 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
     next();
   }
 
+  async function fetchDownload(target: DownloadTarget): Promise<DownloadFile> {
+    if (target.kind === 'attachment') {
+      const attachment = await fetchAttachment(target.folder, target.uid, target.index);
+      return {
+        filename: attachment.filename ?? `attachment-${target.index}`,
+        mimeType: attachment.contentType,
+        content: attachment.content,
+      };
+    }
+    return {
+      filename: `message-${target.uid}.eml`,
+      mimeType: 'message/rfc822',
+      content: await fetchMessageSource(target.folder, target.uid),
+    };
+  }
+
+  /**
+   * Lien signé émis par un outil (format `url`). Pas de bearer : le lien est
+   * ouvert hors du protocole MCP, il porte lui-même son autorisation (voir
+   * src/download-links.ts et docs/security.md). Tout refus — jeton illisible,
+   * falsifié, expiré, déjà utilisé, cible disparue — répond le même 404, sans
+   * détail ; le motif ne va qu'aux logs. Le jeton n'est jamais loggé.
+   */
+  async function handleDownload(req: Request, res: Response): Promise<void> {
+    res.set({
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'no-referrer',
+      'Content-Security-Policy': "default-src 'none'; sandbox",
+    });
+    const notFound = () => res.status(404).type('text/plain').send('Not found');
+
+    const token = req.params.token;
+    const redeemed = links.redeem(typeof token === 'string' ? token : '');
+    if (!redeemed.ok) {
+      log.info({ reason: redeemed.reason }, 'download link refused');
+      notFound();
+      return;
+    }
+
+    const { target } = redeemed;
+    let file: DownloadFile;
+    try {
+      file = await fetchDownload(target);
+    } catch (err) {
+      log.warn(
+        { err, kind: target.kind, folder: target.folder, uid: target.uid },
+        'download fetch failed',
+      );
+      notFound();
+      return;
+    }
+
+    if (file.content.length > downloadMaxBytes) {
+      log.warn({ kind: target.kind, size: file.content.length }, 'download refused: too large');
+      res
+        .status(413)
+        .type('text/plain')
+        .send(
+          `Fichier de ${file.content.length} octets, au-delà de la limite de ${downloadMaxBytes} octets (ATTACHMENT_MAX_BYTES).`,
+        );
+      return;
+    }
+
+    log.info(
+      { kind: target.kind, folder: target.folder, uid: target.uid, size: file.content.length },
+      'download served',
+    );
+    res.set({
+      'Content-Type': safeMimeType(file.mimeType),
+      'Content-Disposition': contentDisposition(file.filename),
+      'Content-Length': String(file.content.length),
+    });
+    res.status(200).end(file.content);
+  }
+
   const app = express();
   // Le seul ingress est cloudflared, sur le réseau bridge privé : on lui fait
   // confiance pour X-Forwarded-For afin que req.ip porte l'IP cliente. La
@@ -257,6 +370,13 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
   app.post('/mcp', rateLimit, bearerAuth, handlePost);
   app.get('/mcp', rateLimit, bearerAuth, handleSessionRequest);
   app.delete('/mcp', rateLimit, bearerAuth, handleSessionRequest);
+
+  // Express route HEAD vers le handler GET : un HEAD (aperçu de lien, antivirus)
+  // consommerait le jeton à usage unique sans rien livrer. On le refuse.
+  app.head('/download/:token', (_req, res) => {
+    res.status(405).set({ Allow: 'GET', 'Cache-Control': 'no-store' }).end();
+  });
+  app.get('/download/:token', rateLimit, handleDownload);
 
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', version: serverVersion });

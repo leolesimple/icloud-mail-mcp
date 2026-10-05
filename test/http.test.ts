@@ -9,6 +9,8 @@ import { config } from '../src/config.js';
 import { serverVersion } from '../src/version.js';
 import { imapPool } from '../src/imap/pool.js';
 import { closeSmtp } from '../src/smtp/client.js';
+import { createDownloadLinkService, DOWNLOAD_LINK_TTL_MS } from '../src/download-links.js';
+import type { AttachmentContent } from '../src/imap/messages.js';
 
 /**
  * Tests d'intégration de la couche HTTP : un vrai serveur Express sur un port
@@ -315,6 +317,137 @@ describe('reprise après redémarrage du serveur', () => {
       assert.notEqual(newSession, oldSession);
     } finally {
       await stopServer(second.instance, second.srv);
+    }
+  });
+});
+
+describe('GET /download/:token', () => {
+  let instance: HttpServer;
+  let srv: Server;
+  let url: string;
+  let now = 1_000_000;
+  const links = createDownloadLinkService({
+    secret: 'secret-de-test-0123456789abcdef-0123456789',
+    now: () => now,
+  });
+  const fetched: string[] = [];
+  const PDF = Buffer.from('%PDF-1.7 contenu factice');
+
+  before(async () => {
+    const started = await startServer({
+      rateLimitPerMinute: 10_000,
+      download: {
+        links,
+        maxBytes: 64,
+        // Récupération IMAP simulée : aucune connexion n'est ouverte.
+        fetchAttachment: async (folder, uid, index): Promise<AttachmentContent> => {
+          fetched.push(`attachment:${folder}:${uid}:${index}`);
+          if (uid === 404) throw new Error(`Message UID ${uid} introuvable dans "${folder}"`);
+          if (uid === 413) {
+            return { index, filename: 'gros.bin', contentType: 'application/octet-stream', size: 65, content: Buffer.alloc(65) };
+          }
+          return { index, filename: 'Facture été/../x.pdf', contentType: 'application/pdf', size: PDF.length, content: PDF };
+        },
+        fetchMessageSource: async (folder, uid) => {
+          fetched.push(`message:${folder}:${uid}`);
+          return Buffer.from('From: a@example.com\r\nSubject: test\r\n\r\ncorps\r\n');
+        },
+      },
+    });
+    instance = started.instance;
+    srv = started.srv;
+    url = started.url;
+  });
+
+  after(() => stopServer(instance, srv));
+
+  function issue(uid = 12) {
+    return links.issue({ kind: 'attachment', folder: 'INBOX', uid, index: 0 }).token;
+  }
+
+  async function expectGeneric404(response: Response) {
+    assert.equal(response.status, 404);
+    assert.equal(await response.text(), 'Not found');
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+  }
+
+  it('sert la pièce jointe sans bearer, avec les en-têtes de sécurité', async () => {
+    const response = await fetch(`${url}/download/${issue()}`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'application/pdf');
+    assert.equal(
+      response.headers.get('content-disposition'),
+      `attachment; filename="Facture _t__.._x.pdf"; filename*=UTF-8''Facture%20%C3%A9t%C3%A9_.._x.pdf`,
+    );
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+    assert.ok(Buffer.from(await response.arrayBuffer()).equals(PDF));
+    assert.equal(fetched.at(-1), 'attachment:INBOX:12:0');
+  });
+
+  it('sert un message entier en message/rfc822', async () => {
+    const token = links.issue({ kind: 'message', folder: 'Archive', uid: 7 }).token;
+    const response = await fetch(`${url}/download/${token}`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'message/rfc822');
+    assert.match(response.headers.get('content-disposition') ?? '', /filename="message-7\.eml"/);
+    assert.match(await response.text(), /Subject: test/);
+  });
+
+  it('répond 404 générique à la deuxième utilisation', async () => {
+    const token = issue();
+    assert.equal((await fetch(`${url}/download/${token}`)).status, 200);
+    await expectGeneric404(await fetch(`${url}/download/${token}`));
+  });
+
+  it('répond 404 générique à un jeton expiré, sans lire IMAP', async () => {
+    const token = issue();
+    now += DOWNLOAD_LINK_TTL_MS;
+    const before = fetched.length;
+    await expectGeneric404(await fetch(`${url}/download/${token}`));
+    assert.equal(fetched.length, before);
+  });
+
+  it('répond 404 générique à un jeton falsifié ou illisible, sans lire IMAP', async () => {
+    const token = issue();
+    const raw = Buffer.from(token, 'base64url');
+    raw.writeUInt8(raw.readUInt8(raw.length - 1) ^ 0x01, raw.length - 1);
+    const before = fetched.length;
+    await expectGeneric404(await fetch(`${url}/download/${raw.toString('base64url')}`));
+    await expectGeneric404(await fetch(`${url}/download/pas-un-jeton`));
+    assert.equal(fetched.length, before);
+  });
+
+  it('répond 404 générique si la cible a disparu', async () => {
+    await expectGeneric404(await fetch(`${url}/download/${issue(404)}`));
+  });
+
+  it('refuse au-delà de la taille maximale (413)', async () => {
+    const response = await fetch(`${url}/download/${issue(413)}`);
+    assert.equal(response.status, 413);
+    assert.match(await response.text(), /ATTACHMENT_MAX_BYTES/);
+  });
+
+  it('refuse HEAD sans consommer le jeton', async () => {
+    const token = issue();
+    const head = await fetch(`${url}/download/${token}`, { method: 'HEAD' });
+    assert.equal(head.status, 405);
+    assert.equal((await fetch(`${url}/download/${token}`)).status, 200);
+  });
+
+  it('est soumis au rate limit', async () => {
+    const limited = await startServer({ rateLimitPerMinute: 2, download: { links } });
+    try {
+      const statuses: number[] = [];
+      for (let i = 0; i < 3; i += 1) {
+        const response = await fetch(`${limited.url}/download/pas-un-jeton`);
+        statuses.push(response.status);
+        await response.body?.cancel();
+      }
+      assert.deepEqual(statuses, [404, 404, 429]);
+    } finally {
+      await stopServer(limited.instance, limited.srv);
     }
   });
 });
