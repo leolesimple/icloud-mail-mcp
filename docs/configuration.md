@@ -122,12 +122,23 @@ Deux formes acceptées, mélangeables :
 ALLOWED_RECIPIENTS=alice@example.com, @mon-entreprise.com
 ```
 
-### `MAX_SENDS_PER_DAY` — compteur non persisté
+### `MAX_SENDS_PER_DAY` — persistance du compteur
 
-Le compteur vit **en mémoire**. Un redémarrage du serveur le remet à zéro. C'est un choix assumé :
-il protège d'une boucle d'envoi d'un agent qui déraille pendant une exécution, pas d'un opérateur
-qui relance délibérément le process. Pour un plafond dur et durable, il faudrait le persister — hors
-périmètre actuel.
+Le compteur garde les horodatages des envois réussis des dernières 24 h. Où il vit dépend de
+`QUOTA_STATE_PATH` :
+
+- **vide (défaut)** : en mémoire seule. Un redémarrage du serveur le remet à zéro, ce qui suffit à
+  borner une boucle d'envoi au sein d'une exécution, pas un process relancé entre-temps. C'est le
+  comportement en dev et en tests ;
+- **chemin de fichier** : l'état est rechargé au démarrage (les envois de plus de 24 h sont ignorés)
+  et réécrit à chaque envoi, de façon atomique (fichier temporaire puis `rename`). Le dossier parent
+  est créé au besoin. Un fichier absent vaut un compteur vide ; un fichier illisible ou corrompu est
+  signalé par un log `warn` et le compteur repart de zéro : le serveur ne plante jamais pour ça.
+  Un échec d'écriture est lui aussi loggué en `warn`, le compteur restant tenu en mémoire.
+
+Le `docker-compose.yml` fixe `QUOTA_STATE_PATH=/app/data/send-quota.json` sur le volume nommé
+`icloud-mail-mcp-data` : en production, le plafond survit aux redémarrages et aux mises à jour de
+l'image. Supprimer le volume (ou le fichier) remet le compteur à zéro.
 
 ### Interrupteurs booléens
 
@@ -155,6 +166,7 @@ Toutes optionnelles. Vides ou absentes, elles laissent le comportement historiqu
 | `ATTACHMENT_MAX_BYTES` | `5242880` | Taille maximale d'une pièce jointe, en octets (5 Mio). |
 | `ALLOWED_RECIPIENTS` | `''` | Liste d'adresses ou de domaines séparés par des virgules. Vide = aucun filtrage. Exposée aussi normalisée en tableau (`ALLOWED_RECIPIENTS_LIST` : trim, minuscules, entrées vides retirées). |
 | `MAX_SENDS_PER_DAY` | `0` | Nombre maximal d'envois par jour glissant. `0` = illimité. |
+| `QUOTA_STATE_PATH` | `''` | Fichier où persister le compteur de `MAX_SENDS_PER_DAY`. Vide = mémoire seule, remis à zéro au redémarrage. Fixé à `/app/data/send-quota.json` par `docker-compose.yml`. |
 | `DRAFTS_ONLY` | `false` | `true` force tout envoi à passer par un brouillon : aucun mail n'est émis. Même grammaire booléenne que `ENABLE_SENDING`. |
 | `UNRESTRICTED` | `false` | `true` lève tous les garde-fous d'envoi ci-dessus. À n'utiliser qu'en connaissance de cause. |
 | `MAX_BODY_CHARS` | `20000` | Longueur maximale d'un corps de message (texte ou HTML) accepté par les outils. |

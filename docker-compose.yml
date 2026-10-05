@@ -7,9 +7,17 @@ services:
     container_name: icloud-mail-mcp
     env_file:
       - .env
+    environment:
+      # Quota d'envoi persisté dans le volume : survit aux redémarrages.
+      QUOTA_STATE_PATH: /app/data/send-quota.json
+    volumes:
+      - icloud-mail-mcp-data:/app/data
     restart: unless-stopped
     networks:
       - tunnel
+
+volumes:
+  icloud-mail-mcp-data:
 
 # Réseau partagé avec le cloudflared qui expose le tunnel. Ce cloudflared est
 # géré hors de ce projet (stack tierce) ; le serveur y est simplement rattaché,

@@ -48,6 +48,9 @@ const envSchema = z.object({
   ALLOWED_RECIPIENTS: z.string().default(''),
   // Nombre maximal d'envois par jour glissant. 0 = illimité.
   MAX_SENDS_PER_DAY: z.coerce.number().int().nonnegative().default(0),
+  // Fichier où persister le quota d'envoi entre deux redémarrages.
+  // Vide = compteur en mémoire seule, remis à zéro au redémarrage.
+  QUOTA_STATE_PATH: z.string().trim().default(''),
   // Force tous les envois à passer par un brouillon (aucun mail n'est émis).
   DRAFTS_ONLY: envBool(false),
   // Lève tous les garde-fous d'envoi. À n'utiliser qu'en connaissance de cause.

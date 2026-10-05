@@ -61,7 +61,7 @@ dans un ordre strict pour `compose_message` (`deliver: "send"`) et `send_draft` 
 | 2 | `ENABLE_SENDING=false` | Envoi non désiré, tous cas confondus | Refus. Aucun message transmis. |
 | 3 | `DRAFTS_ONLY=true` | Envoi automatique sans relecture humaine | Le message est composé et déposé dans `Drafts`. **Succès** (`sent: false`, `reason: "DRAFTS_ONLY"`) : la rédaction est conservée, l'appelant sait que rien n'est parti. |
 | 4 | `ALLOWED_RECIPIENTS` | Exfiltration : un agent (souvent via une injection de prompt dans un mail lu) envoie vos données à une adresse tierce | Refus si un destinataire `to`/`cc`/`bcc` est hors liste. Le refus **nomme** les adresses fautives. |
-| 5 | `MAX_SENDS_PER_DAY` | Boucle d'envoi d'un agent qui déraille ; usage de la boîte comme relais de spam | Refus au-delà de N envois sur 24 h glissantes. Compteur en mémoire, remis à zéro au redémarrage. |
+| 5 | `MAX_SENDS_PER_DAY` | Boucle d'envoi d'un agent qui déraille ; usage de la boîte comme relais de spam | Refus au-delà de N envois sur 24 h glissantes. Compteur persisté si `QUOTA_STATE_PATH` est défini (c'est le cas dans `docker-compose.yml`), sinon en mémoire et remis à zéro au redémarrage. |
 
 Aucun de ces garde-fous n'empêche une injection de prompt : ils **bornent les dégâts** quand elle
 réussit. Le pire cas avec `DRAFTS_ONLY=true` ou `ALLOWED_RECIPIENTS` restrictif se limite à un
