@@ -80,7 +80,7 @@ En `stdio`, stdout porte le canal JSON-RPC : le serveur bascule automatiquement 
 | `MCP_BEARER_TOKEN` | **requis** | Token attendu sur `/mcp`, en `Authorization: Bearer <token>` ou `X-Api-Key: <token>` (jeton brut, pour les connecteurs claude.ai). 16 caractères minimum. Toujours requis, même en `stdio` (où il ne sert pas). |
 | `RATE_LIMIT_PER_MINUTE` | `120` | Requêtes `/mcp` autorisées par IP et par minute (fenêtre glissante). Au-delà : `429`. `/health` n'est jamais limité. |
 | `SESSION_TTL_MS` | `1800000` | Inactivité (en ms) au-delà de laquelle une session MCP est évincée et son transport fermé. 30 min par défaut. |
-| `PUBLIC_BASE_URL` | `''` (vide) | URL publique HTTPS du serveur, sans slash final (ex. `https://mail-mcp.exemple.com`). Renseigne `icons`/`websiteUrl` dans les métadonnées `Implementation` du protocole MCP, pour les clients qui les affichent. Vide = ces champs ne sont pas envoyés. |
+| `PUBLIC_BASE_URL` | `''` (vide) | URL publique HTTPS du serveur, sans slash final (ex. `https://mail-mcp.exemple.com`). Renseigne `icons`/`websiteUrl` dans les métadonnées `Implementation` du protocole MCP, pour les clients qui les affichent, et sert de base aux liens de téléchargement (`get_attachment`, `format: "url"`). Vide = ces champs ne sont pas envoyés et le format `url` est refusé. |
 
 Générer le token avec :
 
@@ -175,6 +175,19 @@ optionnel. Le fixer n'a d'intérêt que pour garder les jetons valides à traver
 rapide. Générez-le avec `openssl rand -hex 32` ; ne réutilisez ni `MCP_BEARER_TOKEN` ni le mot de
 passe d'application. Il n'apparaît dans aucun log (expurgé par pino) ni dans aucune réponse d'outil.
 Voir [`security.md`](security.md#confirmation-des-opérations-destructives).
+
+---
+
+## Liens de téléchargement
+
+| Variable | Défaut | Description |
+|---|---|---|
+| `DOWNLOAD_URL_SECRET` | `''` (vide) | Secret HMAC des liens de téléchargement signés (`get_attachment`, `format: "url"`, servis par `GET /download/<jeton>`). Au moins 32 caractères, sinon le démarrage échoue. Vide ou absent : un secret aléatoire est tiré au démarrage. |
+
+Même logique que `CONFIRM_SECRET` : un lien dure 15 minutes, le perdre au redémarrage est sans
+gravité, d'où un secret optionnel. Générez-le avec `openssl rand -hex 32`, distinct de
+`MCP_BEARER_TOKEN` et de `CONFIRM_SECRET`. Il est expurgé des logs. Le format `url` exige aussi
+`PUBLIC_BASE_URL`. Voir [`security.md`](security.md#liens-de-téléchargement).
 
 ---
 
