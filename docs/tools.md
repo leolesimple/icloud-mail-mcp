@@ -295,9 +295,9 @@ Le retour dépend de `format` :
 
 - **`auto`** (défaut) : une **image** → bloc `image` (`data` en base64 + `mimeType`) ; tout autre
   type (PDF, documents…) → bloc `text` contenant le JSON
-  `{ filename, mimeType, size, contentBase64 }`.
+  `{ filename, contentType, size, contentBase64 }`.
 - **`text_base64`** : toujours ce bloc `text` JSON, images comprises.
-- **`url`** : bloc `text` contenant le JSON `{ url, expiresAt, filename, mimeType, size }`, sans le
+- **`url`** : bloc `text` contenant le JSON `{ url, expiresAt, filename, contentType, size }`, sans le
   contenu. `url` est un lien de téléchargement signé (`<PUBLIC_BASE_URL>/download/<jeton>`),
   valable **15 minutes** et **une seule fois** ; `expiresAt` est au format ISO 8601. Exige
   `PUBLIC_BASE_URL` : sans elle, l'outil renvoie une erreur explicite. Voir
@@ -309,7 +309,7 @@ Aucun format ne renvoie de bloc `resource` : Claude Desktop les refuse pour les 
 ```json
 {
   "filename": "facture.pdf",
-  "mimeType": "application/pdf",
+  "contentType": "application/pdf",
   "size": 48213,
   "contentBase64": "JVBERi0xLjcK…"
 }

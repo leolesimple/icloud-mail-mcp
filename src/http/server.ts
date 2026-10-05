@@ -65,13 +65,13 @@ export interface DownloadOptions {
 /** Contenu servi par `/download`, quelle que soit la cible. */
 interface DownloadFile {
   filename: string;
-  mimeType: string;
+  contentType: string;
   content: Buffer;
 }
 
 /** Type MIME servi tel quel s'il est bien formé, sinon `application/octet-stream`. */
-function safeMimeType(mimeType: string): string {
-  const trimmed = mimeType.trim().toLowerCase();
+function safeContentType(contentType: string): string {
+  const trimmed = contentType.trim().toLowerCase();
   return /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/.test(trimmed)
     ? trimmed
     : 'application/octet-stream';
@@ -266,13 +266,13 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
       const attachment = await fetchAttachment(target.folder, target.uid, target.index);
       return {
         filename: attachment.filename ?? `attachment-${target.index}`,
-        mimeType: attachment.contentType,
+        contentType: attachment.contentType,
         content: attachment.content,
       };
     }
     return {
       filename: `message-${target.uid}.eml`,
-      mimeType: 'message/rfc822',
+      contentType: 'message/rfc822',
       content: await fetchMessageSource(target.folder, target.uid),
     };
   }
@@ -330,7 +330,7 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
       'download served',
     );
     res.set({
-      'Content-Type': safeMimeType(file.mimeType),
+      'Content-Type': safeContentType(file.contentType),
       'Content-Disposition': contentDisposition(file.filename),
       'Content-Length': String(file.content.length),
     });

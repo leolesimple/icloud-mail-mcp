@@ -17,7 +17,7 @@ export function registerGetAttachmentTool(server: McpServer): void {
       description:
         'Downloads one attachment (pièce jointe) of an email message, by its "index" as listed by ' +
         'read_message. By default (format "auto") images are returned as an image content block and ' +
-        'other files (PDF, documents…) as a text block holding JSON { filename, mimeType, size, ' +
+        'other files (PDF, documents…) as a text block holding JSON { filename, contentType, size, ' +
         'contentBase64 }. Format "url" returns a signed, single-use download link valid 15 minutes ' +
         'instead of the bytes. Attachments larger than ATTACHMENT_MAX_BYTES are refused rather than ' +
         'truncated.',
@@ -57,7 +57,7 @@ export function registerGetAttachmentTool(server: McpServer): void {
       return binaryOutput(
         {
           filename: attachment.filename ?? `attachment-${index}`,
-          mimeType: attachment.contentType,
+          contentType: attachment.contentType,
           content: attachment.content,
         },
         {

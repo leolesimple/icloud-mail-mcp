@@ -11,12 +11,12 @@ import { createDownloadLinkService, type DownloadTarget } from '../src/download-
 
 const PDF: BinaryContent = {
   filename: 'facture.pdf',
-  mimeType: 'application/pdf',
+  contentType: 'application/pdf',
   content: Buffer.from('%PDF-1.7 contenu factice'),
 };
 const PNG: BinaryContent = {
   filename: 'photo.png',
-  mimeType: 'image/png',
+  contentType: 'image/png',
   content: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
 };
 const TARGET: DownloadTarget = { kind: 'attachment', folder: 'INBOX', uid: 12, index: 0 };
@@ -50,7 +50,7 @@ describe('binaryOutput — format auto', () => {
     assert.ok(!result.content.some((b) => b.type === 'resource'));
     assert.deepEqual(textJson(result), {
       filename: 'facture.pdf',
-      mimeType: 'application/pdf',
+      contentType: 'application/pdf',
       size: PDF.content.length,
       contentBase64: PDF.content.toString('base64'),
     });
@@ -62,7 +62,7 @@ describe('binaryOutput — format text_base64', () => {
     const data = textJson(
       binaryOutput(PNG, { format: 'text_base64', target: TARGET, publicBaseUrl: '' }),
     );
-    assert.equal(data.mimeType, 'image/png');
+    assert.equal(data.contentType, 'image/png');
     assert.equal(data.size, 4);
     assert.equal(Buffer.from(data.contentBase64 as string, 'base64').equals(PNG.content), true);
   });
@@ -79,9 +79,9 @@ describe('binaryOutput — format url', () => {
     );
 
     assert.deepEqual(Object.keys(data).sort(), [
+      'contentType',
       'expiresAt',
       'filename',
-      'mimeType',
       'size',
       'url',
     ]);

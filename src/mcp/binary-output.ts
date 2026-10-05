@@ -31,8 +31,8 @@ export const binaryFormatSchema = z
   .default('auto')
   .describe(
     'Output format. "auto" (default): images as an image block, anything else as a text block ' +
-      'holding JSON { filename, mimeType, size, contentBase64 }. "text_base64": always that JSON ' +
-      'text block, images included. "url": JSON { url, expiresAt, filename, mimeType, size } with a ' +
+      'holding JSON { filename, contentType, size, contentBase64 }. "text_base64": always that JSON ' +
+      'text block, images included. "url": JSON { url, expiresAt, filename, contentType, size } with a ' +
       'signed download link, valid 15 minutes and usable once (requires PUBLIC_BASE_URL).',
   );
 
@@ -43,7 +43,7 @@ export const URL_FORMAT_UNAVAILABLE =
 /** Contenu binaire prêt à être mis en forme. */
 export interface BinaryContent {
   filename: string;
-  mimeType: string;
+  contentType: string;
   content: Buffer;
 }
 
@@ -80,17 +80,17 @@ export function binaryOutput(file: BinaryContent, options: BinaryOutputOptions):
       url: downloadUrl(options.publicBaseUrl, token),
       expiresAt: new Date(expiresAt).toISOString(),
       filename: file.filename,
-      mimeType: file.mimeType,
+      contentType: file.contentType,
       size,
     };
     return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
   }
 
   const contentBase64 = file.content.toString('base64');
-  if (format === 'auto' && isImageMimeType(file.mimeType)) {
-    return { content: [{ type: 'image', data: contentBase64, mimeType: file.mimeType }] };
+  if (format === 'auto' && isImageMimeType(file.contentType)) {
+    return { content: [{ type: 'image', data: contentBase64, mimeType: file.contentType }] };
   }
 
-  const data = { filename: file.filename, mimeType: file.mimeType, size, contentBase64 };
+  const data = { filename: file.filename, contentType: file.contentType, size, contentBase64 };
   return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
 }
