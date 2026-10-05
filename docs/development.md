@@ -151,9 +151,13 @@ bump à partir des commits mergés depuis le dernier tag, pose le tag `vX.Y.Z` e
 Release avec ses notes. Le job `docker` du même workflow pousse ensuite l'image sur GHCR taguée
 `{X.Y.Z, X.Y, latest}`.
 
-Aucun commit de version n'est poussé sur `main` (le ruleset y impose une PR) : `package.json` et
-`CHANGELOG.md` ne sont pas mis à jour, la version de référence est le dernier tag et les notes
-vivent dans les GitHub Releases.
+À chaque release, `@semantic-release/npm` (sans publication npm) bumpe `package.json` et
+`package-lock.json`, et `@semantic-release/git` les commite directement sur `main`
+(`chore(release): X.Y.Z [skip ci]`) avant de poser le tag sur ce commit. L'image construite depuis
+le tag embarque donc la bonne version (`/health`, `inbox_overview`, initialize MCP). Ce push direct
+passe outre le ruleset « Protect main » grâce au bypass accordé à l'intégration GitHub Actions ;
+`[skip ci]` évite de relancer CI et Release sur ce commit. `CHANGELOG.md` n'est plus mis à jour :
+les notes vivent dans les GitHub Releases.
 
 Le calcul du bump dépend des commits en [Conventional Commits](https://www.conventionalcommits.org/fr/) :
 
