@@ -224,8 +224,16 @@ export const readMessageResultSchema = schemaFor<ReadMessageResult>()(
   getMessageResultSchema.extend({ thread: threadSchema.optional() }),
 );
 
-/** `find_messages` : même contrat que `search_messages` (le listing n'a ni `folder` ni `errors`). */
-export const findMessagesResultSchema = searchMessagesResultSchema;
+/**
+ * `find_messages` : même contrat que `search_messages` (le listing n'a ni
+ * `folder` ni `errors`), à ceci près que `fields` peut restreindre chaque
+ * message à quelques champs : seul `uid` y est donc garanti.
+ */
+export const findMessagesResultSchema = searchMessagesResultSchema.extend({
+  messages: z.array(
+    messageSummarySchema.partial().extend({ uid: z.number(), folder: z.string().optional() }),
+  ),
+});
 
 const whoamiQuotaSchema = schemaFor<WhoamiQuota>()(
   z.object({

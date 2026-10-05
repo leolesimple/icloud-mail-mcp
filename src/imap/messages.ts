@@ -2,8 +2,13 @@ import type { AddressObject } from 'mailparser';
 import { simpleParser } from 'mailparser';
 import type { FetchMessageObject, ImapFlow } from 'imapflow';
 import { withMailbox } from './mailbox.js';
-import { buildSearchQuery, paginationExhausted } from './search-query.js';
-import type { SearchCriteria } from './search-query.js';
+import {
+  attachmentFilterOf,
+  buildSearchQuery,
+  matchesAttachmentFilter,
+  paginationExhausted,
+} from './search-query.js';
+import type { AttachmentFilter, SearchCriteria } from './search-query.js';
 import { classifyImapError } from './errors.js';
 
 export interface MessageAddress {
@@ -109,13 +114,51 @@ export async function fetchPage(
   }
 
   const ordered = [...uids].sort((a, b) => b - a);
-  const selected = ordered.slice(0, limit);
+  const filter = attachmentFilterOf(criteria);
+  const matching = filter ? await filterByAttachments(client, ordered, filter, limit) : ordered;
+  const selected = matching.slice(0, limit);
+  if (selected.length === 0) {
+    return { messages: [] };
+  }
   const fetched = await client.fetchAll(selected, SUMMARY_QUERY, { uid: true });
   const messages = fetched.map(toSummary).sort((a, b) => b.uid - a.uid);
 
   const smallest = messages.at(-1)?.uid;
-  const hasMore = ordered.length > selected.length;
+  const hasMore = matching.length > selected.length;
   return hasMore && smallest !== undefined ? { messages, nextCursor: smallest } : { messages };
+}
+
+/** Nombre d'UID dont on récupère le BODYSTRUCTURE par commande FETCH. */
+export const ATTACHMENT_FETCH_BATCH = 100;
+
+/**
+ * Filtre pièces jointes : IMAP SEARCH n'en est pas capable, on lit donc le
+ * BODYSTRUCTURE des candidats, par lots, du plus récent au plus ancien. On
+ * s'arrête dès `limit + 1` correspondances : la dernière ne sert qu'à savoir
+ * s'il reste une page, pour que `nextCursor` ne soit jamais un curseur vide.
+ */
+async function filterByAttachments(
+  client: ImapFlow,
+  ordered: number[],
+  filter: AttachmentFilter,
+  limit: number,
+): Promise<number[]> {
+  const matching: number[] = [];
+  for (let start = 0; start < ordered.length && matching.length <= limit;) {
+    const batch = ordered.slice(start, start + ATTACHMENT_FETCH_BATCH);
+    start += batch.length;
+    const fetched = await client.fetchAll(batch, { uid: true, bodyStructure: true }, { uid: true });
+    const accepted = new Set(
+      fetched
+        .filter((entry) => matchesAttachmentFilter(entry.bodyStructure, filter))
+        .map((entry) => entry.uid),
+    );
+    // Le serveur ne garantit pas l'ordre du FETCH : on garde celui du lot.
+    for (const uid of batch) {
+      if (accepted.has(uid)) matching.push(uid);
+    }
+  }
+  return matching;
 }
 
 export interface ListMessagesOptions {

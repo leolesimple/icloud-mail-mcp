@@ -1,4 +1,4 @@
-import type { SearchObject } from 'imapflow';
+import type { MessageStructureObject, SearchObject } from 'imapflow';
 
 /**
  * Critères texte, réutilisés à l'identique au premier niveau, dans `not`
@@ -28,6 +28,16 @@ export interface SearchCriteria extends TextCriteria {
   not?: TextCriteria;
   /** Branches dont au moins une doit correspondre. */
   or?: TextCriteria[];
+  /**
+   * Avec (true) ou sans (false) pièce jointe. IMAP SEARCH ne sait pas filtrer
+   * là-dessus : filtré côté serveur MCP sur le BODYSTRUCTURE (voir `attachmentFilterOf`).
+   */
+  hasAttachment?: boolean;
+  /**
+   * Au moins une pièce jointe de ce type MIME (« application/pdf »), ou de ce
+   * préfixe (« image/ », « image/* »). Implique `hasAttachment: true`.
+   */
+  attachmentType?: string;
 }
 
 function textObject(criteria: TextCriteria): SearchObject {
@@ -55,6 +65,7 @@ export function hasSearchCriteria(criteria: SearchCriteria): boolean {
   if (criteria.since || criteria.before) return true;
   if (criteria.not && !isEmpty(textObject(criteria.not))) return true;
   if (criteria.or && criteria.or.some((branch) => !isEmpty(textObject(branch)))) return true;
+  if (attachmentFilterOf(criteria)) return true;
   return false;
 }
 
@@ -103,4 +114,67 @@ export function buildSearchQuery(criteria: SearchCriteria): SearchObject {
   }
 
   return query;
+}
+
+/** Filtre pièces jointes, appliqué après le SEARCH sur le BODYSTRUCTURE des candidats. */
+export interface AttachmentFilter {
+  /** true : au moins une pièce jointe (du type demandé) ; false : aucune. */
+  present: boolean;
+  /** Type MIME exact (« application/pdf ») ou préfixe terminé par « / » (« image/ »), en minuscules. */
+  type?: string;
+}
+
+/**
+ * Extrait le filtre pièces jointes des critères, ou `undefined` s'il n'y en a
+ * pas. `attachmentType` implique la présence d'une pièce jointe ; « image/* »
+ * est ramené au préfixe « image/ ».
+ */
+export function attachmentFilterOf(criteria: SearchCriteria): AttachmentFilter | undefined {
+  const raw = criteria.attachmentType?.trim().toLowerCase();
+  const type = raw ? raw.replace(/\/\*$/, '/') : undefined;
+  if (type) return { present: true, type };
+  if (criteria.hasAttachment === undefined) return undefined;
+  return { present: criteria.hasAttachment };
+}
+
+function isAttachmentPart(node: MessageStructureObject): boolean {
+  if (node.disposition?.toLowerCase() === 'attachment') return true;
+  return Boolean(node.dispositionParameters?.filename || node.parameters?.name);
+}
+
+/**
+ * Types MIME (en minuscules) des pièces jointes d'un BODYSTRUCTURE. Est une
+ * pièce jointe toute partie feuille marquée `Content-Disposition: attachment`,
+ * ou portant un nom de fichier (`filename` de disposition, `name` de type).
+ * Un message joint (message/rfc822) compte pour une pièce jointe, sans
+ * descendre dans ses propres parties.
+ */
+export function attachmentTypes(structure: MessageStructureObject | undefined): string[] {
+  if (!structure) return [];
+  const types: string[] = [];
+  const visit = (node: MessageStructureObject): void => {
+    const isMultipart = node.type.toLowerCase().startsWith('multipart/');
+    if (!isMultipart && isAttachmentPart(node)) {
+      types.push(node.type.toLowerCase());
+      return;
+    }
+    for (const child of node.childNodes ?? []) visit(child);
+  };
+  visit(structure);
+  return types;
+}
+
+/** True si le BODYSTRUCTURE d'un message satisfait le filtre pièces jointes. */
+export function matchesAttachmentFilter(
+  structure: MessageStructureObject | undefined,
+  filter: AttachmentFilter,
+): boolean {
+  const types = attachmentTypes(structure);
+  const { type } = filter;
+  const found = type
+    ? types.some((candidate) =>
+        type.endsWith('/') ? candidate.startsWith(type) : candidate === type,
+      )
+    : types.length > 0;
+  return found === filter.present;
 }

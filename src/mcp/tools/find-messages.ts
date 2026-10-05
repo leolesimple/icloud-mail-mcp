@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { listMessages, searchMessages, searchMessagesAcross } from '../../imap/messages.js';
-import type { SearchMessagesOptions } from '../../imap/messages.js';
+import type { MessageSummary, SearchMessagesOptions } from '../../imap/messages.js';
+import { listFolders, searchableFolderPaths } from '../../imap/folders.js';
 import { hasSearchCriteria } from '../../imap/search-query.js';
 import { listResult, errorResult } from '../result.js';
 import { findMessagesResultSchema } from '../schemas.js';
@@ -9,6 +10,38 @@ import { isoDate, textCriteriaInput } from './inputs.js';
 import { logger } from '../../logger.js';
 
 const log = logger.child({ tool: 'find_messages' });
+
+/** Champs d'un message que `fields` peut demander (`folder` : multi-dossiers seulement). */
+export const MESSAGE_FIELDS = [
+  'uid',
+  'subject',
+  'from',
+  'to',
+  'date',
+  'seen',
+  'flagged',
+  'size',
+  'folder',
+] as const satisfies readonly (keyof MessageSummary | 'folder')[];
+
+export type MessageField = (typeof MESSAGE_FIELDS)[number];
+
+/**
+ * Ne garde de chaque message que les champs demandés. `uid` est toujours
+ * conservé (c'est lui qu'on passe à read_message), `folder` aussi quand le
+ * message en porte un (recherche multi-dossiers : sans lui, l'uid est ambigu).
+ */
+export function projectFields<T extends { uid: number; folder?: string }>(
+  messages: T[],
+  fields: readonly MessageField[] | undefined,
+): Partial<T>[] {
+  if (!fields) return messages;
+  const keep = new Set<string>([...fields, 'uid', 'folder']);
+  return messages.map(
+    (message) =>
+      Object.fromEntries(Object.entries(message).filter(([key]) => keep.has(key))) as Partial<T>,
+  );
+}
 
 export function registerFindMessagesTool(server: McpServer): void {
   server.registerTool(
@@ -21,8 +54,12 @@ export function registerFindMessagesTool(server: McpServer): void {
         'it runs a native IMAP SEARCH. Criteria are combined with AND: text (subject/body/from/to/text), ' +
         'date range (since/before), unreadOnly (non lus), flagged (starred / suivis), negation (not), ' +
         'alternation (or). Returns { messages, nextCursor? }: pass nextCursor as beforeUid to get the next ' +
-        'page. folders[] searches several folders at once (a criterion is then required): each message is ' +
+        'page. folders[] searches several folders at once, and folders: "*" searches every folder except ' +
+        'Trash and Junk (set includeTrash to include them); a criterion is then required, each message is ' +
         'tagged with its "folder", no cursor is returned, and a failing folder is reported in "errors". ' +
+        'hasAttachment / attachmentType (MIME type like "application/pdf", or prefix like "image/") filter ' +
+        'on attachments (pièces jointes), e.g. invoices: { folders: "*", attachmentType: "application/pdf", ' +
+        'from: "apple.com" }. fields keeps only some fields of each message (uid is always returned). ' +
         'Use read_message to open a message.',
       inputSchema: {
         folder: z
@@ -31,10 +68,16 @@ export function registerFindMessagesTool(server: McpServer): void {
           .default('INBOX')
           .describe('Folder path, e.g. "INBOX", "Archive" (ignored if folders[] is set)'),
         folders: z
-          .array(z.string().min(1))
-          .min(1)
+          .union([z.literal('*'), z.array(z.string().min(1)).min(1)])
           .optional()
-          .describe('Search several folders; results merged and each tagged with its folder'),
+          .describe(
+            'Search several folders; results merged and each tagged with its folder. ' +
+              '"*" = every selectable folder except Trash and Junk',
+          ),
+        includeTrash: z
+          .boolean()
+          .optional()
+          .describe('With folders: "*", also search Trash (corbeille) and Junk (indésirables)'),
         subject: z.string().optional(),
         body: z.string().optional(),
         from: z.string().optional().describe('Sender address or name (partial match)'),
@@ -48,6 +91,25 @@ export function registerFindMessagesTool(server: McpServer): void {
         flagged: z.boolean().optional().describe('Only starred (flagged) messages'),
         not: textCriteriaInput.optional().describe('Text criteria to exclude'),
         or: z.array(textCriteriaInput).optional().describe('Branches; at least one must match'),
+        hasAttachment: z
+          .boolean()
+          .optional()
+          .describe('Only messages with (true) or without (false) attachments (pièces jointes)'),
+        attachmentType: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            'Only messages with an attachment of this MIME type, e.g. "application/pdf"; ' +
+              'a prefix such as "image/" matches any image',
+          ),
+        fields: z
+          .array(z.enum(MESSAGE_FIELDS))
+          .min(1)
+          .optional()
+          .describe(
+            'Return only these fields of each message (uid always included, folder too across folders)',
+          ),
         beforeUid: z.coerce
           .number()
           .int()
@@ -79,7 +141,23 @@ export function registerFindMessagesTool(server: McpServer): void {
         openWorldHint: false,
       },
     },
-    async ({ folder, folders, since, before, beforeUid, envelope, limit, ...criteria }) => {
+    async ({
+      folder,
+      folders,
+      includeTrash,
+      fields,
+      since,
+      before,
+      beforeUid,
+      envelope,
+      limit,
+      ...criteria
+    }) => {
+      if (criteria.attachmentType && criteria.hasAttachment === false) {
+        return errorResult(
+          'attachmentType exige une pièce jointe : incompatible avec hasAttachment: false.',
+        );
+      }
       const options: SearchMessagesOptions = {
         ...criteria,
         since: since ? new Date(since) : undefined,
@@ -93,16 +171,19 @@ export function registerFindMessagesTool(server: McpServer): void {
         if (!searching) {
           return errorResult(
             'La recherche sur plusieurs dossiers (folders) exige au moins un critère (subject, body, from, ' +
-              'to, text, since, before, unreadOnly, flagged, not ou or). Pour lister un dossier, utiliser folder.',
+              'to, text, since, before, unreadOnly, flagged, not, or, hasAttachment ou attachmentType). ' +
+              'Pour lister un dossier, utiliser folder.',
           );
         }
+        const paths =
+          folders === '*' ? searchableFolderPaths(await listFolders(false), includeTrash) : folders;
         log.info(
-          { folders, subject: criteria.subject, from: criteria.from },
+          { folders: paths, subject: criteria.subject, from: criteria.from },
           'searching messages (multi-folder)',
         );
-        const result = await searchMessagesAcross(folders, options);
+        const result = await searchMessagesAcross(paths, options);
         if (result.errors) log.warn({ errors: result.errors }, 'some folders failed');
-        return listResult('messages', result.messages, {
+        return listResult('messages', projectFields(result.messages, fields), {
           envelope,
           extra: result.errors ? { errors: result.errors } : undefined,
         });
@@ -112,7 +193,10 @@ export function registerFindMessagesTool(server: McpServer): void {
       if (!searching) {
         log.info({ folder, beforeUid, limit }, 'listing messages');
         const page = await listMessages(folder, { beforeUid, limit });
-        return listResult('messages', page.messages, { envelope, nextCursor: page.nextCursor });
+        return listResult('messages', projectFields(page.messages, fields), {
+          envelope,
+          nextCursor: page.nextCursor,
+        });
       }
 
       log.info(
@@ -120,7 +204,10 @@ export function registerFindMessagesTool(server: McpServer): void {
         'searching messages',
       );
       const page = await searchMessages(folder, options);
-      return listResult('messages', page.messages, { envelope, nextCursor: page.nextCursor });
+      return listResult('messages', projectFields(page.messages, fields), {
+        envelope,
+        nextCursor: page.nextCursor,
+      });
     },
   );
 }
