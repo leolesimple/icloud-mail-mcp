@@ -19,6 +19,18 @@ const log = logger.child({ module: 'http' });
 // (Dockerfile), donc le chemin relatif tient aussi bien en dev qu'en conteneur.
 const publicDir = fileURLToPath(new URL('../../public', import.meta.url));
 
+/** Méthode(s) JSON-RPC d'un corps de requête (message seul ou lot), pour les logs. */
+function rpcMethods(body: unknown): string | string[] | undefined {
+  const methodOf = (msg: unknown): string | undefined =>
+    msg && typeof msg === 'object' && 'method' in msg && typeof msg.method === 'string'
+      ? msg.method
+      : undefined;
+  if (Array.isArray(body)) {
+    return body.map((msg) => methodOf(msg) ?? 'response');
+  }
+  return methodOf(body);
+}
+
 interface Session {
   transport: StreamableHTTPServerTransport;
   /** Timestamp de la dernière requête reçue sur cette session. */
@@ -102,6 +114,20 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
     next();
   }
 
+  /**
+   * Session inconnue (redémarrage, éviction TTL, autre instance) : la spec MCP
+   * (Streamable HTTP, « Session Management ») impose un 404, sur lequel le
+   * client DOIT rouvrir une session par un nouvel `initialize`. Un 400 ne
+   * déclenche pas cette reprise : le client boucle sur l'erreur.
+   */
+  function sessionNotFound(res: Response): void {
+    res.status(404).json({
+      jsonrpc: '2.0',
+      error: { code: -32001, message: 'Session not found: re-initialize the MCP session' },
+      id: null,
+    });
+  }
+
   async function handlePost(req: Request, res: Response): Promise<void> {
     const sessionId = req.headers['mcp-session-id'];
     const existing = touch(typeof sessionId === 'string' ? sessionId : undefined);
@@ -110,7 +136,13 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
       let transport = existing?.transport;
 
       if (!transport) {
-        if (sessionId || !isInitializeRequest(req.body)) {
+        // Un initialize ouvre toujours une session neuve, même s'il porte encore
+        // l'identifiant d'une session perdue : c'est justement la reprise attendue.
+        if (!isInitializeRequest(req.body)) {
+          if (sessionId) {
+            sessionNotFound(res);
+            return;
+          }
           res.status(400).json({
             jsonrpc: '2.0',
             error: { code: -32000, message: 'Bad Request: no valid session ID provided' },
@@ -152,10 +184,44 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
     const sessionId = req.headers['mcp-session-id'];
     const session = touch(typeof sessionId === 'string' ? sessionId : undefined);
     if (!session) {
+      if (sessionId) {
+        sessionNotFound(res);
+        return;
+      }
       res.status(400).send('Invalid or missing session ID');
       return;
     }
     await session.transport.handleRequest(req, res);
+  }
+
+  /**
+   * Une ligne de log par requête /mcp, à la fin de la réponse : méthode(s)
+   * JSON-RPC, session, statut HTTP, durée et pid. Le pid distingue deux
+   * instances qui répondraient derrière le même tunnel ; `known` dit si la
+   * session était connue de CE process au moment de la requête.
+   */
+  function logMcpRequest(req: Request, res: Response, next: express.NextFunction): void {
+    const started = Date.now();
+    const header = req.headers['mcp-session-id'];
+    const sessionId = typeof header === 'string' ? header : undefined;
+    const known = sessionId !== undefined && sessions.has(sessionId);
+    res.on('finish', () => {
+      log.info(
+        {
+          http: req.method,
+          rpc: rpcMethods(req.body),
+          sessionId,
+          known,
+          // Session créée par cette requête (initialize).
+          newSessionId: sessionId ? undefined : res.getHeader('mcp-session-id'),
+          status: res.statusCode,
+          ms: Date.now() - started,
+          pid: process.pid,
+        },
+        'mcp request',
+      );
+    });
+    next();
   }
 
   const app = express();
@@ -187,6 +253,7 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
 `);
   });
 
+  app.use('/mcp', logMcpRequest);
   app.post('/mcp', rateLimit, bearerAuth, handlePost);
   app.get('/mcp', rateLimit, bearerAuth, handleSessionRequest);
   app.delete('/mcp', rateLimit, bearerAuth, handleSessionRequest);
