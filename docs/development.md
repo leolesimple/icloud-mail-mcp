@@ -164,7 +164,8 @@ Le calcul du bump dépend des commits en [Conventional Commits](https://www.conv
 
 - `fix: …` → patch
 - `feat: …` → minor
-- `feat!: …` ou pied `BREAKING CHANGE: …` → major
+- pied `BREAKING CHANGE: …` → **minor** tant que le projet est en 0.x (règle `releaseRules` de
+  `.releaserc.json`, à retirer pour passer en 1.0.0)
 - `chore:`, `docs:`, `refactor:`, `test:`, `ci:`, … → pas de release
 
 [`commitlint.yml`](../.github/workflows/commitlint.yml) vérifie ce format sur chaque commit d'une
