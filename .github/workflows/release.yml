@@ -2,9 +2,15 @@ name: Release
 
 # Se déclenche après un run vert du workflow CI sur main (donc après chaque
 # merge). semantic-release analyse les commits Conventional Commits depuis le
-# dernier tag, décide s'il y a une release, bump package.json/CHANGELOG.md,
-# tag, crée la GitHub Release ; si une release a eu lieu, le job docker pousse
+# dernier tag, décide s'il y a une release, bump package.json/package-lock.json
+# et les commite sur main (`chore(release): X.Y.Z [skip ci]`), tague ce commit,
+# crée la GitHub Release ; si une release a eu lieu, le job docker pousse
 # l'image sur GHCR taguée avec la nouvelle version.
+#
+# Le commit et le tag sont poussés en SSH avec une deploy key en écriture
+# (secret RELEASE_DEPLOY_KEY) : « Deploy keys » figure dans les bypass actors du
+# ruleset « Protect main », ce qui n'est pas possible pour le GITHUB_TOKEN.
+# Le GITHUB_TOKEN reste utilisé pour l'API (GitHub Release, commentaires).
 on:
   workflow_run:
     workflows: [CI]
@@ -40,6 +46,7 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
 
       - uses: actions/setup-node@v7
         with:

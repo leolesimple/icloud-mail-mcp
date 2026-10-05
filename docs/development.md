@@ -151,15 +151,21 @@ bump à partir des commits mergés depuis le dernier tag, pose le tag `vX.Y.Z` e
 Release avec ses notes. Le job `docker` du même workflow pousse ensuite l'image sur GHCR taguée
 `{X.Y.Z, X.Y, latest}`.
 
-Aucun commit de version n'est poussé sur `main` (le ruleset y impose une PR) : `package.json` et
-`CHANGELOG.md` ne sont pas mis à jour, la version de référence est le dernier tag et les notes
-vivent dans les GitHub Releases.
+À chaque release, `@semantic-release/npm` (sans publication npm) bumpe `package.json` et
+`package-lock.json`, et `@semantic-release/git` les commite directement sur `main`
+(`chore(release): X.Y.Z [skip ci]`) avant de poser le tag sur ce commit. L'image construite depuis
+le tag embarque donc la bonne version (`/health`, `inbox_overview`, initialize MCP). Ce push direct
+passe outre le ruleset « Protect main » : il se fait en SSH avec une deploy key en écriture
+(secret `RELEASE_DEPLOY_KEY`), et « Deploy keys » figure dans les bypass actors du ruleset ;
+`[skip ci]` évite de relancer CI et Release sur ce commit. `CHANGELOG.md` n'est plus mis à jour :
+les notes vivent dans les GitHub Releases.
 
 Le calcul du bump dépend des commits en [Conventional Commits](https://www.conventionalcommits.org/fr/) :
 
 - `fix: …` → patch
 - `feat: …` → minor
-- `feat!: …` ou pied `BREAKING CHANGE: …` → major
+- pied `BREAKING CHANGE: …` → **minor** tant que le projet est en 0.x (règle `releaseRules` de
+  `.releaserc.json`, à retirer pour passer en 1.0.0)
 - `chore:`, `docs:`, `refactor:`, `test:`, `ci:`, … → pas de release
 
 [`commitlint.yml`](../.github/workflows/commitlint.yml) vérifie ce format sur chaque commit d'une
