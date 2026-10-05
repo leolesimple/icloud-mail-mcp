@@ -155,7 +155,8 @@ Release avec ses notes. Le job `docker` du même workflow pousse ensuite l'image
 `package-lock.json`, et `@semantic-release/git` les commite directement sur `main`
 (`chore(release): X.Y.Z [skip ci]`) avant de poser le tag sur ce commit. L'image construite depuis
 le tag embarque donc la bonne version (`/health`, `inbox_overview`, initialize MCP). Ce push direct
-passe outre le ruleset « Protect main » grâce au bypass accordé à l'intégration GitHub Actions ;
+passe outre le ruleset « Protect main » : il se fait en SSH avec une deploy key en écriture
+(secret `RELEASE_DEPLOY_KEY`), et « Deploy keys » figure dans les bypass actors du ruleset ;
 `[skip ci]` évite de relancer CI et Release sur ce commit. `CHANGELOG.md` n'est plus mis à jour :
 les notes vivent dans les GitHub Releases.
 

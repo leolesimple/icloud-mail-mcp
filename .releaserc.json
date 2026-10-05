@@ -1,5 +1,6 @@
 {
   "branches": ["main"],
+  "repositoryUrl": "git@github.com:leolesimple/icloud-mail-mcp.git",
   "plugins": [
     "@semantic-release/commit-analyzer",
     "@semantic-release/release-notes-generator",

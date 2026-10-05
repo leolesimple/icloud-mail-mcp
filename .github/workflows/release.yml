@@ -7,8 +7,10 @@ name: Release
 # crée la GitHub Release ; si une release a eu lieu, le job docker pousse
 # l'image sur GHCR taguée avec la nouvelle version.
 #
-# Le push du commit de release sur main exige que l'intégration GitHub Actions
-# figure dans les bypass actors du ruleset « Protect main ».
+# Le commit et le tag sont poussés en SSH avec une deploy key en écriture
+# (secret RELEASE_DEPLOY_KEY) : « Deploy keys » figure dans les bypass actors du
+# ruleset « Protect main », ce qui n'est pas possible pour le GITHUB_TOKEN.
+# Le GITHUB_TOKEN reste utilisé pour l'API (GitHub Release, commentaires).
 on:
   workflow_run:
     workflows: [CI]
@@ -44,6 +46,7 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
 
       - uses: actions/setup-node@v7
         with:
