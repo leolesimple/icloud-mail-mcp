@@ -2,12 +2,15 @@ import './helpers/env.js';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ImapFlow, MessageStructureObject } from 'imapflow';
-import { fetchPage, searchMessagesAcross } from '../src/imap/messages.js';
+import { simpleParser } from 'mailparser';
+import { fetchPage, isInlineAttachment, searchMessagesAcross } from '../src/imap/messages.js';
 import { listFoldersOn, searchableFolderPaths } from '../src/imap/folders.js';
 import {
   attachmentFilterOf,
+  attachmentParts,
   attachmentTypes,
   hasSearchCriteria,
+  isInlinePart,
   matchesAttachmentFilter,
 } from '../src/imap/search-query.js';
 import { projectFields } from '../src/mcp/tools/find-messages.js';
@@ -286,5 +289,116 @@ describe('fields', () => {
 
   it('un message projeté sans uid reste invalide pour l’outputSchema', () => {
     assert.throws(() => findMessagesResultSchema.parse({ messages: [{ subject: 'x' }] }));
+  });
+});
+
+describe('attachments et inline', () => {
+  // Facture jointe + logo de signature intégré au HTML (Content-ID, disposition inline).
+  const withLogo: MessageStructureObject = {
+    type: 'multipart/mixed',
+    childNodes: [
+      {
+        type: 'multipart/related',
+        childNodes: [
+          { part: '1.1', type: 'text/html' },
+          {
+            part: '1.2',
+            type: 'image/png',
+            id: '<logo@apple.com>',
+            disposition: 'inline',
+            dispositionParameters: { filename: 'logo.png' },
+            size: 2048,
+          },
+        ],
+      },
+      {
+        part: '2',
+        type: 'application/pdf',
+        disposition: 'attachment',
+        dispositionParameters: { filename: 'Facture.pdf' },
+        size: 40960,
+      },
+    ],
+  };
+
+  it('décrit chaque pièce jointe du BODYSTRUCTURE et marque les parties intégrées', () => {
+    assert.deepEqual(attachmentParts(withLogo), [
+      { contentType: 'image/png', filename: 'logo.png', size: 2048, inline: true },
+      { contentType: 'application/pdf', filename: 'Facture.pdf', size: 40960, inline: false },
+    ]);
+  });
+
+  it('un Content-ID sans disposition vaut inline, sauf disposition attachment', () => {
+    assert.equal(isInlinePart(undefined, '<img@x>'), true);
+    assert.equal(isInlinePart('INLINE', undefined), true);
+    assert.equal(isInlinePart('attachment', '<img@x>'), false);
+    assert.equal(isInlinePart(undefined, undefined), false);
+  });
+
+  it('fetchPage ajoute attachments seulement quand un filtre pièces jointes est actif', async () => {
+    const mail = new FakeMail().addMailbox('INBOX');
+    mail.addMessage('INBOX', { uid: 1, subject: 'Facture', bodyStructure: withLogo });
+    const client = mail.select('INBOX').asImapFlow();
+
+    const filtered = await fetchPage(client, { hasAttachment: true }, 10);
+    assert.deepEqual(
+      filtered.messages[0]?.attachments?.map((a) => [a.contentType, a.inline]),
+      [
+        ['image/png', true],
+        ['application/pdf', false],
+      ],
+    );
+    assert.doesNotThrow(() => findMessagesResultSchema.parse({ messages: filtered.messages }));
+
+    const plain = await fetchPage(client, { subject: 'facture' }, 10);
+    assert.equal(plain.messages[0]?.attachments, undefined);
+  });
+
+  it('fields peut demander attachments', () => {
+    const [message] = projectFields(
+      [{ uid: 1, subject: 'x', attachments: attachmentParts(withLogo) }],
+      ['attachments'],
+    );
+    assert.deepEqual(Object.keys(message ?? {}), ['uid', 'attachments']);
+  });
+
+  it('read_message : même règle inline à partir de mailparser', async () => {
+    const raw = [
+      'From: Apple <no_reply@email.apple.com>',
+      'Subject: Facture',
+      'MIME-Version: 1.0',
+      'Content-Type: multipart/mixed; boundary="mixed"',
+      '',
+      '--mixed',
+      'Content-Type: multipart/related; boundary="rel"',
+      '',
+      '--rel',
+      'Content-Type: text/html; charset=utf-8',
+      '',
+      '<p>Merci</p><img src="cid:logo@apple.com">',
+      '--rel',
+      'Content-Type: image/png; name="logo.png"',
+      'Content-ID: <logo@apple.com>',
+      'Content-Transfer-Encoding: base64',
+      '',
+      'iVBORw0KGgo=',
+      '--rel--',
+      '--mixed',
+      'Content-Type: application/pdf; name="Facture.pdf"',
+      'Content-Disposition: attachment; filename="Facture.pdf"',
+      'Content-Transfer-Encoding: base64',
+      '',
+      'JVBERi0xLjQK',
+      '--mixed--',
+      '',
+    ].join('\r\n');
+    const parsed = await simpleParser(raw);
+    assert.deepEqual(
+      parsed.attachments.map((att) => [att.filename, isInlineAttachment(att)]),
+      [
+        ['logo.png', true],
+        ['Facture.pdf', false],
+      ],
+    );
   });
 });

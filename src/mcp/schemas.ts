@@ -6,6 +6,7 @@ import type {
   MessageSummary,
 } from '../imap/messages.js';
 import type { FolderInfo } from '../imap/folders.js';
+import type { AttachmentPart } from '../imap/search-query.js';
 import type { BulkItemResult } from '../imap/mutations.js';
 import type { DraftResult, SendDraftResult } from '../imap/drafts.js';
 import type { Thread, ThreadMessage } from '../imap/thread.js';
@@ -55,6 +56,8 @@ export const messageAttachmentSchema = schemaFor<MessageAttachment>()(
     contentId: z.string().optional(),
     // Index stable : c'est lui qu'on passe à get_attachment.
     index: z.number(),
+    // Affichée dans le corps (image intégrée…) plutôt que jointe.
+    inline: z.boolean(),
   }),
 );
 
@@ -229,9 +232,23 @@ export const readMessageResultSchema = schemaFor<ReadMessageResult>()(
  * `folder` ni `errors`), à ceci près que `fields` peut restreindre chaque
  * message à quelques champs : seul `uid` y est donc garanti.
  */
+export const attachmentPartSchema = schemaFor<AttachmentPart>()(
+  z.object({
+    contentType: z.string(),
+    filename: z.string().optional(),
+    size: z.number().optional(),
+    inline: z.boolean(),
+  }),
+);
+
 export const findMessagesResultSchema = searchMessagesResultSchema.extend({
   messages: z.array(
-    messageSummarySchema.partial().extend({ uid: z.number(), folder: z.string().optional() }),
+    messageSummarySchema.partial().extend({
+      uid: z.number(),
+      folder: z.string().optional(),
+      // Seulement avec un filtre pièces jointes (hasAttachment / attachmentType).
+      attachments: z.array(attachmentPartSchema).optional(),
+    }),
   ),
 });
 
