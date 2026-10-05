@@ -145,7 +145,8 @@ Les critères de premier niveau sont **combinés en ET**.
 | Paramètre | Type | Défaut | Description |
 |---|---|---|---|
 | `folder` | string | `INBOX` | Dossier à lister ou à fouiller (ignoré si `folders` est fourni) |
-| `folders` | string[] | — | Recherche sur plusieurs dossiers ; **exige un critère** |
+| `folders` | string[] \| `"*"` | — | Recherche sur plusieurs dossiers ; `"*"` = tous sauf corbeille et indésirables ; **exige un critère** |
+| `includeTrash` | boolean | `false` | Avec `folders: "*"`, fouille aussi la corbeille (`\Trash`) et les indésirables (`\Junk`) |
 | `subject` | string | — | Sous-chaîne dans le sujet |
 | `body` | string | — | Sous-chaîne dans le corps |
 | `from` | string | — | Sous-chaîne dans l'expéditeur |
@@ -157,6 +158,9 @@ Les critères de premier niveau sont **combinés en ET**.
 | `flagged` | boolean | — | Uniquement les messages suivis (favoris) |
 | `not` | objet texte | — | Critères texte (`subject`/`body`/`from`/`to`/`text`) à **exclure** |
 | `or` | objet texte[] | — | Branches dont **au moins une** doit correspondre |
+| `hasAttachment` | boolean | — | Uniquement les messages **avec** (`true`) ou **sans** (`false`) pièce jointe |
+| `attachmentType` | string | — | Au moins une pièce jointe de ce type MIME (`application/pdf`) ou de ce préfixe (`image/`) |
+| `fields` | string[] | — | Champs à renvoyer pour chaque message (`uid` toujours inclus) |
 | `beforeUid` | number | — | Curseur de pagination : seulement les UID inférieurs à cette valeur |
 | `limit` | number | `50` | Nombre max de messages (200 maximum) |
 | `envelope` | boolean | `false` | Enveloppe aussi le bloc texte (`{ messages, nextCursor?, errors? }`) |
@@ -164,6 +168,21 @@ Les critères de premier niveau sont **combinés en ET**.
 `since` et `before` acceptent une date seule (`2026-07-01`) ou un instant complet
 (`2026-07-01T08:00:00Z`). `folder` et `beforeUid` ne sont pas des critères : seuls, ils donnent un
 listing.
+
+**Pièces jointes** (`hasAttachment`, `attachmentType`) — IMAP `SEARCH` ne sait pas filtrer sur les
+pièces jointes : le serveur lit le `BODYSTRUCTURE` des messages retenus par les autres critères, par
+lots de 100, du plus récent au plus ancien, et s'arrête dès qu'une page est pleine. Est une pièce
+jointe toute partie marquée `Content-Disposition: attachment` ou portant un nom de fichier (une image
+intégrée nommée compte donc aussi) ; un message joint compte pour une pièce jointe de type
+`message/rfc822`. `attachmentType` ignore la casse, accepte un préfixe terminé par `/` (ou `/*`) et
+implique `hasAttachment: true` (le combiner avec `hasAttachment: false` est une erreur). Le filtre
+s'applique **avant** la troncature à `limit`, et la pagination reste exacte. Sans autre critère, un
+filtre pièces jointes peut lire beaucoup de `BODYSTRUCTURE` dans un gros dossier : l'associer de
+préférence à `from`, `since`…
+
+**Champs** (`fields`) — parmi `uid`, `subject`, `from`, `to`, `date`, `seen`, `flagged`, `size`,
+`folder` (toute autre valeur est refusée). `uid` est toujours renvoyé, et `folder` aussi en recherche
+multi-dossiers ; `fields: ["subject", "date"]` donne `{ "uid", "subject", "date" }` par message.
 
 **Forme de la réponse** — bloc texte = **tableau nu** par défaut ; `structuredContent` toujours
 enveloppé :
@@ -195,6 +214,10 @@ les résultats sont fusionnés, triés par date et tronqués à `limit`. Pas de 
 mode. Un dossier en échec (nom inexistant…) est écarté et reporté dans `errors` au lieu de faire
 échouer toute la recherche ; une erreur d'authentification ou de réseau, elle, est propagée.
 
+`folders: "*"` fouille tous les dossiers sélectionnables (les conteneurs `\Noselect` sont
+ignorés), **sauf** la corbeille et les indésirables (rôles `\Trash` et `\Junk`) ; `includeTrash: true`
+les ajoute. Un critère reste obligatoire (un filtre pièces jointes en est un).
+
 ```jsonc
 // find_messages avec folders: ["INBOX", "Archive", "Archvie"], from: "devis", envelope: true
 {
@@ -203,6 +226,15 @@ mode. Un dossier en échec (nom inexistant…) est écarté et reporté dans `er
   ],
   "errors": [{ "folder": "Archvie", "error": "…" }]
 }
+```
+
+```jsonc
+// find_messages avec folders: "*", hasAttachment: true, attachmentType: "application/pdf",
+// from: "apple.com", fields: ["subject", "date"] → les factures Apple de tous les dossiers
+[
+  { "uid": 812, "folder": "INBOX", "subject": "Votre facture Apple", "date": "2026-09-01T…" },
+  { "uid": 77, "folder": "Archive", "subject": "Votre facture Apple", "date": "2026-08-01T…" }
+]
 ```
 
 Le corps des messages n'est pas chargé : ce sont des résumés d'enveloppe, volontairement légers.
