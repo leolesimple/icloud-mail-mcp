@@ -68,29 +68,73 @@ export function checkBinaryFormat(
   return format === 'url' && !publicBaseUrl ? errorResult(URL_FORMAT_UNAVAILABLE) : undefined;
 }
 
-export function binaryOutput(file: BinaryContent, options: BinaryOutputOptions): CallToolResult {
+/** Champs JSON d'un contenu renvoyé inline (`auto` hors image, `text_base64`). */
+export interface InlineBinaryJson {
+  filename: string;
+  contentType: string;
+  size: number;
+  contentBase64: string;
+}
+
+/** Champs JSON d'un contenu renvoyé par lien (`url`). */
+export interface LinkBinaryJson {
+  url: string;
+  expiresAt: string;
+  filename: string;
+  contentType: string;
+  size: number;
+}
+
+/**
+ * Forme d'un contenu selon le format, avant emballage en blocs MCP : un bloc
+ * image, ou des champs JSON. Partagée par `binaryOutput` et `get_attachments`,
+ * qui assemble plusieurs contenus dans une seule réponse.
+ */
+export type BinaryPayload =
+  | { type: 'image'; data: string; mimeType: string }
+  | { type: 'json'; data: InlineBinaryJson | LinkBinaryJson };
+
+/**
+ * Calcule la forme d'un contenu. Le format `url` doit avoir été validé avant
+ * (`checkBinaryFormat`) : sans `publicBaseUrl`, l'appel lève.
+ */
+export function binaryPayload(file: BinaryContent, options: BinaryOutputOptions): BinaryPayload {
   const { format } = options;
   const size = file.content.length;
 
   if (format === 'url') {
-    const refused = checkBinaryFormat(format, options.publicBaseUrl);
-    if (refused) return refused;
+    if (!options.publicBaseUrl) throw new Error(URL_FORMAT_UNAVAILABLE);
     const { token, expiresAt } = (options.links ?? downloadLinks).issue(options.target);
-    const data = {
-      url: downloadUrl(options.publicBaseUrl, token),
-      expiresAt: new Date(expiresAt).toISOString(),
-      filename: file.filename,
-      contentType: file.contentType,
-      size,
+    return {
+      type: 'json',
+      data: {
+        url: downloadUrl(options.publicBaseUrl, token),
+        expiresAt: new Date(expiresAt).toISOString(),
+        filename: file.filename,
+        contentType: file.contentType,
+        size,
+      },
     };
-    return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
   }
 
   const contentBase64 = file.content.toString('base64');
   if (format === 'auto' && isImageMimeType(file.contentType)) {
-    return { content: [{ type: 'image', data: contentBase64, mimeType: file.contentType }] };
+    return { type: 'image', data: contentBase64, mimeType: file.contentType };
   }
 
-  const data = { filename: file.filename, contentType: file.contentType, size, contentBase64 };
-  return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+  return {
+    type: 'json',
+    data: { filename: file.filename, contentType: file.contentType, size, contentBase64 },
+  };
+}
+
+export function binaryOutput(file: BinaryContent, options: BinaryOutputOptions): CallToolResult {
+  const refused = checkBinaryFormat(options.format, options.publicBaseUrl);
+  if (refused) return refused;
+
+  const payload = binaryPayload(file, options);
+  if (payload.type === 'image') {
+    return { content: [{ type: 'image', data: payload.data, mimeType: payload.mimeType }] };
+  }
+  return { content: [{ type: 'text', text: JSON.stringify(payload.data, null, 2) }] };
 }
