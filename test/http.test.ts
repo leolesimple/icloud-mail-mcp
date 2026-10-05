@@ -140,14 +140,23 @@ describe('sessions MCP', () => {
     assert.match(body.error.message, /no valid session ID/);
   });
 
-  it('refuse un identifiant de session inconnu', async () => {
-    const response = await fetch(`${baseUrl}/mcp`, {
+  it('répond 404 (spec MCP) sur un identifiant de session inconnu, en GET comme en POST', async () => {
+    const get = await fetch(`${baseUrl}/mcp`, {
       method: 'GET',
       headers: { ...AUTH, 'mcp-session-id': 'session-qui-n-existe-pas' },
     });
+    assert.equal(get.status, 404);
+    await get.body?.cancel();
 
-    assert.equal(response.status, 400);
-    assert.match(await response.text(), /Invalid or missing session ID/);
+    const post = await fetch(`${baseUrl}/mcp`, {
+      method: 'POST',
+      headers: { ...MCP_HEADERS, 'mcp-session-id': 'session-qui-n-existe-pas' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/list', params: {} }),
+    });
+    assert.equal(post.status, 404);
+    const body = (await post.json()) as { error: { code: number; message: string } };
+    assert.equal(body.error.code, -32001);
+    assert.match(body.error.message, /Session not found/);
   });
 
   it('refuse un DELETE sans identifiant de session', async () => {
@@ -258,15 +267,54 @@ describe('TTL des sessions MCP', () => {
       method: 'GET',
       headers: { ...AUTH, 'mcp-session-id': idle },
     });
-    assert.equal(afterIdle.status, 400);
-    assert.match(await afterIdle.text(), /Invalid or missing session ID/);
+    assert.equal(afterIdle.status, 404);
+    await afterIdle.body?.cancel();
 
     // …mais la session active est toujours là.
     const afterActive = await fetch(`${url}/mcp`, {
       method: 'GET',
       headers: { ...AUTH, 'mcp-session-id': active },
     });
-    assert.notEqual(afterActive.status, 400);
+    assert.notEqual(afterActive.status, 404);
     await afterActive.body?.cancel().catch(() => {});
+  });
+});
+
+describe('reprise après redémarrage du serveur', () => {
+  async function initialize(url: string, staleSessionId?: string): Promise<string> {
+    const response = await fetch(`${url}/mcp`, {
+      method: 'POST',
+      headers: staleSessionId ? { ...MCP_HEADERS, 'mcp-session-id': staleSessionId } : MCP_HEADERS,
+      body: JSON.stringify(INITIALIZE),
+    });
+    assert.equal(response.status, 200);
+    const sessionId = response.headers.get('mcp-session-id');
+    assert.ok(sessionId);
+    await response.body?.cancel();
+    return sessionId as string;
+  }
+
+  it('init → restart → 404 sur l’ancienne session, puis un initialize rouvre une session', async () => {
+    const first = await startServer({ rateLimitPerMinute: 10_000 });
+    const oldSession = await initialize(first.url);
+    await stopServer(first.instance, first.srv);
+
+    // Nouveau process : les sessions en mémoire sont perdues.
+    const second = await startServer({ rateLimitPerMinute: 10_000 });
+    try {
+      const call = await fetch(`${second.url}/mcp`, {
+        method: 'POST',
+        headers: { ...MCP_HEADERS, 'mcp-session-id': oldSession },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }),
+      });
+      assert.equal(call.status, 404, 'le client doit recevoir 404 pour se réinitialiser');
+      await call.body?.cancel();
+
+      // Le client réinitialise, même s'il renvoie encore l'ancien identifiant.
+      const newSession = await initialize(second.url, oldSession);
+      assert.notEqual(newSession, oldSession);
+    } finally {
+      await stopServer(second.instance, second.srv);
+    }
   });
 });
