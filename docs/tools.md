@@ -184,8 +184,13 @@ filtre pièces jointes peut lire beaucoup de `BODYSTRUCTURE` dans un gros dossie
 préférence à `from`, `since`…
 
 Avec un filtre pièces jointes, chaque message porte en plus `attachments`, lu dans le même
-`BODYSTRUCTURE` : `[{ contentType, filename?, size?, inline }]`. `size` est la taille de la partie
-encodée (base64 : environ un tiers de plus que le fichier). `inline: true` marque une partie
+`BODYSTRUCTURE` : `[{ part, contentType, filename?, size?, inline }]`. `part` est le numéro de
+partie IMAP (`"2"`, `"1.3"`, `"1"` pour un message mono-partie) : le passer en `part` à
+[`get_attachment`](#get_attachment), [`get_attachments`](#get_attachments) ou à la source
+`fromMessage` de [`compose_message`](#compose_message) récupère **directement** cette pièce jointe,
+sans `read_message` ni téléchargement du message entier. Il ne se confond pas avec l'`index` de
+`read_message` : mailparser compte aussi, par exemple, les images intégrées sans nom. `size` est la
+taille de la partie encodée (base64 : environ un tiers de plus que le fichier). `inline: true` marque une partie
 **affichée dans le corps** plutôt que jointe (disposition `inline`, ou Content-ID sans disposition
 `attachment` : images intégrées au HTML, logos de signature). Ces parties comptent pour
 `hasAttachment` et `attachmentType` ; c'est à l'agent d'écarter les `inline` s'il ne veut que les
@@ -249,8 +254,8 @@ les ajoute. Un critère reste obligatoire (un filtre pièces jointes en est un).
     "folder": "INBOX",
     "subject": "Votre facture Apple",
     "attachments": [
-      { "contentType": "image/png", "filename": "logo.png", "size": 2048, "inline": true },
-      { "contentType": "application/pdf", "filename": "Facture.pdf", "size": 40960, "inline": false }
+      { "part": "1.2", "contentType": "image/png", "filename": "logo.png", "size": 2048, "inline": true },
+      { "part": "2", "contentType": "application/pdf", "filename": "Facture.pdf", "size": 40960, "inline": false }
     ]
   }
 ]

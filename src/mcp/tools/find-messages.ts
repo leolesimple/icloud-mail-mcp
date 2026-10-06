@@ -64,7 +64,9 @@ export function registerFindMessagesTool(server: McpServer): void {
         'hasAttachment / attachmentType (MIME type like "application/pdf", or prefix like "image/") filter ' +
         'on attachments (pièces jointes), e.g. invoices: { folders: "*", attachmentType: "application/pdf", ' +
         'from: "apple.com" }; each message then lists its attachments, with inline: true for parts ' +
-        'shown in the body (embedded images, signature logos) rather than attached. ' +
+        'shown in the body (embedded images, signature logos) rather than attached, and its IMAP "part" ' +
+        'number to pass to get_attachment / get_attachments (or compose_message fromMessage) to fetch ' +
+        'only that attachment. ' +
         'fields keeps only some fields of each message (uid is always returned). ' +
         'Use read_message to open a message.',
       inputSchema: {
