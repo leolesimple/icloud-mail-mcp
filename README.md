@@ -36,7 +36,7 @@ Claude  ──HTTPS+Bearer──▶  Cloudflare Tunnel  ──▶  icloud-mail-m
 
 ## Ce que ça fait
 
-Huit outils MCP organisés par intention, décrits en détail dans [`docs/tools.md`](docs/tools.md) :
+Dix outils MCP organisés par intention, décrits en détail dans [`docs/tools.md`](docs/tools.md) :
 
 | Outil | Ce qu'il fait |
 |---|---|
@@ -44,6 +44,8 @@ Huit outils MCP organisés par intention, décrits en détail dans [`docs/tools.
 | `find_messages` | Liste un dossier ou y cherche côté serveur IMAP : sujet, corps, expéditeur, destinataire, dates, non lus, favoris, sur un ou plusieurs dossiers ; pagination par curseur |
 | `read_message` | Contenu complet d'un message (corps tronqué à la demande, métadonnées des pièces jointes), et en option son fil de discussion |
 | `get_attachment` | Contenu binaire d'une pièce jointe, ciblée par son index |
+| `get_attachments` | Jusqu'à 25 pièces jointes en un appel, chaque message n'étant téléchargé qu'une fois ; un élément en échec ne fait pas échouer le lot |
+| `export_message` | Message brut au format EML (`message/rfc822`), en base64 ou par lien signé |
 | `compose_message` | Nouveau message, réponse (à tous), transfert, envoyé ou enregistré en brouillon, avec threading correct et pièces jointes |
 | `send_draft` | Envoie un brouillon existant, puis le retire de Drafts |
 | `organize_messages` | Déplace, met à la corbeille, marque lu / non lu, favori, répondu, indésirable — jusqu'à 200 messages en une commande IMAP |

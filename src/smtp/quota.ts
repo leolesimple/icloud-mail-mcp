@@ -1,15 +1,19 @@
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { config } from '../config.js';
+import { logger } from '../logger.js';
 
 /**
- * Quota d'envoi glissant sur 24 h, en mémoire.
+ * Quota d'envoi glissant sur 24 h.
  *
- * Module pur, sans dépendance réseau : l'horloge est injectable pour que les
- * tests fassent avancer le temps sans attendre.
+ * Sans dépendance réseau : l'horloge et le stockage sont injectables pour que
+ * les tests fassent avancer le temps sans attendre et sans toucher au disque.
  *
- * **Non persisté.** Un redémarrage du process remet le compteur à zéro. C'est un
- * choix assumé (voir `docs/security.md`) : le quota protège d'une boucle d'envoi
- * d'un agent qui déraille au sein d'une même exécution, pas d'un opérateur qui
- * relance délibérément le serveur.
+ * **Persistance optionnelle.** Si `QUOTA_STATE_PATH` est défini, les horodatages
+ * des envois sont rechargés au démarrage et réécrits (atomiquement) à chaque
+ * envoi : un redémarrage ne remet plus le compteur à zéro. Vide (défaut), le
+ * compteur reste en mémoire seule et repart à zéro au redémarrage (voir
+ * `docs/configuration.md`).
  */
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -19,6 +23,72 @@ export interface Clock {
 }
 
 export const systemClock: Clock = { now: () => Date.now() };
+
+/** Stockage des horodatages d'envoi (ms epoch). */
+export interface QuotaStore {
+  /** Horodatages connus. Ne lève jamais : un état illisible vaut liste vide. */
+  load(): number[];
+  /** Remplace l'état persisté. Ne lève jamais : un échec est loggué. */
+  save(sends: readonly number[]): void;
+}
+
+/** Aucun stockage : compteur en mémoire seule (comportement historique). */
+export const memoryStore: QuotaStore = {
+  load: () => [],
+  save: () => {},
+};
+
+const log = logger.child({ module: 'quota' });
+
+/**
+ * Stockage dans un fichier JSON `{ "sends": [ms, ...] }`. Écriture atomique
+ * (fichier temporaire puis `rename`), dossier parent créé au besoin. Fichier
+ * absent = état vide ; fichier corrompu = `warn` et état vide, jamais de crash.
+ */
+export function fileStore(
+  path: string,
+  warn: (obj: object, msg: string) => void = (o, m) => log.warn(o, m),
+): QuotaStore {
+  return {
+    load() {
+      let raw: string;
+      try {
+        raw = readFileSync(path, 'utf8');
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+          warn({ err, path }, 'quota d’envoi : état illisible, compteur repris à zéro');
+        }
+        return [];
+      }
+      try {
+        const sends = (JSON.parse(raw) as { sends?: unknown }).sends;
+        if (
+          !Array.isArray(sends) ||
+          !sends.every((t) => typeof t === 'number' && Number.isFinite(t))
+        ) {
+          throw new Error('format inattendu');
+        }
+        return sends as number[];
+      } catch (err) {
+        warn({ err, path }, 'quota d’envoi : état corrompu, compteur repris à zéro');
+        return [];
+      }
+    },
+    save(sends) {
+      const tmp = `${path}.${process.pid}.tmp`;
+      try {
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(tmp, JSON.stringify({ sends }));
+        renameSync(tmp, path);
+      } catch (err) {
+        warn(
+          { err, path },
+          'quota d’envoi : écriture de l’état impossible, compteur conservé en mémoire',
+        );
+      }
+    },
+  };
+}
 
 /**
  * Photo du quota, en LECTURE SEULE (aucun effet de bord — ne consomme pas de
@@ -38,16 +108,22 @@ export interface QuotaStatus {
 }
 
 export class SendQuota {
-  private readonly sends: number[] = [];
+  private readonly sends: number[];
 
   /**
    * @param limit Nombre max d'envois sur 24 h glissantes. `0` (ou négatif) = illimité.
    * @param clock Horloge, injectable pour les tests.
+   * @param store Stockage des horodatages, chargé à la construction et réécrit à chaque `record()`.
    */
   constructor(
     private readonly limit: number,
     private readonly clock: Clock = systemClock,
-  ) {}
+    private readonly store: QuotaStore = memoryStore,
+  ) {
+    // `prune` suppose un tableau trié : on ne fait pas confiance à l'ordre du fichier.
+    this.sends = store.load().sort((a, b) => a - b);
+    this.prune(clock.now());
+  }
 
   private prune(now: number): void {
     const cutoff = now - DAY_MS;
@@ -82,7 +158,10 @@ export class SendQuota {
 
   /** Comptabilise un envoi réussi. */
   record(): void {
-    this.sends.push(this.clock.now());
+    const now = this.clock.now();
+    this.prune(now);
+    this.sends.push(now);
+    this.store.save(this.sends);
   }
 
   /**
@@ -105,8 +184,20 @@ export class SendQuota {
   }
 }
 
-/** Instance partagée par le process, dimensionnée par `MAX_SENDS_PER_DAY`. */
-export const sendQuota = new SendQuota(config.MAX_SENDS_PER_DAY);
+/** Stockage correspondant à `QUOTA_STATE_PATH` : vide = mémoire seule, sinon fichier. */
+export function quotaStoreFor(path: string): QuotaStore {
+  return path === '' ? memoryStore : fileStore(path);
+}
+
+/**
+ * Instance partagée par le process, dimensionnée par `MAX_SENDS_PER_DAY` et
+ * persistée dans `QUOTA_STATE_PATH` s'il est défini.
+ */
+export const sendQuota = new SendQuota(
+  config.MAX_SENDS_PER_DAY,
+  systemClock,
+  quotaStoreFor(config.QUOTA_STATE_PATH),
+);
 
 /** Photo du quota partagé, en lecture seule. Point d'entrée pour `whoami` (lot E). */
 export function getQuotaStatus(): QuotaStatus {

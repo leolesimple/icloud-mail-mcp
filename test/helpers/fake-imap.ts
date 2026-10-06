@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { ImapFlow } from 'imapflow';
+import type { ImapFlow, MessageStructureObject } from 'imapflow';
 
 /**
  * Client imapflow minimal : juste ce que le pool manipule (connect, logout,
@@ -118,6 +118,7 @@ export interface FakeStoredMessage {
   body?: string;
   source?: Buffer;
   size?: number;
+  bodyStructure?: MessageStructureObject;
 }
 
 export interface FakeMessageInput extends Partial<Omit<FakeStoredMessage, 'flags'>> {
@@ -169,6 +170,7 @@ interface FetchQuery {
   envelope?: boolean;
   source?: boolean;
   headers?: boolean | string[];
+  bodyStructure?: boolean;
 }
 
 function dayNumber(value: Date | string): number {
@@ -261,6 +263,8 @@ export class FakeMail extends EventEmitter {
   selected: string | null = null;
   nextUid = 1000;
   readonly counters = { move: 0, delete: 0, flagAdd: 0, flagRemove: 0, status: 0, append: 0, search: 0 };
+  /** Taille de chaque FETCH de BODYSTRUCTURE (filtre pièces jointes). */
+  readonly bodyStructureFetches: number[] = [];
 
   // --- Mise en place des tests --------------------------------------------
 
@@ -291,6 +295,7 @@ export class FakeMail extends EventEmitter {
       body: input.body,
       source: input.source,
       size: input.size,
+      bodyStructure: input.bodyStructure,
     };
     mailbox.messages.push(message);
     if (message.uid >= this.nextUid) this.nextUid = message.uid + 1;
@@ -375,6 +380,7 @@ export class FakeMail extends EventEmitter {
 
   async fetchAll(range: SearchRange, query: FetchQuery): Promise<unknown[]> {
     const uids = this.resolve(range);
+    if (query.bodyStructure) this.bodyStructureFetches.push(uids.length);
     return this.current()
       .filter((message) => uids.includes(message.uid))
       .sort((a, b) => a.uid - b.uid)
@@ -509,6 +515,9 @@ export class FakeMail extends EventEmitter {
         : undefined,
       source: query.source ? message.source : undefined,
       headers: query.headers ? Buffer.from(renderHeaders(message)) : undefined,
+      bodyStructure: query.bodyStructure
+        ? (message.bodyStructure ?? { type: 'text/plain', part: '1' })
+        : undefined,
     };
   }
 }

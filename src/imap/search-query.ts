@@ -1,4 +1,4 @@
-import type { SearchObject } from 'imapflow';
+import type { MessageStructureObject, SearchObject } from 'imapflow';
 
 /**
  * Critères texte, réutilisés à l'identique au premier niveau, dans `not`
@@ -28,6 +28,16 @@ export interface SearchCriteria extends TextCriteria {
   not?: TextCriteria;
   /** Branches dont au moins une doit correspondre. */
   or?: TextCriteria[];
+  /**
+   * Avec (true) ou sans (false) pièce jointe. IMAP SEARCH ne sait pas filtrer
+   * là-dessus : filtré côté serveur MCP sur le BODYSTRUCTURE (voir `attachmentFilterOf`).
+   */
+  hasAttachment?: boolean;
+  /**
+   * Au moins une pièce jointe de ce type MIME (« application/pdf »), ou de ce
+   * préfixe (« image/ », « image/* »). Implique `hasAttachment: true`.
+   */
+  attachmentType?: string;
 }
 
 function textObject(criteria: TextCriteria): SearchObject {
@@ -55,6 +65,7 @@ export function hasSearchCriteria(criteria: SearchCriteria): boolean {
   if (criteria.since || criteria.before) return true;
   if (criteria.not && !isEmpty(textObject(criteria.not))) return true;
   if (criteria.or && criteria.or.some((branch) => !isEmpty(textObject(branch)))) return true;
+  if (attachmentFilterOf(criteria)) return true;
   return false;
 }
 
@@ -103,4 +114,104 @@ export function buildSearchQuery(criteria: SearchCriteria): SearchObject {
   }
 
   return query;
+}
+
+/** Filtre pièces jointes, appliqué après le SEARCH sur le BODYSTRUCTURE des candidats. */
+export interface AttachmentFilter {
+  /** true : au moins une pièce jointe (du type demandé) ; false : aucune. */
+  present: boolean;
+  /** Type MIME exact (« application/pdf ») ou préfixe terminé par « / » (« image/ »), en minuscules. */
+  type?: string;
+}
+
+/**
+ * Extrait le filtre pièces jointes des critères, ou `undefined` s'il n'y en a
+ * pas. `attachmentType` implique la présence d'une pièce jointe ; « image/* »
+ * est ramené au préfixe « image/ ».
+ */
+export function attachmentFilterOf(criteria: SearchCriteria): AttachmentFilter | undefined {
+  const raw = criteria.attachmentType?.trim().toLowerCase();
+  const type = raw ? raw.replace(/\/\*$/, '/') : undefined;
+  if (type) return { present: true, type };
+  if (criteria.hasAttachment === undefined) return undefined;
+  return { present: criteria.hasAttachment };
+}
+
+/** Pièce jointe lue dans le BODYSTRUCTURE, telle que la renvoie `find_messages`. */
+export interface AttachmentPart {
+  /** Type MIME, en minuscules. */
+  contentType: string;
+  filename?: string;
+  /** Taille de la partie encodée (base64…), donc un peu plus que le fichier. */
+  size?: number;
+  /**
+   * Partie affichée dans le corps plutôt que jointe : disposition `inline`, ou
+   * Content-ID sans disposition `attachment` (image référencée par le HTML).
+   */
+  inline: boolean;
+}
+
+function isAttachmentPart(node: MessageStructureObject): boolean {
+  if (node.disposition?.toLowerCase() === 'attachment') return true;
+  return Boolean(node.dispositionParameters?.filename || node.parameters?.name);
+}
+
+/**
+ * Règle `inline` commune à find_messages (BODYSTRUCTURE) et read_message
+ * (mailparser) : disposition `inline`, ou Content-ID sans disposition `attachment`.
+ */
+export function isInlinePart(
+  disposition: string | undefined,
+  contentId: string | undefined,
+): boolean {
+  const kind = disposition?.toLowerCase();
+  return kind === 'inline' || (Boolean(contentId) && kind !== 'attachment');
+}
+
+/**
+ * Pièces jointes d'un BODYSTRUCTURE. Est une pièce jointe toute partie feuille
+ * marquée `Content-Disposition: attachment`, ou portant un nom de fichier
+ * (`filename` de disposition, `name` de type) : une image intégrée nommée en
+ * est donc une, signalée par `inline`. Un message joint (message/rfc822) compte
+ * pour une pièce jointe, sans descendre dans ses propres parties.
+ */
+export function attachmentParts(structure: MessageStructureObject | undefined): AttachmentPart[] {
+  if (!structure) return [];
+  const parts: AttachmentPart[] = [];
+  const visit = (node: MessageStructureObject): void => {
+    const isMultipart = node.type.toLowerCase().startsWith('multipart/');
+    if (!isMultipart && isAttachmentPart(node)) {
+      const filename = node.dispositionParameters?.filename || node.parameters?.name;
+      parts.push({
+        contentType: node.type.toLowerCase(),
+        ...(filename ? { filename } : {}),
+        ...(node.size !== undefined ? { size: node.size } : {}),
+        inline: isInlinePart(node.disposition, node.id),
+      });
+      return;
+    }
+    for (const child of node.childNodes ?? []) visit(child);
+  };
+  visit(structure);
+  return parts;
+}
+
+/** Types MIME (en minuscules) des pièces jointes d'un BODYSTRUCTURE. */
+export function attachmentTypes(structure: MessageStructureObject | undefined): string[] {
+  return attachmentParts(structure).map((part) => part.contentType);
+}
+
+/** True si le BODYSTRUCTURE d'un message satisfait le filtre pièces jointes. */
+export function matchesAttachmentFilter(
+  structure: MessageStructureObject | undefined,
+  filter: AttachmentFilter,
+): boolean {
+  const types = attachmentTypes(structure);
+  const { type } = filter;
+  const found = type
+    ? types.some((candidate) =>
+        type.endsWith('/') ? candidate.startsWith(type) : candidate === type,
+      )
+    : types.length > 0;
+  return found === filter.present;
 }

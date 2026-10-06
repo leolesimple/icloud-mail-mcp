@@ -1,8 +1,11 @@
 import './helpers/env.js';
-import { describe, it } from 'node:test';
+import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { SendQuota } from '../src/smtp/quota.js';
-import type { Clock } from '../src/smtp/quota.js';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { SendQuota, fileStore, memoryStore, quotaStoreFor } from '../src/smtp/quota.js';
+import type { Clock, QuotaStore } from '../src/smtp/quota.js';
 
 /**
  * Quota d'envoi glissant sur 24 h. Module pur : l'horloge est injectée, aucun
@@ -109,5 +112,115 @@ describe('SendQuota', () => {
       quota.record(); // t = 5_000
       assert.equal(quota.status().resetsAt?.getTime(), 1_000 + DAY_MS);
     });
+  });
+});
+
+describe('SendQuota — persistance (QUOTA_STATE_PATH)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'quota-test-'));
+  after(() => rmSync(dir, { recursive: true, force: true }));
+  let n = 0;
+  /** Chemin neuf, dans un sous-dossier inexistant pour vérifier le mkdir -p. */
+  const freshPath = () => join(dir, `run-${(n += 1)}`, 'data', 'send-quota.json');
+  const silent = () => {};
+
+  it('le compteur survit à une nouvelle instance (redémarrage)', () => {
+    const path = freshPath();
+    const clock = fakeClock(1_000);
+    const first = new SendQuota(3, clock, fileStore(path, silent));
+    first.record();
+    clock.at(2_000);
+    first.record();
+    assert.ok(existsSync(path), 'le dossier parent est créé et le fichier écrit');
+
+    const second = new SendQuota(3, clock, fileStore(path, silent));
+    assert.equal(second.count(), 2);
+    second.record();
+    assert.equal(second.wouldExceed(), true);
+    assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')), { sends: [1_000, 2_000, 2_000] });
+  });
+
+  it('la fenêtre de 24 h s’applique après rechargement', () => {
+    const path = freshPath();
+    const clock = fakeClock(1_000);
+    const first = new SendQuota(2, clock, fileStore(path, silent));
+    first.record(); // t = 1_000
+    clock.at(61_000);
+    first.record(); // t = 61_000
+
+    // Redémarrage après expiration du premier envoi seulement.
+    clock.at(1_000 + DAY_MS + 1);
+    const second = new SendQuota(2, clock, fileStore(path, silent));
+    assert.equal(second.count(), 1);
+    assert.equal(second.wouldExceed(), false);
+    assert.equal(second.status().resetsAt?.getTime(), 61_000 + DAY_MS);
+
+    // Le prochain envoi réécrit le fichier sans l'horodatage expiré.
+    second.record();
+    assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')), {
+      sends: [61_000, 1_000 + DAY_MS + 1],
+    });
+  });
+
+  it('fichier absent : état vide, sans avertissement', () => {
+    const warnings: string[] = [];
+    const quota = new SendQuota(
+      1,
+      fakeClock(),
+      fileStore(freshPath(), (_o, m) => warnings.push(m)),
+    );
+    assert.equal(quota.count(), 0);
+    assert.deepEqual(warnings, []);
+  });
+
+  for (const [label, content] of [
+    ['JSON invalide', '{pas du json'],
+    ['format inattendu', JSON.stringify({ sends: ['hier', 12] })],
+    ['racine non objet', 'null'],
+  ] as const) {
+    it(`fichier corrompu (${label}) : warn et état vide, sans crash`, () => {
+      const path = join(dir, `corrupt-${(n += 1)}.json`);
+      writeFileSync(path, content);
+      const warnings: string[] = [];
+      const clock = fakeClock(1_000);
+      const quota = new SendQuota(
+        2,
+        clock,
+        fileStore(path, (_o, m) => warnings.push(m)),
+      );
+      assert.equal(quota.count(), 0);
+      assert.equal(warnings.length, 1);
+
+      // Le prochain envoi remplace le fichier corrompu par un état sain.
+      quota.record();
+      assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')), { sends: [1_000] });
+    });
+  }
+
+  it('chemin vide : stockage mémoire, aucune écriture', () => {
+    const store = quotaStoreFor('');
+    assert.equal(store, memoryStore);
+
+    const quota = new SendQuota(2, fakeClock(), store);
+    quota.record();
+    assert.equal(quota.count(), 1);
+    assert.equal(
+      new SendQuota(2, fakeClock(), quotaStoreFor('')).count(),
+      0,
+      'rien n’a été persisté',
+    );
+  });
+
+  it('record() délègue la sauvegarde au stockage injecté', () => {
+    const saves: number[][] = [];
+    const spy: QuotaStore = {
+      load: () => [],
+      save: (sends) => {
+        saves.push([...sends]);
+      },
+    };
+    const quota = new SendQuota(2, fakeClock(5), spy);
+    assert.deepEqual(saves, [], 'aucune écriture au chargement');
+    quota.record();
+    assert.deepEqual(saves, [[5]]);
   });
 });

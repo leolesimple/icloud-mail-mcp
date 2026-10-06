@@ -80,7 +80,7 @@ En `stdio`, stdout porte le canal JSON-RPC : le serveur bascule automatiquement 
 | `MCP_BEARER_TOKEN` | **requis** | Token attendu sur `/mcp`, en `Authorization: Bearer <token>` ou `X-Api-Key: <token>` (jeton brut, pour les connecteurs claude.ai). 16 caractères minimum. Toujours requis, même en `stdio` (où il ne sert pas). |
 | `RATE_LIMIT_PER_MINUTE` | `120` | Requêtes `/mcp` autorisées par IP et par minute (fenêtre glissante). Au-delà : `429`. `/health` n'est jamais limité. |
 | `SESSION_TTL_MS` | `1800000` | Inactivité (en ms) au-delà de laquelle une session MCP est évincée et son transport fermé. 30 min par défaut. |
-| `PUBLIC_BASE_URL` | `''` (vide) | URL publique HTTPS du serveur, sans slash final (ex. `https://mail-mcp.exemple.com`). Renseigne `icons`/`websiteUrl` dans les métadonnées `Implementation` du protocole MCP, pour les clients qui les affichent. Vide = ces champs ne sont pas envoyés. |
+| `PUBLIC_BASE_URL` | `''` (vide) | URL publique HTTPS du serveur, sans slash final (ex. `https://mail-mcp.exemple.com`). Renseigne `icons`/`websiteUrl` dans les métadonnées `Implementation` du protocole MCP, pour les clients qui les affichent, et sert de base aux liens de téléchargement (`get_attachment`, `get_attachments`, `export_message`, `format: "url"`). Vide = ces champs ne sont pas envoyés et le format `url` est refusé. |
 
 Générer le token avec :
 
@@ -122,12 +122,23 @@ Deux formes acceptées, mélangeables :
 ALLOWED_RECIPIENTS=alice@example.com, @mon-entreprise.com
 ```
 
-### `MAX_SENDS_PER_DAY` — compteur non persisté
+### `MAX_SENDS_PER_DAY` — persistance du compteur
 
-Le compteur vit **en mémoire**. Un redémarrage du serveur le remet à zéro. C'est un choix assumé :
-il protège d'une boucle d'envoi d'un agent qui déraille pendant une exécution, pas d'un opérateur
-qui relance délibérément le process. Pour un plafond dur et durable, il faudrait le persister — hors
-périmètre actuel.
+Le compteur garde les horodatages des envois réussis des dernières 24 h. Où il vit dépend de
+`QUOTA_STATE_PATH` :
+
+- **vide (défaut)** : en mémoire seule. Un redémarrage du serveur le remet à zéro, ce qui suffit à
+  borner une boucle d'envoi au sein d'une exécution, pas un process relancé entre-temps. C'est le
+  comportement en dev et en tests ;
+- **chemin de fichier** : l'état est rechargé au démarrage (les envois de plus de 24 h sont ignorés)
+  et réécrit à chaque envoi, de façon atomique (fichier temporaire puis `rename`). Le dossier parent
+  est créé au besoin. Un fichier absent vaut un compteur vide ; un fichier illisible ou corrompu est
+  signalé par un log `warn` et le compteur repart de zéro : le serveur ne plante jamais pour ça.
+  Un échec d'écriture est lui aussi loggué en `warn`, le compteur restant tenu en mémoire.
+
+Le `docker-compose.yml` fixe `QUOTA_STATE_PATH=/app/data/send-quota.json` sur le volume nommé
+`icloud-mail-mcp-data` : en production, le plafond survit aux redémarrages et aux mises à jour de
+l'image. Supprimer le volume (ou le fichier) remet le compteur à zéro.
 
 ### Interrupteurs booléens
 
@@ -155,6 +166,7 @@ Toutes optionnelles. Vides ou absentes, elles laissent le comportement historiqu
 | `ATTACHMENT_MAX_BYTES` | `5242880` | Taille maximale d'une pièce jointe, en octets (5 Mio). |
 | `ALLOWED_RECIPIENTS` | `''` | Liste d'adresses ou de domaines séparés par des virgules. Vide = aucun filtrage. Exposée aussi normalisée en tableau (`ALLOWED_RECIPIENTS_LIST` : trim, minuscules, entrées vides retirées). |
 | `MAX_SENDS_PER_DAY` | `0` | Nombre maximal d'envois par jour glissant. `0` = illimité. |
+| `QUOTA_STATE_PATH` | `''` | Fichier où persister le compteur de `MAX_SENDS_PER_DAY`. Vide = mémoire seule, remis à zéro au redémarrage. Fixé à `/app/data/send-quota.json` par `docker-compose.yml`. |
 | `DRAFTS_ONLY` | `false` | `true` force tout envoi à passer par un brouillon : aucun mail n'est émis. Même grammaire booléenne que `ENABLE_SENDING`. |
 | `UNRESTRICTED` | `false` | `true` lève tous les garde-fous d'envoi ci-dessus. À n'utiliser qu'en connaissance de cause. |
 | `MAX_BODY_CHARS` | `20000` | Longueur maximale d'un corps de message (texte ou HTML) accepté par les outils. |
@@ -175,6 +187,19 @@ optionnel. Le fixer n'a d'intérêt que pour garder les jetons valides à traver
 rapide. Générez-le avec `openssl rand -hex 32` ; ne réutilisez ni `MCP_BEARER_TOKEN` ni le mot de
 passe d'application. Il n'apparaît dans aucun log (expurgé par pino) ni dans aucune réponse d'outil.
 Voir [`security.md`](security.md#confirmation-des-opérations-destructives).
+
+---
+
+## Liens de téléchargement
+
+| Variable | Défaut | Description |
+|---|---|---|
+| `DOWNLOAD_URL_SECRET` | `''` (vide) | Secret HMAC des liens de téléchargement signés (`get_attachment`, `get_attachments`, `export_message`, `format: "url"`, servis par `GET /download/<jeton>`). Au moins 32 caractères, sinon le démarrage échoue. Vide ou absent : un secret aléatoire est tiré au démarrage. |
+
+Même logique que `CONFIRM_SECRET` : un lien dure 15 minutes, le perdre au redémarrage est sans
+gravité, d'où un secret optionnel. Générez-le avec `openssl rand -hex 32`, distinct de
+`MCP_BEARER_TOKEN` et de `CONFIRM_SECRET`. Il est expurgé des logs. Le format `url` exige aussi
+`PUBLIC_BASE_URL`. Voir [`security.md`](security.md#liens-de-téléchargement).
 
 ---
 

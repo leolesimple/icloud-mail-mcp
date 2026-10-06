@@ -62,7 +62,7 @@ export function assertReadableSize(actualBytes: number, maxBytes: number): void 
   }
 }
 
-/** Une pièce jointe image est renvoyée en bloc `image`, les autres en `resource`. */
+/** En format `auto`, une pièce jointe image est renvoyée en bloc `image` (voir `src/mcp/binary-output.ts`). */
 export function isImageMimeType(contentType: string | undefined): boolean {
   return typeof contentType === 'string' && /^image\//i.test(contentType.trim());
 }

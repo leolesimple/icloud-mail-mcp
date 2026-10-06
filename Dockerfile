@@ -26,6 +26,10 @@ COPY --from=production-dependencies-env /app/node_modules /app/node_modules
 COPY --from=build-env /app/dist /app/dist
 COPY ./public /app/public
 WORKDIR /app
+# Dossier d'état persistant (quota d'envoi, voir QUOTA_STATE_PATH). Créé avant
+# USER node pour que le volume nommé monté dessus hérite de ce propriétaire ;
+# sinon il appartient à root et l'écriture échoue.
+RUN mkdir -p /app/data && chown node:node /app/data
 USER node
 
 EXPOSE 3000

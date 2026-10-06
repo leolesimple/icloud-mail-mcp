@@ -1,9 +1,16 @@
-import type { AddressObject } from 'mailparser';
+import type { AddressObject, Attachment } from 'mailparser';
 import { simpleParser } from 'mailparser';
 import type { FetchMessageObject, ImapFlow } from 'imapflow';
 import { withMailbox } from './mailbox.js';
-import { buildSearchQuery, paginationExhausted } from './search-query.js';
-import type { SearchCriteria } from './search-query.js';
+import {
+  attachmentFilterOf,
+  attachmentParts,
+  buildSearchQuery,
+  isInlinePart,
+  matchesAttachmentFilter,
+  paginationExhausted,
+} from './search-query.js';
+import type { AttachmentFilter, AttachmentPart, SearchCriteria } from './search-query.js';
 import { classifyImapError } from './errors.js';
 
 export interface MessageAddress {
@@ -29,6 +36,8 @@ export interface MessageAttachment {
   contentType: string;
   size: number;
   contentId?: string;
+  /** Affichée dans le corps (image intégrée…) plutôt que jointe : voir `isInlinePart`. */
+  inline: boolean;
 }
 
 export interface AttachmentContent {
@@ -75,8 +84,14 @@ export function toReferencesList(refs: string[] | string | undefined): string[] 
   return Array.isArray(refs) ? refs : [refs];
 }
 
+/** Résumé renvoyé par une recherche. */
+export interface FoundMessageSummary extends MessageSummary {
+  /** Pièces jointes, présentes seulement quand la recherche filtre dessus (BODYSTRUCTURE lu). */
+  attachments?: AttachmentPart[];
+}
+
 export interface MessagePage {
-  messages: MessageSummary[];
+  messages: FoundMessageSummary[];
   /**
    * Plus petit UID renvoyé. À repasser tel quel en `beforeUid` pour la page
    * suivante. Absent quand la liste est épuisée.
@@ -85,7 +100,7 @@ export interface MessagePage {
 }
 
 /** Un résumé rattaché à son dossier d'origine (recherche multi-dossiers). */
-export interface TaggedMessageSummary extends MessageSummary {
+export interface TaggedMessageSummary extends FoundMessageSummary {
   folder: string;
 }
 
@@ -109,13 +124,62 @@ export async function fetchPage(
   }
 
   const ordered = [...uids].sort((a, b) => b - a);
-  const selected = ordered.slice(0, limit);
+  const filter = attachmentFilterOf(criteria);
+  const parts = filter ? await filterByAttachments(client, ordered, filter, limit) : undefined;
+  const matching = parts ? [...parts.keys()] : ordered;
+  const selected = matching.slice(0, limit);
+  if (selected.length === 0) {
+    return { messages: [] };
+  }
   const fetched = await client.fetchAll(selected, SUMMARY_QUERY, { uid: true });
-  const messages = fetched.map(toSummary).sort((a, b) => b.uid - a.uid);
+  // Le BODYSTRUCTURE a déjà été lu pour filtrer : autant exposer les pièces jointes.
+  const messages = fetched
+    .map((entry) => {
+      const summary = toSummary(entry);
+      const attachments = parts?.get(entry.uid);
+      return attachments ? { ...summary, attachments } : summary;
+    })
+    .sort((a, b) => b.uid - a.uid);
 
   const smallest = messages.at(-1)?.uid;
-  const hasMore = ordered.length > selected.length;
+  const hasMore = matching.length > selected.length;
   return hasMore && smallest !== undefined ? { messages, nextCursor: smallest } : { messages };
+}
+
+/** Nombre d'UID dont on récupère le BODYSTRUCTURE par commande FETCH. */
+export const ATTACHMENT_FETCH_BATCH = 100;
+
+/**
+ * Filtre pièces jointes : IMAP SEARCH n'en est pas capable, on lit donc le
+ * BODYSTRUCTURE des candidats, par lots, du plus récent au plus ancien. On
+ * s'arrête dès `limit + 1` correspondances : la dernière ne sert qu'à savoir
+ * s'il reste une page, pour que `nextCursor` ne soit jamais un curseur vide.
+ *
+ * Renvoie les UID retenus (dans l'ordre de `ordered`) et leurs pièces jointes.
+ */
+async function filterByAttachments(
+  client: ImapFlow,
+  ordered: number[],
+  filter: AttachmentFilter,
+  limit: number,
+): Promise<Map<number, AttachmentPart[]>> {
+  const matching = new Map<number, AttachmentPart[]>();
+  for (let start = 0; start < ordered.length && matching.size <= limit;) {
+    const batch = ordered.slice(start, start + ATTACHMENT_FETCH_BATCH);
+    start += batch.length;
+    const fetched = await client.fetchAll(batch, { uid: true, bodyStructure: true }, { uid: true });
+    const accepted = new Map(
+      fetched
+        .filter((entry) => matchesAttachmentFilter(entry.bodyStructure, filter))
+        .map((entry) => [entry.uid, attachmentParts(entry.bodyStructure)] as const),
+    );
+    // Le serveur ne garantit pas l'ordre du FETCH : on garde celui du lot.
+    for (const uid of batch) {
+      const attachments = accepted.get(uid);
+      if (attachments) matching.set(uid, attachments);
+    }
+  }
+  return matching;
 }
 
 export interface ListMessagesOptions {
@@ -209,6 +273,18 @@ export async function searchMessagesAcross(
   return { messages: merged.slice(0, options.limit), ...(errors.length > 0 ? { errors } : {}) };
 }
 
+/**
+ * Même règle que `find_messages` (`isInlinePart`) ; mailparser marque en plus
+ * `related` les parties d'un multipart/related, c'est-à-dire intégrées au HTML.
+ */
+export function isInlineAttachment(
+  att: Pick<Attachment, 'contentDisposition' | 'cid' | 'related'>,
+): boolean {
+  if (isInlinePart(att.contentDisposition, att.cid)) return true;
+  // `related` est absent (et non false) hors multipart/related, malgré son type.
+  return att.related === true && att.contentDisposition?.toLowerCase() !== 'attachment';
+}
+
 export async function getMessage(folder: string, uid: number): Promise<FullMessage> {
   return withMailbox(
     folder,
@@ -237,6 +313,7 @@ export async function getMessage(folder: string, uid: number): Promise<FullMessa
           contentType: att.contentType,
           size: att.size,
           contentId: att.cid,
+          inline: isInlineAttachment(att),
         })),
       };
     },
@@ -258,6 +335,37 @@ export async function getMessageSource(folder: string, uid: number): Promise<Buf
         throw new Error(`Message UID ${uid} introuvable dans "${folder}"`);
       }
       return fetched.source;
+    },
+    { readOnly: true },
+  );
+}
+
+/**
+ * Toutes les pièces jointes d'un message, en un seul téléchargement et un seul
+ * parsing : `get_attachments` regroupe ses éléments par message pour ne pas
+ * re-télécharger la source à chaque index. Positions identiques à `getMessage`.
+ */
+export async function getMessageAttachments(
+  folder: string,
+  uid: number,
+  withMailboxFn: WithMailbox = withMailbox,
+): Promise<AttachmentContent[]> {
+  return withMailboxFn(
+    folder,
+    async (client) => {
+      const fetched = await client.fetchOne(uid, { uid: true, source: true }, { uid: true });
+      if (!fetched || !fetched.source) {
+        throw new Error(`Message UID ${uid} introuvable dans "${folder}"`);
+      }
+
+      const parsed = await simpleParser(fetched.source);
+      return parsed.attachments.map((attachment, index) => ({
+        index,
+        filename: attachment.filename,
+        contentType: attachment.contentType,
+        size: attachment.content.length,
+        content: attachment.content,
+      }));
     },
     { readOnly: true },
   );

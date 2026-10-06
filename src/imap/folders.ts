@@ -141,3 +141,21 @@ export async function manageFolder(
     throw classifyImapError(err);
   }
 }
+
+/** Rôles exclus de la recherche « tous les dossiers » sauf demande explicite. */
+export const TRASH_LIKE_SPECIAL_USE = new Set(['\\Trash', '\\Junk']);
+
+/**
+ * Dossiers fouillés par `folders: "*"` : tous les dossiers sélectionnables (un
+ * conteneur \Noselect ou \NonExistent ne contient aucun message), hors
+ * corbeille et indésirables sauf `includeTrash`.
+ */
+export function searchableFolderPaths(folders: FolderInfo[], includeTrash = false): string[] {
+  return folders
+    .filter((folder) => !folder.flags.some((flag) => /^\\(noselect|nonexistent)$/i.test(flag)))
+    .filter(
+      (folder) =>
+        includeTrash || !folder.specialUse || !TRASH_LIKE_SPECIAL_USE.has(folder.specialUse),
+    )
+    .map((folder) => folder.path);
+}

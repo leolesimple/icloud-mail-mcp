@@ -12,8 +12,10 @@ import { connectClient } from './helpers/mcp-client.js';
 
 const NEW_TOOLS = [
   'compose_message',
+  'export_message',
   'find_messages',
   'get_attachment',
+  'get_attachments',
   'inbox_overview',
   'manage_folders',
   'organize_messages',
@@ -57,7 +59,7 @@ describe('surface des outils', () => {
     await Promise.all(clients.map((client) => client.close()));
   });
 
-  it('expose exactement les 8 outils par intention par défaut', async () => {
+  it('expose exactement les 10 outils par intention par défaut', async () => {
     assert.deepEqual(await toolNames(await open({ legacyTools: false })), sorted(NEW_TOOLS));
   });
 
@@ -207,6 +209,8 @@ describe('métadonnées des outils', () => {
         'find_messages',
         'read_message',
         'get_attachment',
+        'get_attachments',
+        'export_message',
         'wait_for_new_message',
       ]),
     );

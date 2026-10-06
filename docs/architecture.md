@@ -53,8 +53,15 @@ Chaque `initialize` crée un `StreamableHTTPServerTransport` avec un identifiant
 (`randomUUID`) et **une instance de serveur MCP dédiée**, mémorisés dans une `Map`. Les requêtes
 suivantes sont routées par l'en-tête `mcp-session-id`.
 
-Une requête authentifiée qui n'est ni un `initialize` ni une session connue reçoit un `400` : le
-serveur ne crée jamais de session implicite.
+Une requête qui porte un `mcp-session-id` inconnu (redémarrage du serveur, éviction TTL) reçoit un
+**`404`** (`-32001 Session not found`), comme l'exige la spec MCP : c'est ce code qui fait rouvrir
+une session au client par un nouvel `initialize`. Un `initialize` ouvre toujours une session neuve,
+même s'il porte encore l'identifiant d'une session perdue. Une requête sans identifiant qui n'est pas
+un `initialize` reçoit un `400` : le serveur ne crée jamais de session implicite.
+
+Chaque requête `/mcp` produit une ligne de log `mcp request` : méthode HTTP, méthode(s) JSON-RPC,
+`sessionId`, `known` (session connue de ce process), statut, durée et `pid`. Deux `pid` différents
+sur une même session trahissent deux instances derrière le même tunnel.
 
 Chaque entrée de la `Map` porte un `lastSeen`, rafraîchi à chaque requête reçue sur la session. Un
 `setInterval` (avec `.unref()`, pour ne pas empêcher le process de s'arrêter) balaie régulièrement
