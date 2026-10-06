@@ -1,7 +1,7 @@
 # Déploiement
 
 Le serveur ne publie **aucun port sur l'hôte**. Il est joint via un `cloudflared` qui établit une
-connexion *sortante* vers Cloudflare et fait redescendre le trafic HTTPS par ce tunnel — rien à
+connexion _sortante_ vers Cloudflare et fait redescendre le trafic HTTPS par ce tunnel — rien à
 ouvrir sur la box, pas d'IP fixe, certificat TLS géré par Cloudflare.
 
 ```
@@ -33,11 +33,11 @@ docker network create tunnel-net    # ou le nom de votre choix
 Côté [Cloudflare Zero Trust](https://one.dash.cloudflare.com/), sur le tunnel qui dessert ce
 réseau, **Public Hostname → Add a public hostname** :
 
-- *Subdomain* / *Domain* : à votre convenance
-- *Service* : **HTTP** → `icloud-mail-mcp:3000` (le **nom du conteneur**, résolu sur le réseau
+- _Subdomain_ / _Domain_ : à votre convenance
+- _Service_ : **HTTP** → `icloud-mail-mcp:3000` (le **nom du conteneur**, résolu sur le réseau
   partagé — pas `localhost`)
 
-Pour le modèle autonome, récupérer aussi le **token** du tunnel (environnement *Docker*).
+Pour le modèle autonome, récupérer aussi le **token** du tunnel (environnement _Docker_).
 
 ---
 
@@ -85,7 +85,7 @@ docker compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d
 ```
 
 > Le paquet GHCR est privé par défaut à la première publication. Une fois : le rendre public
-> (*Packages → icloud-mail-mcp → Package settings → Change visibility*), ou, pour le garder privé,
+> (_Packages → icloud-mail-mcp → Package settings → Change visibility_), ou, pour le garder privé,
 > `echo $TOKEN | docker login ghcr.io -u leolesimple --password-stdin` sur l'hôte avec un PAT
 > `read:packages`.
 
@@ -133,11 +133,11 @@ curl http://localhost:3000/health
 
 `MCP_TRANSPORT` (défaut `http`) pilote la façon dont le serveur parle aux clients :
 
-| Valeur | Usage |
-|---|---|
-| `http` | Serveur HTTP streamable — le déploiement de référence ci-dessus (Docker + tunnel). |
+| Valeur  | Usage                                                                                                    |
+| ------- | -------------------------------------------------------------------------------------------------------- |
+| `http`  | Serveur HTTP streamable — le déploiement de référence ci-dessus (Docker + tunnel).                       |
 | `stdio` | Serveur JSON-RPC sur stdin/stdout, lancé directement par un client MCP local. Pas de port, pas de token. |
-| `both` | Les deux en parallèle. |
+| `both`  | Les deux en parallèle.                                                                                   |
 
 > **En stdio, stdout porte le canal JSON-RPC.** Le serveur bascule alors automatiquement ses logs
 > sur **stderr** (`pino.destination(2)`) : une seule ligne de log sur stdout casserait le cadrage
@@ -192,11 +192,11 @@ convient.
 
 ### claude.ai (web / mobile)
 
-*Paramètres → Connecteurs → Ajouter un connecteur personnalisé* :
+_Paramètres → Connecteurs → Ajouter un connecteur personnalisé_ :
 
 - **URL** : `https://icloud-mail-mcp.exemple.com/mcp`
 - **Authentification** : le formulaire **interdit l'en-tête `Authorization`** et n'autorise qu'une
-  liste de noms. Choisir **`x-api-key`**, valeur = **le token brut** (`MCP_BEARER_TOKEN`, *sans* le
+  liste de noms. Choisir **`x-api-key`**, valeur = **le token brut** (`MCP_BEARER_TOKEN`, _sans_ le
   préfixe `Bearer `). Le serveur accepte les deux formes.
 - Passer le jeton par **en-tête**, pas par l'URL (une URL avec secret finit dans des logs).
 
@@ -236,8 +236,8 @@ au prochain appel.
 
 [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) déploie sur l'hôte :
 
-- **automatiquement** à chaque GitHub Release publiée (le tag est déployé) ;
-- **à la demande** via le bouton *Run workflow* de l'onglet *Actions* (choix de la version).
+- **automatiquement** après la publication réussie de l’image GHCR du workflow Release (le tag est déployé) ;
+- **à la demande** via le bouton _Run workflow_ de l'onglet _Actions_ (choix de la version).
 
 Il se connecte en SSH et exécute [`deploy/deploy.sh`](../deploy/deploy.sh) : écriture de la version
 dans `.env`, `docker compose pull`, `up -d`, puis attente de `healthy` (échec sinon). Aucun runner
@@ -247,15 +247,32 @@ ni agent résident sur l'hôte. Mise en place et modèle de menace : [`deploy/RE
 
 ## Dépannage
 
-| Symptôme | Piste |
-|---|---|
-| `Configuration invalide` au démarrage | Une variable manque ou est mal formée — le message liste précisément lesquelles. |
-| `Authentification iCloud IMAP refusée` | Mot de passe principal utilisé à la place d'un mot de passe d'application, ou mot de passe révoqué. |
-| `401` sur `/mcp`, `/health` OK | Token absent ou différent de `MCP_BEARER_TOKEN`. Vérifier le préfixe `Bearer ` et l'absence d'espace parasite. |
-| `502` Cloudflare | Le conteneur `icloud-mail-mcp` est arrêté, hors du réseau `TUNNEL_NETWORK`, ou le hostname public pointe vers le mauvais nom/port de service. |
-| `network <nom> declared as external, but could not be found` | Le réseau n'existe pas : `docker network create "<nom>"`, ou `TUNNEL_NETWORK` ne correspond pas au réseau du `cloudflared`. |
-| `required variable TUNNEL_NETWORK is missing` | `TUNNEL_NETWORK` absent de `.env`. |
-| Erreurs IMAP intermittentes | Throttling iCloud. Baisser `IMAP_POOL_SIZE`, ou espacer les appels. |
-| « Pool IMAP saturé » | Des appels longs occupent toutes les connexions plus de `IMAP_ACQUIRE_TIMEOUT_MS`. Monter `IMAP_POOL_SIZE` à `4` ; l'état du pool est dans `inbox_overview` avec `includeDiagnostics`. |
-| Le tunnel ne se connecte pas (modèle autonome) | `TUNNEL_TOKEN` invalide ou tunnel supprimé côté Cloudflare. |
-| En stdio, le client MCP n'obtient jamais de réponse | Quelque chose écrit sur stdout du processus (wrapper qui fait `2>&1`, `console.log` ajouté, autre lib bavarde). stdout est réservé au JSON-RPC. |
+| Symptôme                                                     | Piste                                                                                                                                                                                  |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Configuration invalide` au démarrage                        | Une variable manque ou est mal formée — le message liste précisément lesquelles.                                                                                                       |
+| `Authentification iCloud IMAP refusée`                       | Mot de passe principal utilisé à la place d'un mot de passe d'application, ou mot de passe révoqué.                                                                                    |
+| `401` sur `/mcp`, `/health` OK                               | Token absent ou différent de `MCP_BEARER_TOKEN`. Vérifier le préfixe `Bearer ` et l'absence d'espace parasite.                                                                         |
+| `502` Cloudflare                                             | Le conteneur `icloud-mail-mcp` est arrêté, hors du réseau `TUNNEL_NETWORK`, ou le hostname public pointe vers le mauvais nom/port de service.                                          |
+| `network <nom> declared as external, but could not be found` | Le réseau n'existe pas : `docker network create "<nom>"`, ou `TUNNEL_NETWORK` ne correspond pas au réseau du `cloudflared`.                                                            |
+| `required variable TUNNEL_NETWORK is missing`                | `TUNNEL_NETWORK` absent de `.env`.                                                                                                                                                     |
+| Erreurs IMAP intermittentes                                  | Throttling iCloud. Baisser `IMAP_POOL_SIZE`, ou espacer les appels.                                                                                                                    |
+| « Pool IMAP saturé »                                         | Des appels longs occupent toutes les connexions plus de `IMAP_ACQUIRE_TIMEOUT_MS`. Monter `IMAP_POOL_SIZE` à `4` ; l'état du pool est dans `inbox_overview` avec `includeDiagnostics`. |
+| Le tunnel ne se connecte pas (modèle autonome)               | `TUNNEL_TOKEN` invalide ou tunnel supprimé côté Cloudflare.                                                                                                                            |
+| En stdio, le client MCP n'obtient jamais de réponse          | Quelque chose écrit sur stdout du processus (wrapper qui fait `2>&1`, `console.log` ajouté, autre lib bavarde). stdout est réservé au JSON-RPC.                                        |
+
+## Host, Origin et proxy approuvé
+
+Pour un tunnel, renseigner `PUBLIC_BASE_URL=https://votre-domaine` : ce hostname et cette origine
+sont ajoutés aux allowlists HTTP. Si `cloudflared` envoie son Host amont comme `icloud-mail-mcp`,
+ajouter ce hostname à `HTTP_ALLOWED_HOSTS`. Un client qui envoie une autre origine navigateur doit
+la déclarer explicitement dans `HTTP_ALLOWED_ORIGINS` ; ne pas utiliser une autorisation globale.
+
+`CF-Connecting-IP` est ignoré. Déclarer dans `TRUSTED_PROXIES` uniquement les IP/CIDR des proxies
+contrôlés qui fournissent/nettoient `X-Forwarded-For`. Sans déclaration, le rate limit porte sur
+l’adresse socket du tunnel. Éviter de faire confiance à tout le réseau si d’autres conteneurs peuvent
+l’atteindre. L’envoi reste désactivé et `compose_message` prépare des brouillons par défaut.
+
+Le workflow de déploiement est appelé après la publication réussie de l’image de release ; il ne
+repose plus sur le déclenchement d’un autre workflow par `release.published` émis avec
+`GITHUB_TOKEN`. `DEPLOY_KNOWN_HOSTS` doit contenir la clé SSH vérifiée du serveur de déploiement :
+la vérifier par un canal indépendant, sans accepter automatiquement la première clé rencontrée.

@@ -1,3 +1,4 @@
+import { confirmToolAction } from '../../confirm-flow.js';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { sendForward } from '../../../smtp/send.js';
@@ -18,6 +19,7 @@ export function registerForwardMessageTool(server: McpServer): void {
         '(headers and its own attachments preserved), with your note as the body. Subject is prefixed "Fwd:" ' +
         'unless already present. A copy is archived in "Sent" (savedToSent in the result).',
       inputSchema: {
+        confirmToken: z.string().optional().describe('Token from the first confirmation request'),
         folder: z
           .string()
           .min(1)
@@ -41,27 +43,32 @@ export function registerForwardMessageTool(server: McpServer): void {
           .describe('Extra attachments, in addition to the forwarded message'),
       },
     },
-    async ({ folder, uid, to, cc, bcc, text, html, attachments }) => {
-      try {
-        const decoded = decodeInboundAttachments(attachments, config.ATTACHMENT_MAX_BYTES);
-        log.info({ folder, uid, to }, 'forwarding message');
-        const result = await sendForward({
-          folder,
-          uid,
-          to,
-          cc,
-          bcc,
-          text,
-          html,
-          attachments: decoded,
-        });
-        return jsonResult(result);
-      } catch (err) {
-        if (err instanceof AttachmentTooLargeError) {
-          return errorResult(err.message);
+    async (input) => {
+      const execute = async () => {
+        const { folder, uid, to, cc, bcc, text, html, attachments } = input;
+
+        try {
+          const decoded = decodeInboundAttachments(attachments, config.ATTACHMENT_MAX_BYTES);
+          log.info({ folder, uid, to }, 'forwarding message');
+          const result = await sendForward({
+            folder,
+            uid,
+            to,
+            cc,
+            bcc,
+            text,
+            html,
+            attachments: decoded,
+          });
+          return jsonResult(result);
+        } catch (err) {
+          if (err instanceof AttachmentTooLargeError) {
+            return errorResult(err.message);
+          }
+          throw err;
         }
-        throw err;
-      }
+      };
+      return confirmToolAction(server.server, 'forward_message', input, execute);
     },
   );
 }

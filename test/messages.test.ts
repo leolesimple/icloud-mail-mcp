@@ -106,3 +106,34 @@ describe('toReferencesList', () => {
     assert.deepEqual(toReferencesList(undefined), []);
   });
 });
+
+describe('bounded raw source downloads', () => {
+  it('rejects announced oversize before opening a stream', async () => {
+    const { downloadMessageOn } = await import('../src/imap/messages.js');
+    let opened = false;
+    const client = {
+      download: async () => {
+        opened = true;
+        throw new Error('unexpected');
+      },
+    };
+    await assert.rejects(downloadMessageOn(client as never, 'INBOX', 42, 10, 11), /limite 10/);
+    assert.equal(opened, false);
+  });
+
+  it('caps dishonest or missing size metadata during the stream', async () => {
+    const { downloadMessageOn } = await import('../src/imap/messages.js');
+    const { Readable } = await import('node:stream');
+    let stream: InstanceType<typeof Readable>;
+    const client = {
+      download: async (_uid: string, part: unknown, opts: { maxBytes: number }) => {
+        assert.equal(part, undefined);
+        assert.equal(opts.maxBytes, 11);
+        stream = Readable.from([Buffer.alloc(8), Buffer.alloc(8), Buffer.alloc(8)]);
+        return { content: stream };
+      },
+    };
+    await assert.rejects(downloadMessageOn(client as never, 'INBOX', 42, 10, 1), /au-delà de 10/);
+    assert.equal(stream!.destroyed, true);
+  });
+});

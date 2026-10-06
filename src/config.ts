@@ -1,19 +1,19 @@
 import 'dotenv/config';
 import { z } from 'zod';
 
-/**
- * Booléen tolérant lu depuis l'environnement. Volontairement pas un
- * `z.coerce.boolean()` : dans zod, la chaîne `"false"` est une chaîne non vide,
- * donc coercée à `true` — un coupe-circuit `FLAG=false` serait silencieusement
- * inopérant. Ici `"false"`, `"0"` et `"no"` (insensibles à la casse, espaces
- * ignorés) valent faux ; toute autre valeur vaut vrai ; l'absence de variable
- * retombe sur `defaultValue`.
- */
+/** Only explicit boolean spellings are accepted; empty values fail closed. */
 export function envBool(defaultValue: boolean): z.ZodType<boolean, unknown> {
   return z
     .string()
     .optional()
-    .transform((v) => (v === undefined ? defaultValue : !['false', '0', 'no'].includes(v.trim().toLowerCase())));
+    .transform((value, ctx) => {
+      if (value === undefined) return defaultValue;
+      const normalized = value.trim().toLowerCase();
+      if (['true', '1', 'yes'].includes(normalized)) return true;
+      if (['false', '0', 'no'].includes(normalized)) return false;
+      ctx.addIssue({ code: 'custom', message: 'Doit valoir true/1/yes ou false/0/no (pas vide)' });
+      return z.NEVER;
+    });
 }
 
 /** Découpe une liste séparée par des virgules en entrées normalisées (trim, minuscules, vides retirées). */
@@ -37,11 +37,22 @@ const envSchema = z.object({
   SMTP_PORT: z.coerce.number().int().positive().default(587),
   SMTP_POOL_SIZE: z.coerce.number().int().positive().default(2),
   MCP_BEARER_TOKEN: z.string().min(16, 'MCP_BEARER_TOKEN doit faire au moins 16 caractères'),
-  PORT: z.coerce.number().int().positive().default(3000),
+  PORT: z.coerce.number().int().positive().max(65535).default(3000),
+  HTTP_HOST: z.string().min(1).default('127.0.0.1'),
+  // Comma-separated socket IPs/CIDRs of trusted proxies. Empty = direct requests.
+  TRUSTED_PROXIES: z.string().default(''),
+  HTTP_ALLOWED_HOSTS: z.string().default('localhost,127.0.0.1,[::1]'),
+  HTTP_ALLOWED_ORIGINS: z.string().default(''),
+  HTTP_MAX_CONCURRENT_REQUESTS: z.coerce.number().int().positive().default(4),
+  HTTP_BODY_MAX_BYTES: z.coerce.number().int().positive().default(8_388_608),
+  MAX_SESSIONS: z.coerce.number().int().positive().default(32),
+  MAX_MESSAGE_BYTES: z.coerce.number().int().positive().default(26_214_400),
+  IMAP_MAX_WAITERS: z.coerce.number().int().positive().default(32),
+  UPLOAD_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 
   // Coupe-circuit pour compose_message (deliver "send") et send_draft.
-  ENABLE_SENDING: envBool(true),
+  ENABLE_SENDING: envBool(false),
 
   // --- Garde-fous d'envoi (lot D) ------------------------------------------
   // Taille maximale d'une pièce jointe, en octets.
@@ -91,7 +102,9 @@ const envSchema = z.object({
   SESSION_TTL_MS: z.coerce.number().int().positive().default(1_800_000),
   // Transport exposé par le serveur MCP.
   MCP_TRANSPORT: z
-    .enum(['http', 'stdio', 'both'], { message: 'MCP_TRANSPORT doit valoir "http", "stdio" ou "both"' })
+    .enum(['http', 'stdio', 'both'], {
+      message: 'MCP_TRANSPORT doit valoir "http", "stdio" ou "both"',
+    })
     .default('http'),
   // Longueur maximale d'un corps de message (texte ou HTML) accepté par les outils.
   MAX_BODY_CHARS: z.coerce.number().int().positive().default(20_000),
@@ -116,7 +129,22 @@ const envSchema = z.object({
   PUBLIC_BASE_URL: z
     .string()
     .default('')
-    .refine((v) => v === '' || /^https:\/\//.test(v), 'PUBLIC_BASE_URL doit être vide ou une URL https://')
+    .refine((v) => {
+      if (v === '') return true;
+      try {
+        const url = new URL(v);
+        return (
+          url.protocol === 'https:' &&
+          !url.username &&
+          !url.password &&
+          url.pathname === '/' &&
+          !url.search &&
+          !url.hash
+        );
+      } catch {
+        return false;
+      }
+    }, 'PUBLIC_BASE_URL doit être vide ou une origine https:// sans identifiants')
     .transform((v) => v.replace(/\/+$/, '')),
 });
 
@@ -124,7 +152,9 @@ const envSchema = z.object({
 export function parseConfig(env: NodeJS.ProcessEnv = process.env) {
   const parsed = envSchema.safeParse(env);
   if (!parsed.success) {
-    const issues = parsed.error.issues.map((issue) => `  - ${issue.path.join('.')}: ${issue.message}`).join('\n');
+    const issues = parsed.error.issues
+      .map((issue) => `  - ${issue.path.join('.')}: ${issue.message}`)
+      .join('\n');
     throw new Error(`Configuration invalide (voir .env / .env.example) :\n${issues}`);
   }
   return {

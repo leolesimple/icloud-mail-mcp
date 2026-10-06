@@ -1,3 +1,4 @@
+import { confirmToolAction } from '../confirm-flow.js';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { sendForward, sendNewMessage, sendReply } from '../../smtp/send.js';
@@ -29,7 +30,7 @@ export interface ComposeMessageDeps {
   saveDraft?: typeof saveDraft;
   updateDraft?: typeof updateDraft;
   /** Dépôts de `create_upload_link` (défaut : le stockage partagé). */
-  uploads?: Pick<UploadStore, 'get' | 'delete'>;
+  uploads?: Pick<UploadStore, 'get' | 'delete'> & Partial<Pick<UploadStore, 'claim'>>;
 }
 
 export function registerComposeMessageTool(server: McpServer, deps: ComposeMessageDeps = {}): void {
@@ -52,7 +53,7 @@ export function registerComposeMessageTool(server: McpServer, deps: ComposeMessa
         '"reply" / "reply_all" / "forward" need the original folder + uid (reply keeps threading, ' +
         'prefixes "Re:", defaults "to" to the original sender and marks the original answered; reply_all ' +
         'adds the other recipients as Cc; forward attaches the original verbatim and needs "to"). ' +
-        'deliver "send" (default) sends through iCloud SMTP and keeps a copy in Sent; deliver "draft" saves ' +
+        'deliver "send" sends through iCloud SMTP and keeps a copy in Sent; deliver "draft" (default) saves ' +
         'to the Drafts folder without sending (new or reply only), and with draftUid replaces that existing ' +
         'draft. Sending is subject to the server guardrails: with DRAFTS_ONLY the message is saved as a draft ' +
         'instead (sent: false). Attachments: each item has exactly one source — contentBase64 (small ' +
@@ -63,10 +64,11 @@ export function registerComposeMessageTool(server: McpServer, deps: ComposeMessa
         'total is capped at ATTACHMENT_MAX_BYTES; if any source fails, nothing is sent or saved. ' +
         'Always confirm recipients and content with the user before sending.',
       inputSchema: {
+        confirmToken: z.string().optional().describe('Token from the first confirmation request'),
         mode: z.enum(COMPOSE_MODES).default('new').describe('new, reply, reply_all or forward'),
         deliver: z
           .enum(COMPOSE_DELIVERIES)
-          .default('send')
+          .default('draft')
           .describe('send it now, or save it as a draft (brouillon) in Drafts'),
         draftUid: uidInput
           .optional()
@@ -99,12 +101,12 @@ export function registerComposeMessageTool(server: McpServer, deps: ComposeMessa
           ),
         text: z
           .string()
+          .max(config.MAX_BODY_CHARS)
           .optional()
           .describe('Plain-text body (or the note above a forwarded message)'),
-        html: z.string().optional().describe('HTML body'),
+        html: z.string().max(config.MAX_BODY_CHARS).optional().describe('HTML body'),
         attachments: attachmentsInput,
       },
-      outputSchema: composeResultSchema.shape,
       annotations: {
         readOnlyHint: false,
         destructiveHint: true,
@@ -122,6 +124,16 @@ export function registerComposeMessageTool(server: McpServer, deps: ComposeMessa
       const folder = input.folder ?? DEFAULT_FOLDER;
       const uid = input.uid as number;
 
+      const uploadIds =
+        input.attachments?.flatMap((item) => (item.uploadId ? [item.uploadId] : [])) ?? [];
+      for (const [index, attachment] of (input.attachments ?? []).entries()) {
+        if (attachment.uploadId && !uploads.get(attachment.uploadId)) {
+          return errorResult(
+            `attachments[${index}] (uploadId) : dépôt inconnu, expiré ou déjà consommé.`,
+          );
+        }
+      }
+      const claim = uploads.claim?.(uploadIds);
       try {
         // Toutes les sources sont résolues avant d'envoyer ou d'écrire quoi que ce soit.
         const attachments = await resolveAttachmentSources(input.attachments, {
@@ -130,7 +142,8 @@ export function registerComposeMessageTool(server: McpServer, deps: ComposeMessa
         });
         // Dépôts consommés seulement après un envoi ou un brouillon réussi.
         const done = <T>(result: T): T => {
-          consumeUploads(input.attachments, uploads);
+          if (claim) claim.consume();
+          else consumeUploads(input.attachments, uploads);
           return result;
         };
         log.info(
@@ -138,74 +151,85 @@ export function registerComposeMessageTool(server: McpServer, deps: ComposeMessa
           'composing',
         );
 
-        switch (plan.operation) {
-          case 'send_new': {
-            const result = await ops.sendNewMessage({
-              to: to as string[],
-              cc,
-              bcc,
-              subject: subject as string,
-              text,
-              html,
-              attachments,
-            });
-            return done(jsonResult(result, composeResultSchema));
-          }
-          case 'send_reply': {
-            const result = await ops.sendReply({
-              folder,
-              uid,
-              to,
-              cc,
-              bcc,
-              text,
-              html,
-              replyAll: mode === 'reply_all',
-              attachments,
-            });
-            return done(jsonResult(result, composeResultSchema));
-          }
-          case 'send_forward': {
-            const result = await ops.sendForward({
-              folder,
-              uid,
-              to: to as string[],
-              cc,
-              bcc,
-              text,
-              html,
-              attachments,
-            });
-            return done(jsonResult(result, composeResultSchema));
-          }
-          case 'save_draft':
-          case 'update_draft': {
-            const draftInput = {
-              to,
-              cc,
-              bcc,
-              subject,
-              text,
-              html,
-              attachments,
-              ...(mode === 'reply' ? { replyFolder: folder, replyUid: uid } : {}),
-            };
-            if (plan.operation === 'update_draft') {
-              const { replacedUid, ...draft } = await ops.updateDraft(
-                draftUid as number,
-                draftInput,
-              );
-              return done(jsonResult({ sent: false, draft, replacedUid }, composeResultSchema));
+        const execute = async () => {
+          switch (plan.operation) {
+            case 'send_new': {
+              const result = await ops.sendNewMessage({
+                to: to as string[],
+                cc,
+                bcc,
+                subject: subject as string,
+                text,
+                html,
+                attachments,
+              });
+              return done(jsonResult(result, composeResultSchema));
             }
-            const draft = await ops.saveDraft(draftInput);
-            return done(jsonResult({ sent: false, draft }, composeResultSchema));
+            case 'send_reply': {
+              const result = await ops.sendReply({
+                folder,
+                uid,
+                to,
+                cc,
+                bcc,
+                text,
+                html,
+                replyAll: mode === 'reply_all',
+                attachments,
+              });
+              return done(jsonResult(result, composeResultSchema));
+            }
+            case 'send_forward': {
+              const result = await ops.sendForward({
+                folder,
+                uid,
+                to: to as string[],
+                cc,
+                bcc,
+                text,
+                html,
+                attachments,
+              });
+              return done(jsonResult(result, composeResultSchema));
+            }
+            case 'save_draft':
+            case 'update_draft': {
+              const draftInput = {
+                to,
+                cc,
+                bcc,
+                subject,
+                text,
+                html,
+                attachments,
+                ...(mode === 'reply' ? { replyFolder: folder, replyUid: uid } : {}),
+              };
+              if (plan.operation === 'update_draft') {
+                const { replacedUid, ...draft } = await ops.updateDraft(
+                  draftUid as number,
+                  draftInput,
+                );
+                return done(jsonResult({ sent: false, draft, replacedUid }, composeResultSchema));
+              }
+              const draft = await ops.saveDraft(draftInput);
+              return done(jsonResult({ sent: false, draft }, composeResultSchema));
+            }
           }
-        }
+        };
+        const boundInput = {
+          ...input,
+          attachments: attachments?.map((a) => ({ ...a, content: a.content.toString('base64') })),
+        };
+        return await (input.deliver === 'send'
+          ? confirmToolAction(server.server, 'compose_message', boundInput, execute)
+          : execute());
       } catch (err) {
         if (err instanceof AttachmentTooLargeError || err instanceof AttachmentSourceError) {
           return errorResult(err.message);
         }
         throw err;
+      } finally {
+        claim?.release();
       }
     },
   );

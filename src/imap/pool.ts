@@ -79,6 +79,7 @@ export class ImapConnectionPool {
     private readonly maxSize: number,
     private readonly createRawClient: ImapClientFactory = defaultClientFactory,
     private readonly acquireTimeoutMs: number = config.IMAP_ACQUIRE_TIMEOUT_MS,
+    private readonly maxWaiters: number = config.IMAP_MAX_WAITERS,
   ) {}
 
   async acquire(): Promise<ImapFlow> {
@@ -104,6 +105,9 @@ export class ImapConnectionPool {
    * d'être réglé : jamais de double attribution ni de connexion perdue.
    */
   private enqueue(): Promise<ImapFlow> {
+    if (this.waiters.length >= this.maxWaiters) {
+      return Promise.reject(new ImapPoolTimeoutError('File IMAP pleine : réessayer plus tard.'));
+    }
     const { inUse } = this.stats();
     log.warn(
       { waiting: this.waiters.length + 1, inUse, max: this.maxSize },
@@ -297,7 +301,10 @@ export class ImapConnectionPool {
     const client = this.createRawClient();
 
     client.on('error', (err: unknown) => {
-      log.warn({ reason: classifyImapError(err).message }, 'imap connection error, dropping from pool');
+      log.warn(
+        { reason: classifyImapError(err).message },
+        'imap connection error, dropping from pool',
+      );
       this.discard(client);
     });
     client.on('close', () => {

@@ -370,3 +370,21 @@ describe('fetchHttpsGuarded : taille, statut et délai', () => {
     assert.equal(aborted, true);
   });
 });
+
+describe('DNS deadline', () => {
+  it('returns on timeout even when resolver never settles', async () => {
+    let requested = false;
+    await rejectsWith(
+      fetchHttpsGuarded('https://a.example/x', 100, {
+        timeoutMs: 10,
+        resolveHost: () => new Promise(() => {}),
+        request: async () => {
+          requested = true;
+          throw new Error('must not connect');
+        },
+      }),
+      /délai/,
+    );
+    assert.equal(requested, false);
+  });
+});

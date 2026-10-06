@@ -79,3 +79,13 @@ describe('SlidingWindowRateLimiter', () => {
     assert.equal(limiter.size, 1, 'a est purgée, b conservée');
   });
 });
+
+it('caps tracked caller keys and frees capacity after expiry', () => {
+  let now = 0;
+  const limiter = new SlidingWindowRateLimiter(1, 10, { now: () => now }, 1);
+  assert.equal(limiter.allow('a'), true);
+  assert.equal(limiter.allow('b'), false);
+  assert.equal(limiter.size, 1);
+  now = 11;
+  assert.equal(limiter.allow('b'), true);
+});

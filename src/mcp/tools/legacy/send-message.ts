@@ -1,3 +1,4 @@
+import { confirmToolAction } from '../../confirm-flow.js';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { sendNewMessage } from '../../../smtp/send.js';
@@ -19,6 +20,7 @@ export function registerSendMessageTool(server: McpServer): void {
         'archived in the "Sent" folder (see savedToSent in the result). Attachments are passed as ' +
         'base64-encoded content.',
       inputSchema: {
+        confirmToken: z.string().optional().describe('Token from the first confirmation request'),
         to: z.array(z.string().email()).min(1),
         cc: z.array(z.string().email()).optional(),
         bcc: z.array(z.string().email()).optional(),
@@ -35,32 +37,36 @@ export function registerSendMessageTool(server: McpServer): void {
           )
           .optional(),
       },
-      outputSchema: sendResultSchema.shape,
     },
-    async ({ to, cc, bcc, subject, text, html, attachments }) => {
-      if (!text && !html) {
-        return errorResult('Fournir au moins un corps de message (text ou html).');
-      }
+    async (input) => {
+      const execute = async () => {
+        const { to, cc, bcc, subject, text, html, attachments } = input;
 
-      try {
-        const decoded = decodeInboundAttachments(attachments, config.ATTACHMENT_MAX_BYTES);
-        log.info({ to, subject }, 'sending message');
-        const result = await sendNewMessage({
-          to,
-          cc,
-          bcc,
-          subject,
-          text,
-          html,
-          attachments: decoded,
-        });
-        return jsonResult(result, sendResultSchema);
-      } catch (err) {
-        if (err instanceof AttachmentTooLargeError) {
-          return errorResult(err.message);
+        if (!text && !html) {
+          return errorResult('Fournir au moins un corps de message (text ou html).');
         }
-        throw err;
-      }
+
+        try {
+          const decoded = decodeInboundAttachments(attachments, config.ATTACHMENT_MAX_BYTES);
+          log.info({ to, subject }, 'sending message');
+          const result = await sendNewMessage({
+            to,
+            cc,
+            bcc,
+            subject,
+            text,
+            html,
+            attachments: decoded,
+          });
+          return jsonResult(result, sendResultSchema);
+        } catch (err) {
+          if (err instanceof AttachmentTooLargeError) {
+            return errorResult(err.message);
+          }
+          throw err;
+        }
+      };
+      return confirmToolAction(server.server, 'send_message', input, execute);
     },
   );
 }

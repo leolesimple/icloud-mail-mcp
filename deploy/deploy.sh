@@ -14,18 +14,19 @@
 # Le dossier de déploiement (docker-compose.yml + .env) est le PARENT de ce
 # script — adapter WORKDIR si l'arborescence diffère.
 set -euo pipefail
+umask 077
 
 WORKDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONTAINER="icloud-mail-mcp"
 HEALTH_TIMEOUT=60 # secondes
 
-# Version : argument direct, sinon dernier mot de $SSH_ORIGINAL_COMMAND (la
+# Version : argument direct, sinon valeur exacte de $SSH_ORIGINAL_COMMAND (la
 # clé CI est forcée sur ce script, le client ne passe que la version), sinon
 # 'latest'.
 if [[ -n "${1:-}" ]]; then
   version="$1"
 elif [[ -n "${SSH_ORIGINAL_COMMAND:-}" ]]; then
-  version="${SSH_ORIGINAL_COMMAND##* }"
+  version="$SSH_ORIGINAL_COMMAND"
 else
   version="latest"
 fi
@@ -41,15 +42,29 @@ cd "$WORKDIR"
   exit 1
 }
 
-echo "deploy: $CONTAINER -> $version"
-if grep -q '^ICLOUD_MAIL_MCP_VERSION=' .env; then
-  sed -i "s/^ICLOUD_MAIL_MCP_VERSION=.*/ICLOUD_MAIL_MCP_VERSION=$version/" .env
-else
-  printf '\nICLOUD_MAIL_MCP_VERSION=%s\n' "$version" >>.env
-fi
+# Serialize deployments on the host too (manual and forced-command SSH runs).
+command -v flock >/dev/null || { echo "deploy: flock requis" >&2; exit 1; }
+exec 9>.deploy.lock
+flock -n 9 || { echo "deploy: un déploiement est déjà en cours" >&2; exit 1; }
 
-docker compose pull
-docker compose up -d
+echo "deploy: $CONTAINER -> $version"
+# Shell environment overrides Compose interpolation without persisting a failed version.
+export ICLOUD_MAIL_MCP_VERSION="$version"
+docker compose pull icloud-mail-mcp
+docker compose up -d --no-deps icloud-mail-mcp
+
+persist_version() {
+  local temp_file
+  temp_file="$(mktemp .env.deploy.XXXXXX)"
+  if ! awk -v version="$version" '
+    BEGIN { found=0 }
+    /^ICLOUD_MAIL_MCP_VERSION=/ { if (!found) print "ICLOUD_MAIL_MCP_VERSION=" version; found=1; next }
+    { print }
+    END { if (!found) print "ICLOUD_MAIL_MCP_VERSION=" version }
+  ' .env > "$temp_file"; then rm -f "$temp_file"; return 1; fi
+  chmod --reference=.env "$temp_file"
+  mv "$temp_file" .env
+}
 
 deadline=$((SECONDS + HEALTH_TIMEOUT))
 while (( SECONDS < deadline )); do
@@ -57,12 +72,13 @@ while (( SECONDS < deadline )); do
   case "$status" in
     healthy)
       running="$(docker inspect -f '{{index .Config.Labels "org.opencontainers.image.version"}}' "$CONTAINER" 2>/dev/null)"
+      persist_version
       echo "deploy: OK — image ${running:-?} healthy"
       exit 0
       ;;
     unhealthy)
       echo "deploy: conteneur unhealthy" >&2
-      docker compose logs --tail=50 "$CONTAINER" >&2
+      echo "deploy: consulter les logs sur l’hôte et relancer la version précédente pour rollback" >&2
       exit 1
       ;;
   esac
@@ -70,5 +86,5 @@ while (( SECONDS < deadline )); do
 done
 
 echo "deploy: pas healthy après ${HEALTH_TIMEOUT}s" >&2
-docker compose logs --tail=50 "$CONTAINER" >&2
+echo "deploy: consulter les logs sur l’hôte et relancer la version précédente pour rollback" >&2
 exit 1

@@ -46,15 +46,23 @@ const INITIALIZE = {
 /** Démarre un serveur HTTP sur un port éphémère et renvoie de quoi le piloter. */
 async function startServer(options?: Parameters<typeof createHttpServer>[0]) {
   const instance = createHttpServer(options);
-  const srv = instance.app.listen(0);
-  await new Promise((resolve) => srv.once('listening', resolve));
+  const srv = instance.app.listen(0, '127.0.0.1');
+  try {
+    await new Promise<void>((resolve, reject) => {
+      srv.once('listening', resolve);
+      srv.once('error', reject);
+    });
+  } catch (error) {
+    await instance.close();
+    throw error;
+  }
   const url = `http://127.0.0.1:${(srv.address() as AddressInfo).port}`;
   return { instance, srv, url };
 }
 
 async function stopServer(instance: HttpServer, srv: Server) {
-  await instance.close();
-  await new Promise((resolve) => srv.close(resolve));
+  await instance?.close();
+  if (srv?.listening) await new Promise((resolve) => srv.close(resolve));
 }
 
 before(async () => {
@@ -95,7 +103,10 @@ describe('authentification du endpoint /mcp', () => {
   it('refuse un POST avec un mauvais token', async () => {
     const response = await fetch(`${baseUrl}/mcp`, {
       method: 'POST',
-      headers: { Authorization: 'Bearer mauvais-token-de-test-xxxxx', 'Content-Type': 'application/json' },
+      headers: {
+        Authorization: 'Bearer mauvais-token-de-test-xxxxx',
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify(INITIALIZE),
     });
 
@@ -112,25 +123,29 @@ describe('authentification du endpoint /mcp', () => {
 });
 
 describe('sessions MCP', () => {
-  it('ouvre une session sur initialize et renvoie son identifiant', { timeout: 10_000 }, async () => {
-    const response = await fetch(`${baseUrl}/mcp`, {
-      method: 'POST',
-      headers: MCP_HEADERS,
-      body: JSON.stringify(INITIALIZE),
-    });
+  it(
+    'ouvre une session sur initialize et renvoie son identifiant',
+    { timeout: 10_000 },
+    async () => {
+      const response = await fetch(`${baseUrl}/mcp`, {
+        method: 'POST',
+        headers: MCP_HEADERS,
+        body: JSON.stringify(INITIALIZE),
+      });
 
-    assert.equal(response.status, 200);
-    const sessionId = response.headers.get('mcp-session-id');
-    assert.ok(sessionId, 'le transport doit renvoyer un en-tête mcp-session-id');
-    await response.body?.cancel();
+      assert.equal(response.status, 200);
+      const sessionId = response.headers.get('mcp-session-id');
+      assert.ok(sessionId, 'le transport doit renvoyer un en-tête mcp-session-id');
+      await response.body?.cancel();
 
-    // La session ouverte doit ensuite accepter une fermeture explicite.
-    const deleted = await fetch(`${baseUrl}/mcp`, {
-      method: 'DELETE',
-      headers: { ...AUTH, 'mcp-session-id': sessionId },
-    });
-    assert.ok(deleted.status < 400, `fermeture de session refusée (${deleted.status})`);
-  });
+      // La session ouverte doit ensuite accepter une fermeture explicite.
+      const deleted = await fetch(`${baseUrl}/mcp`, {
+        method: 'DELETE',
+        headers: { ...AUTH, 'mcp-session-id': sessionId },
+      });
+      assert.ok(deleted.status < 400, `fermeture de session refusée (${deleted.status})`);
+    },
+  );
 
   it('refuse une requête authentifiée qui n’est ni un initialize ni une session connue', async () => {
     const response = await fetch(`${baseUrl}/mcp`, {
@@ -207,16 +222,17 @@ describe('rate limit sur /mcp', () => {
     }
   });
 
-  it('compte par CF-Connecting-IP, pas par IP de socket', async () => {
-    // Même socket (localhost), deux IP clientes distinctes derrière le tunnel :
-    // chacune a son propre seau, aucune ne doit déclencher le 429 de l'autre.
-    for (const ip of ['203.0.113.10', '203.0.113.20']) {
-      const statuses: number[] = [];
-      for (let i = 0; i < 3; i += 1) {
-        const res = await fetch(`${url}/mcp`, { method: 'GET', headers: { 'CF-Connecting-IP': ip } });
-        statuses.push(res.status);
+  it('ignores spoofed CF-Connecting-IP on direct sockets', async () => {
+    const isolated = await startServer({ rateLimitPerMinute: 1 });
+    try {
+      for (const [index, ip] of ['203.0.113.10', '203.0.113.20'].entries()) {
+        const response = await fetch(`${isolated.url}/mcp`, {
+          headers: { 'CF-Connecting-IP': ip },
+        });
+        assert.equal(response.status, index === 0 ? 401 : 429);
       }
-      assert.deepEqual(statuses, [401, 401, 401], `IP ${ip} ne doit pas être limitée`);
+    } finally {
+      await stopServer(isolated.instance, isolated.srv);
     }
   });
 });
@@ -228,7 +244,11 @@ describe('TTL des sessions MCP', () => {
 
   before(async () => {
     // TTL très court + pas de balayage automatique (on déclenche sweep() à la main).
-    const started = await startServer({ sessionTtlMs: 40, sweepIntervalMs: 3_600_000, rateLimitPerMinute: 10_000 });
+    const started = await startServer({
+      sessionTtlMs: 40,
+      sweepIntervalMs: 3_600_000,
+      rateLimitPerMinute: 10_000,
+    });
     instance = started.instance;
     srv = started.srv;
     url = started.url;
@@ -346,9 +366,21 @@ describe('GET /download/:token', () => {
           fetched.push(`attachment:${folder}:${uid}:${index}`);
           if (uid === 404) throw new Error(`Message UID ${uid} introuvable dans "${folder}"`);
           if (uid === 413) {
-            return { index, filename: 'gros.bin', contentType: 'application/octet-stream', size: 65, content: Buffer.alloc(65) };
+            return {
+              index,
+              filename: 'gros.bin',
+              contentType: 'application/octet-stream',
+              size: 65,
+              content: Buffer.alloc(65),
+            };
           }
-          return { index, filename: 'Facture été/../x.pdf', contentType: 'application/pdf', size: PDF.length, content: PDF };
+          return {
+            index,
+            filename: 'Facture été/../x.pdf',
+            contentType: 'application/pdf',
+            size: PDF.length,
+            content: PDF,
+          };
         },
         fetchAttachmentPart: async (folder, uid, part, maxBytes) => {
           fetched.push(`part:${folder}:${uid}:${part}:${maxBytes}`);
@@ -357,7 +389,13 @@ describe('GET /download/:token', () => {
               `Pièce jointe (partie ${part}) interrompue, au-delà de la limite (ATTACHMENT_MAX_BYTES).`,
             );
           }
-          return { part, filename: 'Facture.pdf', contentType: 'application/pdf', size: PDF.length, content: PDF };
+          return {
+            part,
+            filename: 'Facture.pdf',
+            contentType: 'application/pdf',
+            size: PDF.length,
+            content: PDF,
+          };
         },
         fetchMessageSource: async (folder, uid) => {
           fetched.push(`message:${folder}:${uid}`);
@@ -509,7 +547,12 @@ describe('POST /upload/:token', () => {
     return { uploadId, token: links.issue({ kind: 'upload', uploadId, ...extra }).token };
   }
 
-  function post(token: string, body: RequestInit['body'], headers: Record<string, string> = {}, query = '') {
+  function post(
+    token: string,
+    body: RequestInit['body'],
+    headers: Record<string, string> = {},
+    query = '',
+  ) {
     return fetch(`${url}/upload/${token}${query}`, { method: 'POST', body, headers });
   }
 
@@ -631,7 +674,7 @@ describe('POST /upload/:token', () => {
     }
     const full = await post(issue().token, 'x');
     assert.equal(full.status, 507);
-    assert.match(await full.text(), /UPLOAD_MAX_FILES/);
+    assert.match(await full.text(), /Stockage des dépôts plein/);
 
     store.delete(ids[0] as string);
     // Reste 40 octets sur 100 : un dépôt de 50 octets est coupé en flux.

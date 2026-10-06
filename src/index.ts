@@ -16,7 +16,7 @@ const cleanups: Array<() => void | Promise<void>> = [];
 
 if (useHttp) {
   const http = createHttpServer();
-  const httpServer: Server = http.app.listen(config.PORT, '0.0.0.0', () => {
+  const httpServer: Server = http.app.listen(config.PORT, config.HTTP_HOST, () => {
     logger.info({ port: config.PORT }, 'icloud-mail-mcp http server listening');
   });
   cleanups.push(() => {

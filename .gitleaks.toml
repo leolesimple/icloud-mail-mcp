@@ -1,0 +1,12 @@
+[extend]
+useDefault = true
+
+# Only exact synthetic fixtures in these tests; do not exclude entire test files.
+[[rules]]
+id = "generic-api-key"
+[[rules.allowlists]]
+description = "Known synthetic confirmation/download/bearer test secrets"
+condition = "AND"
+paths = ['''^test/(http|upload-compose|download-links|binary-output|confirm-flow|confirm|config)\.test\.ts$''']
+regexTarget = "secret"
+regexes = ['''^(secret-de-test-0123456789abcdef-(0123456789|0123)|un-autre-secret-0123456789abcdef-xyz|0123456789abcdef0123456789abcdef)$''']

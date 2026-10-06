@@ -1,3 +1,4 @@
+import { confirmToolAction } from '../../confirm-flow.js';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { sendReply } from '../../../smtp/send.js';
@@ -20,6 +21,7 @@ export function registerReplyMessageTool(server: McpServer): void {
         'include the other original recipients (as Cc). The original message is marked \\Answered ' +
         '(markedAnswered in the result), and a copy is archived in "Sent" (savedToSent).',
       inputSchema: {
+        confirmToken: z.string().optional().describe('Token from the first confirmation request'),
         folder: z
           .string()
           .min(1)
@@ -51,34 +53,38 @@ export function registerReplyMessageTool(server: McpServer): void {
           )
           .optional(),
       },
-      outputSchema: sendResultSchema.shape,
     },
-    async ({ folder, uid, to, cc, bcc, text, html, replyAll, attachments }) => {
-      if (!text && !html) {
-        return errorResult('Fournir au moins un corps de message (text ou html).');
-      }
+    async (input) => {
+      const execute = async () => {
+        const { folder, uid, to, cc, bcc, text, html, replyAll, attachments } = input;
 
-      try {
-        const decoded = decodeInboundAttachments(attachments, config.ATTACHMENT_MAX_BYTES);
-        log.info({ folder, uid, replyAll }, 'replying to message');
-        const result = await sendReply({
-          folder,
-          uid,
-          to,
-          cc,
-          bcc,
-          text,
-          html,
-          replyAll,
-          attachments: decoded,
-        });
-        return jsonResult(result, sendResultSchema);
-      } catch (err) {
-        if (err instanceof AttachmentTooLargeError) {
-          return errorResult(err.message);
+        if (!text && !html) {
+          return errorResult('Fournir au moins un corps de message (text ou html).');
         }
-        throw err;
-      }
+
+        try {
+          const decoded = decodeInboundAttachments(attachments, config.ATTACHMENT_MAX_BYTES);
+          log.info({ folder, uid, replyAll }, 'replying to message');
+          const result = await sendReply({
+            folder,
+            uid,
+            to,
+            cc,
+            bcc,
+            text,
+            html,
+            replyAll,
+            attachments: decoded,
+          });
+          return jsonResult(result, sendResultSchema);
+        } catch (err) {
+          if (err instanceof AttachmentTooLargeError) {
+            return errorResult(err.message);
+          }
+          throw err;
+        }
+      };
+      return confirmToolAction(server.server, 'reply_message', input, execute);
     },
   );
 }

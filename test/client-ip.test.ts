@@ -18,18 +18,18 @@ function fakeRequest(options: {
 }
 
 describe('clientIp', () => {
-  it('privilégie CF-Connecting-IP', () => {
+  it('ignores spoofed CF-Connecting-IP', () => {
     const req = fakeRequest({
       headers: { 'cf-connecting-ip': '203.0.113.7' },
       ip: '172.18.0.3',
       remoteAddress: '172.18.0.3',
     });
-    assert.equal(clientIp(req), '203.0.113.7');
+    assert.equal(clientIp(req), '172.18.0.3');
   });
 
-  it('trim la valeur de CF-Connecting-IP', () => {
+  it('does not trust CF headers without a socket identity', () => {
     const req = fakeRequest({ headers: { 'cf-connecting-ip': '  203.0.113.7  ' } });
-    assert.equal(clientIp(req), '203.0.113.7');
+    assert.equal(clientIp(req), 'unknown');
   });
 
   it('retombe sur req.ip quand CF-Connecting-IP est absent', () => {

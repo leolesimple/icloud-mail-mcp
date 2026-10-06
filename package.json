@@ -5,7 +5,7 @@
   "description": "MCP server exposing iCloud Mail (IMAP/SMTP) as tools for Claude",
   "type": "module",
   "engines": {
-    "node": ">=24"
+    "node": ">=24.15"
   },
   "scripts": {
     "build": "tsc",
@@ -22,18 +22,19 @@
     "release": "semantic-release"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.1",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "dotenv": "^18.0.4",
     "express": "^5.2.1",
     "html-to-text": "10.0.1",
     "imapflow": "^2.1.0",
-    "mailparser": "^3.9.29",
-    "nodemailer": "^10.0.13",
+    "mailparser": "^3.9.33",
+    "nodemailer": "^10.0.14",
     "pino": "^10.3.1",
     "zod": "^4.6.5"
   },
   "overrides": {
-    "html-to-text": "10.0.1"
+    "html-to-text": "10.0.1",
+    "braces": "npm:@dieub/braces-depth-guard@3.0.3-pn.3"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.2",
@@ -41,7 +42,6 @@
     "@semantic-release/changelog": "^7.0.0",
     "@semantic-release/exec": "^7.1.0",
     "@semantic-release/git": "^11.0.1",
-    "@semantic-release/npm": "^13.2.0",
     "@types/express": "^5.0.6",
     "@types/mailparser": "^3.4.6",
     "@types/node": "^24.19.0",
@@ -54,8 +54,12 @@
     "prettier": "^3.9.9",
     "semantic-release": "^25.0.9",
     "tsx": "^4.23.15",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "@semantic-release/npm": "^13.2.0"
   },
   "license": "SEE LICENSE IN LICENSE",
-  "author": "Léo Lesimple"
+  "author": "Léo Lesimple",
+  "workspaces": [
+    "vendor/release-version"
+  ]
 }

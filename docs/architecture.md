@@ -32,11 +32,11 @@ appeler une fonction métier, sérialiser le résultat.
 
 Un serveur Express avec trois routes :
 
-| Route | Auth | Rôle |
-|---|---|---|
-| `POST /mcp` | bearer | Requêtes JSON-RPC, dont `initialize` qui ouvre une session |
-| `GET /mcp` | bearer | Flux SSE de notifications serveur → client |
-| `DELETE /mcp` | bearer | Fermeture explicite d'une session |
+| Route         | Auth       | Rôle                                                              |
+| ------------- | ---------- | ----------------------------------------------------------------- |
+| `POST /mcp`   | bearer     | Requêtes JSON-RPC, dont `initialize` qui ouvre une session        |
+| `GET /mcp`    | bearer     | Flux SSE de notifications serveur → client                        |
+| `DELETE /mcp` | bearer     | Fermeture explicite d'une session                                 |
 | `GET /health` | **aucune** | Healthcheck Docker, renvoie `{"status":"ok","version":"<x.y.z>"}` |
 
 ### Authentification
@@ -75,7 +75,7 @@ plus fuir son entrée. `UNRESTRICTED` ne désactive **pas** ce TTL.
 ([`rate-limit.ts`](../src/http/rate-limit.ts)), par IP : au-delà de `RATE_LIMIT_PER_MINUTE` requêtes
 sur 60 s, la réponse est un `429` au format JSON-RPC (code `-32002`). Le limiteur est placé **avant**
 l'authentification, pour amortir aussi un brute-force de token. `GET /health` n'est jamais limité.
-`UNRESTRICTED=true` lève cette limite (mais jamais l'authentification).
+Cette limite reste active avec `UNRESTRICTED=true`. L’IP vient de la socket, ou de `X-Forwarded-For` uniquement à travers `TRUSTED_PROXIES` ; `CF-Connecting-IP` est ignoré.
 
 ---
 
@@ -144,11 +144,11 @@ messages comme lus au passage.
 Les erreurs des bibliothèques IMAP et SMTP sont des objets opaques avec des codes hétérogènes.
 Chaque couche les traduit en trois familles, ce qui suffit à savoir quoi faire :
 
-| Famille | IMAP | SMTP | Ce que ça veut dire |
-|---|---|---|---|
-| Authentification | `ImapAuthError` | `SmtpAuthError` | Identifiants faux — action humaine requise, ne pas retenter |
-| Réseau | `ImapNetworkError` (dont `ImapPoolTimeoutError`, pool saturé) | `SmtpNetworkError` | Transitoire — un retry a du sens |
-| Commande / message | `ImapCommandError` | `SmtpMessageError` | La requête est en cause (dossier inexistant, destinataire refusé) |
+| Famille            | IMAP                                                          | SMTP               | Ce que ça veut dire                                                                                 |
+| ------------------ | ------------------------------------------------------------- | ------------------ | --------------------------------------------------------------------------------------------------- |
+| Authentification   | `ImapAuthError`                                               | `SmtpAuthError`    | Identifiants faux — action humaine requise, ne pas retenter                                         |
+| Réseau             | `ImapNetworkError` (dont `ImapPoolTimeoutError`, pool saturé) | `SmtpNetworkError` | IMAP : retry de connexion possible ; SMTP : issue potentiellement incertaine, vérifier avant renvoi |
+| Commande / message | `ImapCommandError`                                            | `SmtpMessageError` | La requête est en cause (dossier inexistant, destinataire refusé)                                   |
 
 `classifyImapError` reconnaît l'échec d'authentification via la propriété `authenticationFailed`
 posée par imapflow — sa classe d'erreur interne n'est pas exportée, donc `instanceof` est impossible.
@@ -185,3 +185,11 @@ Sur `SIGINT`/`SIGTERM` ([`index.ts`](../src/index.ts)) : arrêt de l'écoute, fe
 MCP, `LOGOUT` propre de chaque connexion IMAP, fermeture du pool SMTP. Un `LOGOUT` propre évite de
 laisser des connexions fantômes côté iCloud, qui compteraient contre la limite du compte au
 redémarrage suivant.
+
+## Bornes de ressources et parcours d’envoi
+
+Le serveur vérifie Host et Origin, borne ses requêtes actives et ses sessions, et limite les attentes du pool IMAP. Les uploads réservent leur capacité pendant la réception ; le délai de réception est borné. Ces protections restent actives en mode `UNRESTRICTED`.
+
+Les sources MIME sont téléchargées en flux avec `MAX_MESSAGE_BYTES` après vérification de la taille annoncée ; la lecture du corps utilise encore un parsing complet mais borné du MIME. Les liens `url` sont émis à partir des métadonnées : les octets ne sont téléchargés qu’à leur ouverture. Les pièces jointes par `index` comme par `part` utilisent une partie IMAP ciblée. Les lots sont traités progressivement sous le budget cumulé ; les en-têtes bruts font une lecture dédiée et bornée de `HEADER`.
+
+La réservation atomique du quota précède SMTP. Aucune relance SMTP automatique n’est effectuée après un résultat incertain. L’archivage d’un brouillon réutilise la connexion IMAP déjà détenue : une seule copie dans Envoyés, puis nettoyage. Le succès SMTP reste un succès même si l’archivage ou le nettoyage échoue, avec les avertissements correspondants. Un marqueur IMAP de tentative sur le brouillon bloque un renvoi automatique après résultat incertain ou crash.

@@ -9,9 +9,19 @@ services:
       - .env
     environment:
       # Quota d'envoi persisté dans le volume : survit aux redémarrages.
+      HTTP_HOST: 0.0.0.0
       QUOTA_STATE_PATH: /app/data/send-quota.json
     volumes:
       - icloud-mail-mcp-data:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    pids_limit: 128
     restart: unless-stopped
     networks:
       - tunnel
