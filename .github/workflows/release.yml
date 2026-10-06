@@ -57,20 +57,35 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
 
-      # Only provision the write key after dependencies have been installed without lifecycle scripts.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-          fetch-depth: 0
-          clean: false
-          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
-          persist-credentials: true
+      # The write key is provisioned only after dependencies are installed without lifecycle
+      # scripts. A second actions/checkout with `ssh-key` changes the remote URL, which makes it
+      # wipe the workspace (node_modules included), so the key is set up by hand instead.
+      - name: Configure SSH write key
+        env:
+          RELEASE_DEPLOY_KEY: ${{ secrets.RELEASE_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          [ -n "$RELEASE_DEPLOY_KEY" ] || { echo "::error::RELEASE_DEPLOY_KEY required"; exit 1; }
+          umask 077
+          ssh_dir="$RUNNER_TEMP/release-ssh"
+          mkdir -p "$ssh_dir"
+          printf '%s\n' "$RELEASE_DEPLOY_KEY" > "$ssh_dir/deploy_key"
+          curl -fsSL https://api.github.com/meta \
+            | jq -r '.ssh_keys[] | "github.com " + .' > "$ssh_dir/known_hosts"
+          [ -s "$ssh_dir/known_hosts" ] || { echo "::error::GitHub SSH host keys unavailable"; exit 1; }
+          git remote set-url origin "git@github.com:${GITHUB_REPOSITORY}.git"
+          git config --local core.sshCommand \
+            "ssh -i $ssh_dir/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$ssh_dir/known_hosts -o GlobalKnownHostsFile=/dev/null"
 
       - name: semantic-release
         id: semrel
         run: npx semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Remove SSH write key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/release-ssh"
 
   docker:
     needs: release
