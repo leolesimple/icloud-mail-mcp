@@ -8,6 +8,7 @@ import {
   type AttachmentPartContent,
 } from '../../imap/messages.js';
 import { classifyImapError } from '../../imap/errors.js';
+import { folderConcurrency, mapWithConcurrency } from '../../imap/concurrency.js';
 import { assertReadableSize, AttachmentTooLargeError } from '../../attachments.js';
 import { config } from '../../config.js';
 import type { DownloadLinkService } from '../../download-links.js';
@@ -67,7 +68,31 @@ export interface AttachmentsBatchOptions {
     part: string,
     maxBytes: number,
   ) => Promise<AttachmentPartContent>;
+  /** Téléchargements simultanés au plus. Défaut : `folderConcurrency()` (pool - 1). */
+  concurrency?: number;
 }
+
+/** Échec d'un téléchargement propre à un élément (le lot continue). */
+type FetchFailure = { error: string };
+
+/**
+ * Exécute `fetch` et range une erreur de commande IMAP (message ou partie
+ * introuvable) ou une pièce jointe trop grosse en échec de l'élément. Une
+ * erreur d'auth ou réseau concerne la connexion entière : elle est propagée.
+ */
+async function settle<T>(fetch: () => Promise<T>): Promise<T | FetchFailure> {
+  try {
+    return await fetch();
+  } catch (err) {
+    if (err instanceof AttachmentTooLargeError) return { error: err.message };
+    const classified = classifyImapError(err);
+    if (classified.name !== 'ImapCommandError') throw classified;
+    return { error: classified.message };
+  }
+}
+
+const isFailure = (value: unknown): value is FetchFailure =>
+  typeof value === 'object' && value !== null && 'error' in value && !Array.isArray(value);
 
 export interface AttachmentsBatch {
   items: AttachmentItemResult[];
@@ -101,16 +126,28 @@ export async function collectAttachments(
     if (!messages.has(key)) messages.set(key, { folder, uid });
   }
 
-  const fetched = new Map<string, AttachmentContent[] | { error: string }>();
-  for (const [key, { folder, uid }] of messages) {
-    try {
-      fetched.set(key, await fetchAttachments(folder, uid));
-    } catch (err) {
-      const classified = classifyImapError(err);
-      if (classified.name !== 'ImapCommandError') throw classified;
-      fetched.set(key, { error: classified.message });
-    }
+  // Une partie téléchargée une fois, même demandée plusieurs fois.
+  const parts = new Map<string, { folder: string; uid: number; part: string }>();
+  for (const { folder, uid, part } of requests) {
+    if (part !== undefined) parts.set(partKey(folder, uid, part), { folder, uid, part });
   }
+
+  // Téléchargements en parallèle bornée (connexions du pool moins une), dans
+  // l'ordre des éléments pour les résultats ; le reste de la logique est
+  // séquentiel et inchangé.
+  const concurrency = options.concurrency ?? folderConcurrency();
+  const jobs: { key: string; run: () => Promise<unknown> }[] = [
+    ...[...messages].map(([key, { folder, uid }]) => ({
+      key,
+      run: () => settle(() => fetchAttachments(folder, uid)),
+    })),
+    ...[...parts].map(([key, { folder, uid, part }]) => ({
+      key,
+      run: () => settle(() => fetchPart(folder, uid, part, options.maxBytes)),
+    })),
+  ];
+  const results = await mapWithConcurrency(jobs, concurrency, (job) => job.run());
+  const fetched = new Map<string, unknown>(jobs.map((job, i) => [job.key, results[i]]));
 
   const items: AttachmentItemResult[] = [];
   const images: AttachmentsBatch['images'] = [];
@@ -125,21 +162,21 @@ export async function collectAttachments(
 
     let attachment: { filename?: string; contentType: string; size: number; content: Buffer };
     if (locator.part !== undefined) {
-      try {
-        attachment = await fetchPart(folder, uid, locator.part, options.maxBytes);
-      } catch (err) {
-        if (err instanceof AttachmentTooLargeError) {
-          fail(err.message);
-          continue;
-        }
-        const classified = classifyImapError(err);
-        if (classified.name !== 'ImapCommandError') throw classified;
-        fail(classified.message);
+      const part = fetched.get(partKey(folder, uid, locator.part)) as
+        | AttachmentPartContent
+        | FetchFailure
+        | undefined;
+      if (!part || isFailure(part)) {
+        fail(part?.error ?? `Partie ${locator.part} introuvable pour le message UID ${uid}`);
         continue;
       }
+      attachment = part;
     } else {
-      const message = fetched.get(messageKey(folder, uid));
-      if (!message || !Array.isArray(message)) {
+      const message = fetched.get(messageKey(folder, uid)) as
+        | AttachmentContent[]
+        | FetchFailure
+        | undefined;
+      if (!message || isFailure(message)) {
         fail(message?.error ?? `Message UID ${uid} introuvable dans "${folder}"`);
         continue;
       }
@@ -237,6 +274,10 @@ function placeOf(item: AttachmentLocator): string {
 
 function messageKey(folder: string, uid: number): string {
   return `${folder}\u0000${uid}`;
+}
+
+function partKey(folder: string, uid: number, part: string): string {
+  return `${messageKey(folder, uid)}\u0000${part}`;
 }
 
 export function registerGetAttachmentsTool(server: McpServer): void {
