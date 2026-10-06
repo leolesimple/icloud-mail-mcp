@@ -381,3 +381,12 @@ export const manageFoldersResultSchema = z.object({
   path: z.string().optional(),
   newPath: z.string().optional(),
 });
+
+// `create_upload_link` : lien de dépôt signé, à usage unique.
+export const uploadLinkSchema = z.object({
+  uploadUrl: z.string(),
+  uploadId: z.string(),
+  expiresAt: z.string(),
+  maxBytes: z.number(),
+  method: z.literal('POST'),
+});

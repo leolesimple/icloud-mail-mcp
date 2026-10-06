@@ -74,6 +74,13 @@ const envSchema = z.object({
     z.string().min(32, 'DOWNLOAD_URL_SECRET doit faire au moins 32 caractères').optional(),
   ),
 
+  // --- Dépôts de fichiers (create_upload_link, POST /upload/:token) --------
+  // Plafonds du stockage EN MÉMOIRE des fichiers déposés, pour qu'un client ne
+  // sature pas la RAM : nombre de dépôts conservés à la fois, et octets cumulés.
+  // Chaque fichier reste en outre borné par ATTACHMENT_MAX_BYTES.
+  UPLOAD_MAX_FILES: z.coerce.number().int().positive().default(20),
+  UPLOAD_MAX_TOTAL_BYTES: z.coerce.number().int().positive().default(52_428_800),
+
   // --- Protocole MCP / sessions (lots C, E) -------------------------------
   // Plafond d'appels par minute et par session.
   RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(120),

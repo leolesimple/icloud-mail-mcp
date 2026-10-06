@@ -10,7 +10,7 @@
    ┌──────────────────────────────────────────────────────┐
    │  src/http/         Express, auth bearer, sessions MCP │
    ├──────────────────────────────────────────────────────┤
-   │  src/mcp/          Serveur MCP + 10 outils (schémas)  │
+   │  src/mcp/          Serveur MCP + 11 outils (schémas)  │
    ├──────────────────────────────────────────────────────┤
    │  src/imap/         Pool, messages, mutations, drafts  │
    │  src/smtp/         Transport nodemailer, envoi        │

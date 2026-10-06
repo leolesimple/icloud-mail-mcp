@@ -6,6 +6,8 @@ import type { AttachmentContent } from './imap/messages.js';
 import { AttachmentTooLargeError } from './attachments.js';
 import { fetchHttpsGuarded, UrlTooLargeError } from './ssrf.js';
 import type { GuardedFetchDeps } from './ssrf.js';
+import { uploadStore } from './uploads.js';
+import type { UploadStore } from './uploads.js';
 
 /**
  * Résolution des pièces jointes de `compose_message`. Chaque élément désigne
@@ -14,7 +16,11 @@ import type { GuardedFetchDeps } from './ssrf.js';
  * - `contentBase64` : le contenu inline (petits fichiers) ;
  * - `fromMessage` : une pièce jointe d'un message déjà dans la boîte, reprise
  *   côté serveur sans transiter par le modèle ;
- * - `url` : un fichier téléchargé par le serveur, sous garde SSRF (`ssrf.ts`).
+ * - `url` : un fichier téléchargé par le serveur, sous garde SSRF (`ssrf.ts`) ;
+ * - `uploadId` : un fichier déposé hors MCP par `create_upload_link` puis
+ *   `POST /upload/:token` (`uploads.ts`). Le dépôt n'est PAS consommé ici :
+ *   l'appelant le supprime (`consumeUploads`) une fois le mail envoyé ou le
+ *   brouillon enregistré, pour qu'un échec laisse le dépôt réutilisable.
  *
  * Toutes les sources sont résolues AVANT l'envoi ou l'écriture du brouillon :
  * une erreur nomme l'élément fautif et rien n'est émis. `ATTACHMENT_MAX_BYTES`
@@ -22,8 +28,8 @@ import type { GuardedFetchDeps } from './ssrf.js';
  * est coupé au-delà.
  */
 
-/** Sources reconnues. Lot H : ajouter `uploadId` ici et dans `resolveOne`. */
-export const ATTACHMENT_SOURCE_KEYS = ['contentBase64', 'fromMessage', 'url'] as const;
+/** Sources reconnues ; chacune a sa branche dans `resolveOne`. */
+export const ATTACHMENT_SOURCE_KEYS = ['contentBase64', 'fromMessage', 'url', 'uploadId'] as const;
 export type AttachmentSourceKey = (typeof ATTACHMENT_SOURCE_KEYS)[number];
 
 export interface FromMessageSource {
@@ -41,6 +47,7 @@ export interface AttachmentSourceInput {
   contentBase64?: string;
   fromMessage?: FromMessageSource;
   url?: string;
+  uploadId?: string;
 }
 
 /** Levée quand une source ne peut pas être résolue ; le message nomme l'élément. */
@@ -57,6 +64,8 @@ export interface AttachmentSourceDeps {
   fetchMessageAttachments?: (folder: string, uid: number) => Promise<AttachmentContent[]>;
   /** Accès réseau de la source `url` (défaut : DNS et HTTPS réels). */
   fetch?: GuardedFetchDeps;
+  /** Dépôts de `create_upload_link` (défaut : le stockage partagé `uploadStore`). */
+  uploads?: Pick<UploadStore, 'get'>;
 }
 
 const DEFAULT_FOLDER = 'INBOX';
@@ -193,6 +202,33 @@ async function resolveOne(
     };
   }
 
+  if (item.uploadId !== undefined) {
+    const upload = (deps.uploads ?? uploadStore).get(item.uploadId);
+    if (!upload) {
+      throw new AttachmentSourceError(
+        `${name} : dépôt "${item.uploadId}" inconnu, expiré ou déjà utilisé ` +
+          '(un dépôt vit 1 h et ne sert qu’à un seul envoi ; recréer un lien avec create_upload_link).',
+      );
+    }
+    if (upload.size > remaining) {
+      throw new AttachmentTooLargeError(
+        `${name} : fichier de ${upload.size} octets, au-delà des ${remaining} ` +
+          `octets encore disponibles (ATTACHMENT_MAX_BYTES, cumul de toutes les pièces jointes).`,
+      );
+    }
+    const filename = item.filename ?? upload.filename;
+    if (!filename) {
+      throw new AttachmentSourceError(
+        `${name} : le dépôt "${item.uploadId}" n’a pas de nom de fichier ; fournir filename.`,
+      );
+    }
+    return {
+      filename,
+      contentType: item.contentType ?? upload.contentType,
+      content: upload.content,
+    };
+  }
+
   if (item.fromMessage !== undefined) {
     const { uid, index } = item.fromMessage;
     const folder = item.fromMessage.folder ?? DEFAULT_FOLDER;
@@ -251,6 +287,22 @@ async function resolveOne(
     contentType: item.contentType ?? headerValue(fetched.headers, 'content-type')?.trim(),
     content: fetched.content,
   };
+}
+
+/** Identifiants des dépôts attachés, à consommer une fois l'envoi réussi. */
+export function uploadIdsOf(items: AttachmentSourceInput[] | undefined): string[] {
+  return (items ?? []).flatMap((item) => (item.uploadId !== undefined ? [item.uploadId] : []));
+}
+
+/**
+ * Supprime les dépôts attachés. À n'appeler qu'APRÈS l'envoi du mail ou
+ * l'enregistrement du brouillon : un échec doit laisser le dépôt réutilisable.
+ */
+export function consumeUploads(
+  items: AttachmentSourceInput[] | undefined,
+  uploads: Pick<UploadStore, 'delete'> = uploadStore,
+): void {
+  for (const uploadId of uploadIdsOf(items)) uploads.delete(uploadId);
 }
 
 /** URL sans requête ni fragment (un jeton d'accès n'a rien à faire dans un message d'erreur). */

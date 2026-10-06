@@ -59,7 +59,7 @@ export const attachmentInput = z
     contentType: z
       .string()
       .optional()
-      .describe('MIME type; overrides the original or the one returned by the URL'),
+      .describe('MIME type; overrides the original, the uploaded or the one returned by the URL'),
     contentBase64: z
       .string()
       .min(1)
@@ -71,6 +71,14 @@ export const attachmentInput = z
       .min(1)
       .optional()
       .describe('Source 3: a public https:// URL the server downloads (no redirects beyond 3)'),
+    uploadId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        'Source 4: uploadId of a file uploaded through create_upload_link (filename and ' +
+          'contentType kept unless overridden; consumed once the mail is sent or the draft saved)',
+      ),
   })
   .superRefine((item, ctx) => {
     const problem = attachmentSourceProblem(item);
@@ -82,5 +90,5 @@ export const attachmentsInput = z
   .optional()
   .describe(
     'Attachments (pièces jointes). Each item has exactly one source: contentBase64, ' +
-      'fromMessage { folder, uid, index } or url',
+      'fromMessage { folder, uid, index }, url or uploadId',
   );

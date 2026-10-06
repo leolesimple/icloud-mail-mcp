@@ -156,3 +156,62 @@ describe('nom de fichier servi', () => {
     );
   });
 });
+
+describe('liens de dépôt signés (cible upload)', () => {
+  const UPLOAD = {
+    kind: 'upload' as const,
+    uploadId: 'AAAAAAAAAAAAAAAAAAAAAA',
+    filename: 'rapport.pdf',
+    contentType: 'application/pdf',
+  };
+
+  it('fait un aller-retour quand la route demande la cible upload', () => {
+    const links = createDownloadLinkService({ secret: SECRET });
+    const { token } = links.issue(UPLOAD);
+    assert.deepEqual(links.redeem(token, ['upload']), { ok: true, target: UPLOAD });
+  });
+
+  it('refuse un lien de dépôt sur /download sans le consommer, et inversement', () => {
+    const links = createDownloadLinkService({ secret: SECRET });
+    const upload = links.issue(UPLOAD).token;
+    assert.deepEqual(links.redeem(upload), { ok: false, reason: 'wrong_kind' });
+    assert.equal(links.redeem(upload, ['upload']).ok, true);
+
+    const download = links.issue(ATTACHMENT).token;
+    assert.deepEqual(links.redeem(download, ['upload']), { ok: false, reason: 'wrong_kind' });
+    assert.equal(links.redeem(download).ok, true);
+  });
+
+  it('est à usage unique', () => {
+    const links = createDownloadLinkService({ secret: SECRET });
+    const { token } = links.issue(UPLOAD);
+    assert.equal(links.redeem(token, ['upload']).ok, true);
+    assert.deepEqual(links.redeem(token, ['upload']), { ok: false, reason: 'replayed' });
+  });
+
+  it('expire au bout de 15 minutes', () => {
+    const c = clock();
+    const links = createDownloadLinkService({ secret: SECRET, now: c.now });
+    const { token, expiresAt } = links.issue(UPLOAD);
+    assert.equal(expiresAt, c.now() + DOWNLOAD_LINK_TTL_MS);
+    c.advance(DOWNLOAD_LINK_TTL_MS);
+    assert.deepEqual(links.redeem(token, ['upload']), { ok: false, reason: 'expired' });
+  });
+
+  it('refuse un jeton dont la cible a été modifiée (autre uploadId)', () => {
+    const links = createDownloadLinkService({ secret: SECRET });
+    const { payload, mac } = split(links.issue(UPLOAD).token);
+    const altered = Buffer.from(
+      payload.toString('utf8').replace(UPLOAD.uploadId, 'BBBBBBBBBBBBBBBBBBBBBB'),
+      'utf8',
+    );
+    const forged = Buffer.concat([altered, mac]).toString('base64url');
+    assert.deepEqual(links.redeem(forged, ['upload']), { ok: false, reason: 'forged' });
+  });
+
+  it('rejette un uploadId mal formé, même signé', () => {
+    const links = createDownloadLinkService({ secret: SECRET });
+    const { token } = links.issue({ kind: 'upload', uploadId: '../x' });
+    assert.deepEqual(links.redeem(token, ['upload']), { ok: false, reason: 'malformed' });
+  });
+});
