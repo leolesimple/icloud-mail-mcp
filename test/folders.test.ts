@@ -52,8 +52,39 @@ describe('listFoldersOn (B4)', () => {
     assert.equal(conteneur.unseen, undefined);
   });
 
+  it('demande les compteurs avec le LIST (LIST-STATUS), sans un STATUS par dossier', async () => {
+    const mail = account();
+    const folders = await listFoldersOn(mail.asImapFlow(), true);
+
+    assert.equal(mail.counters.listStatus, 1);
+    assert.equal(mail.counters.status, 0);
+    assert.equal(folders.find((f) => f.path === 'INBOX')!.messages, 3);
+  });
+
+  it('donne les mêmes compteurs sans LIST-STATUS (repli imapflow sur un STATUS par dossier)', async () => {
+    const withListStatus = await listFoldersOn(account().asImapFlow(), true);
+    const mail = account();
+    mail.supportsListStatus = false;
+
+    const folders = await listFoldersOn(mail.asImapFlow(), true);
+    assert.deepEqual(folders, withListStatus);
+    assert.ok(mail.counters.status > 0);
+  });
+
+  it('laisse sans compteurs un dossier dont le STATUS de repli échoue', async () => {
+    const mail = account();
+    mail.supportsListStatus = false;
+    mail.status = async () => {
+      throw new Error('STATUS refusé');
+    };
+
+    const folders = await listFoldersOn(mail.asImapFlow(), true);
+    assert.ok(folders.every((f) => f.messages === undefined && f.unseen === undefined));
+  });
+
   it('laisse sans compteurs un dossier dont le STATUS renvoie false (refus serveur, imapflow 2)', async () => {
     const mail = account();
+    mail.supportsListStatus = false;
     mail.status = async () => false;
 
     const folders = await listFoldersOn(mail.asImapFlow(), true);
