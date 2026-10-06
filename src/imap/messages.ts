@@ -1,17 +1,21 @@
 import type { AddressObject, Attachment } from 'mailparser';
 import { simpleParser } from 'mailparser';
-import type { FetchMessageObject, ImapFlow } from 'imapflow';
+import type { Readable } from 'node:stream';
+import type { FetchMessageObject, ImapFlow, MessageStructureObject } from 'imapflow';
 import { withMailbox } from './mailbox.js';
 import {
   attachmentFilterOf,
   attachmentParts,
   buildSearchQuery,
+  findStructurePart,
   isInlinePart,
+  isMultipartNode,
   matchesAttachmentFilter,
   paginationExhausted,
 } from './search-query.js';
 import type { AttachmentFilter, AttachmentPart, SearchCriteria } from './search-query.js';
 import { classifyImapError } from './errors.js';
+import { AttachmentTooLargeError } from '../attachments.js';
 
 export interface MessageAddress {
   name?: string;
@@ -44,6 +48,16 @@ export interface AttachmentContent {
   index: number;
   filename?: string;
   contentType: string;
+  size: number;
+  content: Buffer;
+}
+
+/** Pièce jointe téléchargée seule, par son numéro de partie IMAP. */
+export interface AttachmentPartContent {
+  part: string;
+  filename?: string;
+  contentType: string;
+  /** Taille décodée, en octets. */
   size: number;
   content: Buffer;
 }
@@ -404,4 +418,139 @@ export async function getAttachment(
     },
     { readOnly: true },
   );
+}
+
+/**
+ * Borne basse de la taille décodée d'une partie, d'après la taille encodée
+ * annoncée par le BODYSTRUCTURE : base64 code 3 octets en 4 caractères, plus
+ * les fins de ligne (0,7 reste en deçà) ; quoted-printable au pire 3
+ * caractères par octet ; autrement, imapflow peut convertir un texte en UTF-8,
+ * d'où une marge de moitié. Sert à refuser avant tout téléchargement.
+ */
+export function decodedSizeLowerBound(node: MessageStructureObject): number | undefined {
+  if (node.size === undefined) return undefined;
+  switch (node.encoding?.toLowerCase()) {
+    case 'base64':
+      return Math.floor(node.size * 0.7);
+    case 'quoted-printable':
+      return Math.floor(node.size / 3);
+    default:
+      return Math.floor(node.size / 2);
+  }
+}
+
+/** Lit un flux jusqu'à `maxBytes` ; au-delà, le coupe et renvoie `undefined`. */
+async function readCapped(stream: Readable, maxBytes: number): Promise<Buffer | undefined> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const chunk of stream) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string);
+    total += buffer.length;
+    // Sortir de la boucle détruit le flux : imapflow cesse alors de télécharger.
+    if (total > maxBytes) return undefined;
+    chunks.push(buffer);
+  }
+  return Buffer.concat(chunks, total);
+}
+
+/** Issue d'un téléchargement de partie, le refus de taille étant levé hors de `withMailbox`. */
+type PartDownload = { ok: true; value: AttachmentPartContent } | { ok: false; tooLarge: string };
+
+function tooLargeMessage(part: string, detail: string, maxBytes: number): string {
+  return (
+    `Pièce jointe (partie ${part}) ${detail}, au-delà de la limite de ${maxBytes} octets ` +
+    '(ATTACHMENT_MAX_BYTES). Récupérez-la depuis Mail.app.'
+  );
+}
+
+async function downloadPartOn(
+  client: ImapFlow,
+  folder: string,
+  uid: number,
+  part: string,
+  maxBytes: number,
+): Promise<PartDownload> {
+  const fetched = await client.fetchOne(uid, { uid: true, bodyStructure: true }, { uid: true });
+  if (!fetched) {
+    throw new Error(`Message UID ${uid} introuvable dans "${folder}"`);
+  }
+
+  const node = findStructurePart(fetched.bodyStructure, part);
+  if (!node) {
+    const known = attachmentParts(fetched.bodyStructure).map((p) => p.part);
+    throw new Error(
+      `Partie ${part} introuvable dans le message UID ${uid} ` +
+        `(parties des pièces jointes : ${known.join(', ') || 'aucune'}, voir find_messages)`,
+    );
+  }
+  if (isMultipartNode(node)) {
+    throw new Error(
+      `La partie ${part} du message UID ${uid} est un conteneur ${node.type}, pas une pièce ` +
+        'jointe : désigner l’une de ses sous-parties (voir find_messages)',
+    );
+  }
+
+  const announced = decodedSizeLowerBound(node);
+  if (announced !== undefined && announced > maxBytes) {
+    return {
+      ok: false,
+      tooLarge: tooLargeMessage(
+        part,
+        `d'au moins ${announced} octets (taille annoncée : ${node.size} octets encodés)`,
+        maxBytes,
+      ),
+    };
+  }
+
+  // imapflow décode le transfer-encoding ; `maxBytes + 1` suffit à détecter un dépassement.
+  const download = await client.download(String(uid), part, { uid: true, maxBytes: maxBytes + 1 });
+  if (!download.content) {
+    throw new Error(`Partie ${part} introuvable dans le message UID ${uid}`);
+  }
+  const content = await readCapped(download.content, maxBytes);
+  if (!content) {
+    return {
+      ok: false,
+      tooLarge: tooLargeMessage(part, 'interrompue en cours de téléchargement', maxBytes),
+    };
+  }
+
+  const filename =
+    node.dispositionParameters?.filename || node.parameters?.name || download.meta.filename;
+  return {
+    ok: true,
+    value: {
+      part,
+      ...(filename ? { filename } : {}),
+      contentType:
+        node.type.toLowerCase() || download.meta.contentType || 'application/octet-stream',
+      size: content.length,
+      content,
+    },
+  };
+}
+
+/**
+ * Une seule pièce jointe, désignée par son numéro de partie IMAP (voir
+ * `find_messages`) : seule cette partie est téléchargée, pas le message
+ * entier. Vérifie d'abord dans le BODYSTRUCTURE que la partie existe et n'est
+ * pas un conteneur multipart, puis refuse au-delà de `maxBytes`, sur la taille
+ * annoncée puis en coupant le flux. Lève `AttachmentTooLargeError` dans ce
+ * cas, une erreur IMAP classée sinon.
+ */
+export async function getAttachmentPart(
+  folder: string,
+  uid: number,
+  part: string,
+  maxBytes: number,
+  withMailboxFn: WithMailbox = withMailbox,
+): Promise<AttachmentPartContent> {
+  const result = await withMailboxFn(
+    folder,
+    (client) => downloadPartOn(client, folder, uid, part, maxBytes),
+    { readOnly: true },
+  );
+  // Levée ici : `withMailbox` reclasserait l'erreur en erreur IMAP.
+  if (!result.ok) throw new AttachmentTooLargeError(result.tooLarge);
+  return result.value;
 }
