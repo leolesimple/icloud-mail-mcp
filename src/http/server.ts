@@ -10,7 +10,8 @@ import { clientIp } from './client-ip.js';
 import { SlidingWindowRateLimiter } from './rate-limit.js';
 import { contentDisposition, downloadLinks } from '../download-links.js';
 import type { DownloadLinkService, DownloadTarget } from '../download-links.js';
-import { getAttachment, getMessageSource } from '../imap/messages.js';
+import { getAttachment, getAttachmentPart, getMessageSource } from '../imap/messages.js';
+import { AttachmentTooLargeError } from '../attachments.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { serverVersion } from '../version.js';
@@ -56,6 +57,8 @@ export interface DownloadOptions {
   links?: DownloadLinkService;
   /** Défaut : `getAttachment` (IMAP). */
   fetchAttachment?: typeof getAttachment;
+  /** Défaut : `getAttachmentPart` (IMAP, une seule partie). */
+  fetchAttachmentPart?: typeof getAttachmentPart;
   /** Défaut : `getMessageSource` (IMAP). */
   fetchMessageSource?: typeof getMessageSource;
   /** Taille maximale servie. Défaut : `config.ATTACHMENT_MAX_BYTES`. */
@@ -96,6 +99,7 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
 
   const links = options.download?.links ?? downloadLinks;
   const fetchAttachment = options.download?.fetchAttachment ?? getAttachment;
+  const fetchAttachmentPart = options.download?.fetchAttachmentPart ?? getAttachmentPart;
   const fetchMessageSource = options.download?.fetchMessageSource ?? getMessageSource;
   const downloadMaxBytes = options.download?.maxBytes ?? config.ATTACHMENT_MAX_BYTES;
 
@@ -263,9 +267,12 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
 
   async function fetchDownload(target: DownloadTarget): Promise<DownloadFile> {
     if (target.kind === 'attachment') {
-      const attachment = await fetchAttachment(target.folder, target.uid, target.index);
+      const attachment =
+        target.part !== undefined
+          ? await fetchAttachmentPart(target.folder, target.uid, target.part, downloadMaxBytes)
+          : await fetchAttachment(target.folder, target.uid, target.index);
       return {
-        filename: attachment.filename ?? `attachment-${target.index}`,
+        filename: attachment.filename ?? `attachment-${target.part ?? target.index}`,
         contentType: attachment.contentType,
         content: attachment.content,
       };
@@ -306,6 +313,12 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
     try {
       file = await fetchDownload(target);
     } catch (err) {
+      // Partie IMAP refusée avant ou pendant son téléchargement.
+      if (err instanceof AttachmentTooLargeError) {
+        log.warn({ kind: target.kind }, 'download refused: too large');
+        res.status(413).type('text/plain').send(err.message);
+        return;
+      }
       log.warn(
         { err, kind: target.kind, folder: target.folder, uid: target.uid },
         'download fetch failed',

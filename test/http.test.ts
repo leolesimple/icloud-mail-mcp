@@ -11,6 +11,7 @@ import { imapPool } from '../src/imap/pool.js';
 import { closeSmtp } from '../src/smtp/client.js';
 import { createDownloadLinkService, DOWNLOAD_LINK_TTL_MS } from '../src/download-links.js';
 import type { AttachmentContent } from '../src/imap/messages.js';
+import { AttachmentTooLargeError } from '../src/attachments.js';
 
 /**
  * Tests d'intégration de la couche HTTP : un vrai serveur Express sur un port
@@ -348,6 +349,15 @@ describe('GET /download/:token', () => {
           }
           return { index, filename: 'Facture été/../x.pdf', contentType: 'application/pdf', size: PDF.length, content: PDF };
         },
+        fetchAttachmentPart: async (folder, uid, part, maxBytes) => {
+          fetched.push(`part:${folder}:${uid}:${part}:${maxBytes}`);
+          if (uid === 413) {
+            throw new AttachmentTooLargeError(
+              `Pièce jointe (partie ${part}) interrompue, au-delà de la limite (ATTACHMENT_MAX_BYTES).`,
+            );
+          }
+          return { part, filename: 'Facture.pdf', contentType: 'application/pdf', size: PDF.length, content: PDF };
+        },
         fetchMessageSource: async (folder, uid) => {
           fetched.push(`message:${folder}:${uid}`);
           return Buffer.from('From: a@example.com\r\nSubject: test\r\n\r\ncorps\r\n');
@@ -384,6 +394,22 @@ describe('GET /download/:token', () => {
     assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
     assert.ok(Buffer.from(await response.arrayBuffer()).equals(PDF));
     assert.equal(fetched.at(-1), 'attachment:INBOX:12:0');
+  });
+
+  it('sert une pièce jointe désignée par son numéro de partie IMAP', async () => {
+    const token = links.issue({ kind: 'attachment', folder: 'Apple', uid: 371, part: '2' }).token;
+    const response = await fetch(`${url}/download/${token}`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-disposition') ?? '', /filename="Facture\.pdf"/);
+    assert.ok(Buffer.from(await response.arrayBuffer()).equals(PDF));
+    assert.equal(fetched.at(-1), 'part:Apple:371:2:64');
+  });
+
+  it('répond 413 quand la partie dépasse la limite', async () => {
+    const token = links.issue({ kind: 'attachment', folder: 'Apple', uid: 413, part: '2' }).token;
+    const response = await fetch(`${url}/download/${token}`);
+    assert.equal(response.status, 413);
+    assert.match(await response.text(), /partie 2.*ATTACHMENT_MAX_BYTES/);
   });
 
   it('sert un message entier en message/rfc822', async () => {
