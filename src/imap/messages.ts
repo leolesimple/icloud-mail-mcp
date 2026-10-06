@@ -5,12 +5,19 @@ import { withMailbox } from './mailbox.js';
 import {
   attachmentFilterOf,
   attachmentParts,
-  buildSearchQuery,
   isInlinePart,
   matchesAttachmentFilter,
+  matchesLocalFilter,
   paginationExhausted,
+  planSearch,
 } from './search-query.js';
-import type { AttachmentFilter, AttachmentPart, SearchCriteria } from './search-query.js';
+import type {
+  AttachmentFilter,
+  AttachmentPart,
+  LocalCondition,
+  LocalFilter,
+  SearchCriteria,
+} from './search-query.js';
 import { classifyImapError } from './errors.js';
 
 export interface MessageAddress {
@@ -105,9 +112,11 @@ export interface TaggedMessageSummary extends FoundMessageSummary {
 }
 
 /**
- * Cœur de la pagination : traduit les critères, laisse le serveur filtrer, trie
- * par UID décroissant (donc du plus récent au plus ancien), tronque à `limit`,
- * et n'expose un curseur que s'il reste des messages au-delà.
+ * Cœur de la pagination : traduit les critères, laisse IMAP SEARCH filtrer ce
+ * qu'il sait filtrer de façon fiable, vérifie le reste (`subject`/`from`/`to`,
+ * pièces jointes) sur les candidats, trie par UID décroissant (donc du plus
+ * récent au plus ancien), tronque à `limit`, et n'expose un curseur que s'il
+ * reste des messages au-delà.
  */
 export async function fetchPage(
   client: ImapFlow,
@@ -118,65 +127,81 @@ export async function fetchPage(
     return { messages: [] };
   }
 
-  const uids = await client.search(buildSearchQuery(criteria), { uid: true });
+  const plan = planSearch(criteria);
+  const uids = await client.search(plan.query, { uid: true });
   if (!uids || uids.length === 0) {
     return { messages: [] };
   }
 
   const ordered = [...uids].sort((a, b) => b - a);
-  const filter = attachmentFilterOf(criteria);
-  const parts = filter ? await filterByAttachments(client, ordered, filter, limit) : undefined;
-  const matching = parts ? [...parts.keys()] : ordered;
-  const selected = matching.slice(0, limit);
-  if (selected.length === 0) {
-    return { messages: [] };
+  const attachments = attachmentFilterOf(criteria);
+  if (!plan.local && !attachments) {
+    const selected = ordered.slice(0, limit);
+    const fetched = await client.fetchAll(selected, SUMMARY_QUERY, { uid: true });
+    const messages = fetched.map(toSummary).sort((a, b) => b.uid - a.uid);
+    return pageOf(messages, ordered.length > selected.length);
   }
-  const fetched = await client.fetchAll(selected, SUMMARY_QUERY, { uid: true });
-  // Le BODYSTRUCTURE a déjà été lu pour filtrer : autant exposer les pièces jointes.
-  const messages = fetched
-    .map((entry) => {
-      const summary = toSummary(entry);
-      const attachments = parts?.get(entry.uid);
-      return attachments ? { ...summary, attachments } : summary;
-    })
-    .sort((a, b) => b.uid - a.uid);
 
+  const matching = await filterCandidates(client, ordered, plan.local, attachments, limit);
+  return pageOf(matching.slice(0, limit), matching.length > limit);
+}
+
+function pageOf(messages: FoundMessageSummary[], hasMore: boolean): MessagePage {
   const smallest = messages.at(-1)?.uid;
-  const hasMore = matching.length > selected.length;
   return hasMore && smallest !== undefined ? { messages, nextCursor: smallest } : { messages };
 }
 
-/** Nombre d'UID dont on récupère le BODYSTRUCTURE par commande FETCH. */
-export const ATTACHMENT_FETCH_BATCH = 100;
+/** Nombre de candidats lus par commande FETCH lors d'un filtrage local. */
+export const CANDIDATE_FETCH_BATCH = 100;
 
 /**
- * Filtre pièces jointes : IMAP SEARCH n'en est pas capable, on lit donc le
- * BODYSTRUCTURE des candidats, par lots, du plus récent au plus ancien. On
- * s'arrête dès `limit + 1` correspondances : la dernière ne sert qu'à savoir
- * s'il reste une page, pour que `nextCursor` ne soit jamais un curseur vide.
+ * Filtrage local des candidats du SEARCH : critères `subject`/`from`/`to` sur
+ * l'ENVELOPE, filtre pièces jointes sur le BODYSTRUCTURE. Une seule passe : un
+ * FETCH par lot de candidats lit d'un coup l'enveloppe, les flags, la taille et
+ * (si besoin) le BODYSTRUCTURE, du plus récent au plus ancien. On s'arrête dès
+ * `limit + 1` correspondances : la dernière ne sert qu'à savoir s'il reste une
+ * page, pour que `nextCursor` ne soit jamais un curseur vide.
  *
- * Renvoie les UID retenus (dans l'ordre de `ordered`) et leurs pièces jointes.
+ * Les parties `body`/`text` des `not` et `or` évalués localement sont résolues
+ * avant, par un SEARCH dédié chacune.
+ *
+ * Renvoie les résumés retenus, dans l'ordre de `ordered`.
  */
-async function filterByAttachments(
+async function filterCandidates(
   client: ImapFlow,
   ordered: number[],
-  filter: AttachmentFilter,
+  local: LocalFilter | undefined,
+  attachments: AttachmentFilter | undefined,
   limit: number,
-): Promise<Map<number, AttachmentPart[]>> {
-  const matching = new Map<number, AttachmentPart[]>();
-  for (let start = 0; start < ordered.length && matching.size <= limit;) {
-    const batch = ordered.slice(start, start + ATTACHMENT_FETCH_BATCH);
+): Promise<FoundMessageSummary[]> {
+  const serverMatches = new Map<LocalCondition, Set<number>>();
+  for (const condition of [local?.exclude, ...(local?.anyOf ?? [])]) {
+    if (!condition?.server) continue;
+    const found = await client.search(condition.server, { uid: true });
+    serverMatches.set(condition, new Set(found || []));
+  }
+
+  const query = attachments ? { ...SUMMARY_QUERY, bodyStructure: true } : SUMMARY_QUERY;
+  const matching: FoundMessageSummary[] = [];
+  for (let start = 0; start < ordered.length && matching.length <= limit;) {
+    const batch = ordered.slice(start, start + CANDIDATE_FETCH_BATCH);
     start += batch.length;
-    const fetched = await client.fetchAll(batch, { uid: true, bodyStructure: true }, { uid: true });
-    const accepted = new Map(
-      fetched
-        .filter((entry) => matchesAttachmentFilter(entry.bodyStructure, filter))
-        .map((entry) => [entry.uid, attachmentParts(entry.bodyStructure)] as const),
-    );
+    const fetched = await client.fetchAll(batch, query, { uid: true });
+    const accepted = new Map<number, FoundMessageSummary>();
+    for (const entry of fetched) {
+      if (local && !matchesLocalFilter(entry.uid, entry.envelope, local, serverMatches)) continue;
+      if (attachments && !matchesAttachmentFilter(entry.bodyStructure, attachments)) continue;
+      const summary = toSummary(entry);
+      // Le BODYSTRUCTURE a déjà été lu pour filtrer : autant exposer les pièces jointes.
+      accepted.set(
+        entry.uid,
+        attachments ? { ...summary, attachments: attachmentParts(entry.bodyStructure) } : summary,
+      );
+    }
     // Le serveur ne garantit pas l'ordre du FETCH : on garde celui du lot.
     for (const uid of batch) {
-      const attachments = accepted.get(uid);
-      if (attachments) matching.set(uid, attachments);
+      const summary = accepted.get(uid);
+      if (summary) matching.push(summary);
     }
   }
   return matching;
