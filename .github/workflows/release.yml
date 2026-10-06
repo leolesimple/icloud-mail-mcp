@@ -2,8 +2,8 @@ name: Release
 
 # Se déclenche après un run vert du workflow CI sur main (donc après chaque
 # merge). semantic-release analyse les commits Conventional Commits depuis le
-# dernier tag, décide s'il y a une release, bump package.json/package-lock.json
-# et les commite sur main (`chore(release): X.Y.Z [skip ci]`), tague ce commit,
+# dernier tag, décide s'il y a une release, bump package.json/package-lock.json,
+# ajoute l'entrée de CHANGELOG.md et les commite sur main (`chore(release): X.Y.Z [skip ci]`), tague ce commit,
 # crée la GitHub Release ; si une release a eu lieu, le job docker pousse
 # l'image sur GHCR taguée avec la nouvelle version.
 #
