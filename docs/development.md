@@ -157,8 +157,9 @@ Release avec ses notes. Le job `docker` du même workflow pousse ensuite l'image
 le tag embarque donc la bonne version (`/health`, `inbox_overview`, initialize MCP). Ce push direct
 passe outre le ruleset « Protect main » : il se fait en SSH avec une deploy key en écriture
 (secret `RELEASE_DEPLOY_KEY`), et « Deploy keys » figure dans les bypass actors du ruleset ;
-`[skip ci]` évite de relancer CI et Release sur ce commit. `CHANGELOG.md` n'est plus mis à jour :
-les notes vivent dans les GitHub Releases.
+`[skip ci]` évite de relancer CI et Release sur ce commit. `@semantic-release/changelog` ajoute au
+même commit l'entrée de la version en tête de `CHANGELOG.md`, avec les mêmes notes que la GitHub
+Release : des titres de commits, d'où l'intérêt d'un titre de squash explicite.
 
 Le calcul du bump dépend des commits en [Conventional Commits](https://www.conventionalcommits.org/fr/) :
 

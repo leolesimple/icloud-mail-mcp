@@ -1,16 +1,96 @@
 # Changelog
 
-Depuis la 0.1.5, les notes de version sont publiées sur les
-[GitHub Releases](https://github.com/leolesimple/icloud-mail-mcp/releases), générées par
-[semantic-release](https://semantic-release.gitbook.io/) à partir des commits
-[Conventional Commits](https://www.conventionalcommits.org/fr/) mergés sur `main`. Ce fichier
-n'est plus mis à jour ; détails du pipeline dans
-[`docs/development.md`](docs/development.md#releases).
+## [0.2.1] - 2026-10-06
 
-Les entrées ci-dessous sont l'historique de l'ancien processus manuel (tag `vX.Y.Z` + édition
-manuelle de ce fichier).
+Retour d'usage réel dans Claude Desktop : PDF illisibles, sessions perdues après
+un redéploiement, quota remis à zéro au redémarrage.
 
----
+### Ajouté
+
+- **`get_attachment` : paramètre `format`** (`auto` par défaut, `text_base64`,
+  `url`). Claude Desktop refusait les blocs `resource` `application/pdf` (« not
+  currently supported ») : les PDF étaient illisibles. En `auto`, les images
+  restent des blocs image et tout le reste est renvoyé en bloc texte JSON
+  `{ filename, contentType, size, contentBase64 }` ; `text_base64` force ce JSON,
+  images comprises.
+- **Liens de téléchargement signés** (`format: "url"`) servis par
+  `GET /download/:token` : HMAC-SHA256, valables 15 minutes, à usage unique.
+  Tout refus répond le même `404`, le jeton n'est jamais loggé, un `HEAD` est
+  refusé pour ne pas consommer le lien. Secret `DOWNLOAD_URL_SECRET` optionnel ;
+  exige `PUBLIC_BASE_URL`.
+- **`get_attachments`** : jusqu'à 25 pièces jointes en un appel, avec un résultat
+  `ok` / `error` par élément (un élément en échec ne fait pas échouer le lot).
+  Chaque message n'est téléchargé et parsé qu'une fois.
+- **`export_message`** : le message brut au format EML (`message/rfc822`), dans
+  les mêmes formats que `get_attachment`.
+- **`find_messages`** :
+  - `folders: "*"` cherche dans tous les dossiers sauf corbeille et indésirables
+    (`includeTrash` pour les inclure) ;
+  - `hasAttachment` / `attachmentType` (ex. `"application/pdf"`, ou un préfixe
+    `"image/"`) filtrent sur le BODYSTRUCTURE, avant la limite, avec une
+    pagination exacte ;
+  - `fields` ne renvoie que les champs demandés (`uid` toujours présent) ;
+  - avec un filtre pièces jointes, chaque message liste ses `attachments`, avec
+    un drapeau `inline` pour les images intégrées au HTML (logos, signatures).
+- **`read_message`** : chaque pièce jointe porte aussi le drapeau `inline`.
+- **Log par requête `/mcp`** : méthode(s) JSON-RPC, session (connue ou non de ce
+  process), statut, durée et `pid`, pour diagnostiquer une double instance.
+
+### Corrigé
+
+- **Sessions perdues après un redémarrage.** Une session inconnue recevait un
+  `400 « no valid session ID provided »` : le client bouclait sur l'erreur sans
+  jamais se réinitialiser. Le serveur répond désormais `404`, comme l'exige la
+  spec MCP, et un `initialize` qui porte encore un ancien identifiant ouvre une
+  session neuve.
+- **Quota d'envoi remis à zéro au redémarrage.** `MAX_SENDS_PER_DAY` est
+  persisté dans le fichier `QUOTA_STATE_PATH` (fenêtre glissante de 24 h,
+  écriture atomique ; un fichier corrompu est ignoré sans crash).
+
+### Déploiement
+
+- `docker-compose.yml` monte un volume `icloud-mail-mcp-data` sur `/app/data` et
+  fixe `QUOTA_STATE_PATH=/app/data/send-quota.json` : à reporter dans le compose
+  de l'hôte avant le `up`.
+
+## [0.2.0] - 2026-10-05
+
+### Modifié — rupture
+
+- **17 outils regroupés en 8, par intention** (#59) : `inbox_overview`,
+  `find_messages`, `read_message`, `get_attachment`, `compose_message`,
+  `send_draft`, `organize_messages`, `manage_folders`. Les anciens noms
+  (`list_folders`, `whoami`, `get_message`, `send_message`…) ne sont plus
+  exposés ; `LEGACY_TOOLS=true` les réactive le temps de migrer. Table de
+  correspondance dans `docs/tools.md`. Le serveur envoie aussi des consignes
+  au client à l'`initialize` (mots-clés FR/EN, `inbox_overview` en premier,
+  contenu des mails non fiable).
+
+### Ajouté
+
+- **Mécanisme de jetons de confirmation** pour les opérations destructives
+  (#60) : elicitation MCP si le client la supporte, sinon aller-retour avec un
+  jeton HMAC à usage unique (`CONFIRM_SECRET`). Pas encore branché sur les
+  outils.
+
+### Corrigé
+
+- `send_draft` perdait les pièces jointes du brouillon à l'envoi.
+- `inbox_overview` : nombre de non lus faux quand `STATUS` ne le fournit pas.
+- **Version affichée** : `/health`, `inbox_overview` et l'`initialize` MCP
+  renvoyaient `0.1.4`, `package.json` n'étant plus mis à jour depuis
+  semantic-release. Le numéro est désormais commité à chaque release (#61).
+
+## [0.1.5] - 2026-10-03
+
+### Modifié
+
+- **imapflow 2** (#55) et `list_folders` adapté : un `STATUS` refusé par le
+  serveur renvoie `false` au lieu de lever une erreur. Montées de version de
+  nodemailer 10, dotenv 18 et des dépendances mineures.
+- **Releases automatiques** (#58) : semantic-release publie tag, GitHub Release
+  et image GHCR à chaque merge sur `main`, à partir des Conventional Commits
+  (vérifiés par commitlint).
 
 ## [0.1.4] - 2026-09-18
 
@@ -105,3 +185,11 @@ Première version publiée. Serveur MCP exposant un compte iCloud Mail
 [0.1.2]: https://github.com/leolesimple/icloud-mail-mcp/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/leolesimple/icloud-mail-mcp/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/leolesimple/icloud-mail-mcp/releases/tag/v0.1.0
+
+---
+
+Les entrées jusqu'à la 0.2.1 sont rédigées à la main. Les suivantes sont
+générées par [semantic-release](https://semantic-release.gitbook.io/) à partir
+des commits [Conventional Commits](https://www.conventionalcommits.org/fr/)
+mergés sur `main` ; détails du pipeline dans
+[`docs/development.md`](docs/development.md#releases).
