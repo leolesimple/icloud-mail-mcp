@@ -35,6 +35,26 @@ describe('liens de téléchargement signés', () => {
     }
   });
 
+  it('accepte une pièce jointe désignée par son numéro de partie IMAP', () => {
+    const links = createDownloadLinkService({ secret: SECRET });
+    const byPart: DownloadTarget = { kind: 'attachment', folder: 'Apple', uid: 371, part: '1.2' };
+    assert.deepEqual(links.redeem(links.issue(byPart).token), { ok: true, target: byPart });
+  });
+
+  it('refuse une cible signée avec index ET part, ou une partie mal formée', () => {
+    const links = createDownloadLinkService({ secret: SECRET });
+    const invalid = [
+      { kind: 'attachment', folder: 'INBOX', uid: 1, index: 0, part: '2' },
+      { kind: 'attachment', folder: 'INBOX', uid: 1, part: '2.' },
+      { kind: 'attachment', folder: 'INBOX', uid: 1, part: '2.TEXT' },
+      { kind: 'attachment', folder: 'INBOX', uid: 1 },
+    ];
+    for (const target of invalid) {
+      const { token } = links.issue(target as unknown as DownloadTarget);
+      assert.deepEqual(links.redeem(token), { ok: false, reason: 'malformed' });
+    }
+  });
+
   it('expire après 15 minutes', () => {
     const c = clock();
     const links = createDownloadLinkService({ secret: SECRET, now: c.now });

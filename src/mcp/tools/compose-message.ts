@@ -56,7 +56,7 @@ export function registerComposeMessageTool(server: McpServer, deps: ComposeMessa
         'to the Drafts folder without sending (new or reply only), and with draftUid replaces that existing ' +
         'draft. Sending is subject to the server guardrails: with DRAFTS_ONLY the message is saved as a draft ' +
         'instead (sent: false). Attachments: each item has exactly one source — contentBase64 (small ' +
-        'files only), fromMessage { folder, uid, index } to reuse an attachment of a message already in ' +
+        'files only), fromMessage { folder, uid, index or part } to reuse an attachment of a message in ' +
         'the mailbox (filename and contentType kept unless overridden; preferred for large files), or url ' +
         '(a public https:// URL the server downloads; private or local addresses are refused), or ' +
         'uploadId (a file uploaded out of band through create_upload_link; consumed once sent). The ' +

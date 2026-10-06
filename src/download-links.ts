@@ -1,5 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { config } from './config.js';
+import { PART_PATTERN } from './attachment-locator.js';
+import type { AttachmentLocator } from './attachment-locator.js';
 
 /**
  * Liens de téléchargement signés, servis par `GET /download/:token`.
@@ -12,7 +14,7 @@ import { config } from './config.js';
  *
  * Format (base64url, opaque) : payload JSON (version, cible, expiration en ms,
  * nonce) suivi du HMAC-SHA256 (32 octets) de ce payload. La cible circule en
- * clair (encodée, non chiffrée) : dossier, UID et index, aucun contenu.
+ * clair (encodée, non chiffrée) : dossier, UID et index ou partie, aucun contenu.
  *
  * Le même mécanisme signe les liens de DÉPÔT servis par `POST /upload/:token`
  * (cible `upload`, émise par `create_upload_link`) : `redeem` ne rend que les
@@ -34,7 +36,7 @@ const MAX_TOKEN_CHARS = 4096;
 
 /** Ce que désigne un lien : une pièce jointe, ou un message entier (EML brut). */
 export type DownloadTarget =
-  | { kind: 'attachment'; folder: string; uid: number; index: number }
+  | ({ kind: 'attachment'; folder: string; uid: number } & AttachmentLocator)
   | { kind: 'message'; folder: string; uid: number };
 
 /**
@@ -125,7 +127,13 @@ function parseTarget(value: unknown): LinkTarget | undefined {
   if (typeof t.folder !== 'string' || t.folder.length === 0 || !isUid(t.uid)) return undefined;
   if (t.kind === 'message') return { kind: 'message', folder: t.folder, uid: t.uid };
   if (t.kind === 'attachment' && Number.isSafeInteger(t.index) && (t.index as number) >= 0) {
+    if (t.part !== undefined) return undefined;
     return { kind: 'attachment', folder: t.folder, uid: t.uid, index: t.index as number };
+  }
+  // Pièce jointe désignée par son numéro de partie IMAP (voir attachment-locator.ts).
+  if (t.kind === 'attachment' && typeof t.part === 'string' && PART_PATTERN.test(t.part)) {
+    if (t.index !== undefined) return undefined;
+    return { kind: 'attachment', folder: t.folder, uid: t.uid, part: t.part };
   }
   return undefined;
 }

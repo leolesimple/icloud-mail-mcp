@@ -1,7 +1,12 @@
 import { z } from 'zod';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { getMessageAttachments, type AttachmentContent } from '../../imap/messages.js';
+import {
+  getAttachmentPart,
+  getMessageAttachments,
+  type AttachmentContent,
+  type AttachmentPartContent,
+} from '../../imap/messages.js';
 import { classifyImapError } from '../../imap/errors.js';
 import { assertReadableSize, AttachmentTooLargeError } from '../../attachments.js';
 import { config } from '../../config.js';
@@ -15,18 +20,16 @@ import {
   type LinkBinaryJson,
 } from '../binary-output.js';
 import { logger } from '../../logger.js';
+import { toLocator, type AttachmentLocator } from '../../attachment-locator.js';
+import { attachmentIndexInput, attachmentPartInput, refineLocator } from './inputs.js';
 
 const log = logger.child({ tool: 'get_attachments' });
 
 /** Nombre maximal d'éléments par appel. */
 export const GET_ATTACHMENTS_MAX_ITEMS = 25;
 
-/** Une pièce jointe demandée : message (`folder`, `uid`) et position (`index`). */
-export interface AttachmentRequest {
-  folder: string;
-  uid: number;
-  index: number;
-}
+/** Une pièce jointe demandée : message (`folder`, `uid`) et `index` ou `part`. */
+export type AttachmentRequest = { folder: string; uid: number } & AttachmentLocator;
 
 type ItemKey = AttachmentRequest & { ok: boolean };
 
@@ -57,6 +60,13 @@ export interface AttachmentsBatchOptions {
   links?: DownloadLinkService;
   /** Lecture des pièces jointes d'un message. Défaut : `getMessageAttachments` (IMAP). */
   fetchMessageAttachments?: (folder: string, uid: number) => Promise<AttachmentContent[]>;
+  /** Lecture d'une seule partie. Défaut : `getAttachmentPart` (IMAP). */
+  fetchAttachmentPart?: (
+    folder: string,
+    uid: number,
+    part: string,
+    maxBytes: number,
+  ) => Promise<AttachmentPartContent>;
 }
 
 export interface AttachmentsBatch {
@@ -66,9 +76,10 @@ export interface AttachmentsBatch {
 }
 
 /**
- * Récupère un lot de pièces jointes. Les éléments sont regroupés par message
- * (`folder`, `uid`) : chaque message n'est téléchargé et parsé qu'une fois,
- * quel que soit le nombre d'index demandés.
+ * Récupère un lot de pièces jointes. Les éléments par `index` sont regroupés
+ * par message (`folder`, `uid`) : chaque message n'est téléchargé et parsé
+ * qu'une fois, quel que soit le nombre d'index demandés. Un élément par `part`
+ * ne télécharge que sa partie.
  *
  * Même logique que `searchMessagesAcross` : un élément en échec (message ou
  * index introuvable, pièce jointe trop grosse, budget cumulé dépassé) porte
@@ -80,10 +91,12 @@ export async function collectAttachments(
   options: AttachmentsBatchOptions,
 ): Promise<AttachmentsBatch> {
   const fetchAttachments = options.fetchMessageAttachments ?? getMessageAttachments;
+  const fetchPart = options.fetchAttachmentPart ?? getAttachmentPart;
 
   // Un téléchargement par message distinct, dans l'ordre de première apparition.
   const messages = new Map<string, { folder: string; uid: number }>();
-  for (const { folder, uid } of requests) {
+  for (const { folder, uid, part } of requests) {
+    if (part !== undefined) continue;
     const key = messageKey(folder, uid);
     if (!messages.has(key)) messages.set(key, { folder, uid });
   }
@@ -105,22 +118,40 @@ export async function collectAttachments(
   let inlineBytes = 0;
 
   for (const request of requests) {
-    const { folder, uid, index } = request;
-    const fail = (error: string) => items.push({ folder, uid, index, ok: false, error });
+    const { folder, uid } = request;
+    const locator = toLocator(request);
+    const key: AttachmentRequest = { folder, uid, ...locator };
+    const fail = (error: string) => items.push({ ...key, ok: false, error });
 
-    const message = fetched.get(messageKey(folder, uid));
-    if (!message || !Array.isArray(message)) {
-      fail(message?.error ?? `Message UID ${uid} introuvable dans "${folder}"`);
-      continue;
-    }
-
-    const attachment = message[index];
-    if (!attachment) {
-      fail(
-        `Pièce jointe #${index} introuvable pour le message UID ${uid} ` +
-          `(${message.length} pièce(s) jointe(s))`,
-      );
-      continue;
+    let attachment: { filename?: string; contentType: string; size: number; content: Buffer };
+    if (locator.part !== undefined) {
+      try {
+        attachment = await fetchPart(folder, uid, locator.part, options.maxBytes);
+      } catch (err) {
+        if (err instanceof AttachmentTooLargeError) {
+          fail(err.message);
+          continue;
+        }
+        const classified = classifyImapError(err);
+        if (classified.name !== 'ImapCommandError') throw classified;
+        fail(classified.message);
+        continue;
+      }
+    } else {
+      const message = fetched.get(messageKey(folder, uid));
+      if (!message || !Array.isArray(message)) {
+        fail(message?.error ?? `Message UID ${uid} introuvable dans "${folder}"`);
+        continue;
+      }
+      const found = message[locator.index];
+      if (!found) {
+        fail(
+          `Pièce jointe #${locator.index} introuvable pour le message UID ${uid} ` +
+            `(${message.length} pièce(s) jointe(s))`,
+        );
+        continue;
+      }
+      attachment = found;
     }
 
     try {
@@ -145,13 +176,13 @@ export async function collectAttachments(
 
     const payload = binaryPayload(
       {
-        filename: attachment.filename ?? `attachment-${index}`,
+        filename: attachment.filename ?? `attachment-${locator.part ?? locator.index}`,
         contentType: attachment.contentType,
         content: attachment.content,
       },
       {
         format: options.format,
-        target: { kind: 'attachment', folder, uid, index },
+        target: { kind: 'attachment', ...key },
         publicBaseUrl: options.publicBaseUrl,
         links: options.links,
       },
@@ -160,17 +191,15 @@ export async function collectAttachments(
     if (payload.type === 'image') {
       images.push({ item: items.length, data: payload.data, mimeType: payload.mimeType });
       items.push({
-        folder,
-        uid,
-        index,
+        ...key,
         ok: true,
-        filename: attachment.filename ?? `attachment-${index}`,
+        filename: attachment.filename ?? `attachment-${locator.part ?? locator.index}`,
         contentType: attachment.contentType,
         size: attachment.size,
         imageBlock: true,
       });
     } else {
-      items.push({ folder, uid, index, ok: true, ...payload.data });
+      items.push({ ...key, ok: true, ...payload.data });
     }
   }
 
@@ -194,11 +223,16 @@ export function attachmentsBatchResult(batch: AttachmentsBatch): CallToolResult 
       type: 'text',
       text:
         `items[${image.item}] : ${filename} ` +
-        `(folder "${item.folder}", uid ${item.uid}, index ${item.index})`,
+        `(folder "${item.folder}", uid ${item.uid}, ${placeOf(item)})`,
     });
     content.push({ type: 'image', data: image.data, mimeType: image.mimeType });
   }
   return { content };
+}
+
+/** « index 1 » ou « part 2 », pour situer un élément. */
+function placeOf(item: AttachmentLocator): string {
+  return item.part !== undefined ? `part ${item.part}` : `index ${item.index}`;
 }
 
 function messageKey(folder: string, uid: number): string {
@@ -213,24 +247,28 @@ export function registerGetAttachmentsTool(server: McpServer): void {
       description:
         `Downloads several attachments (pièce jointe) at once, up to ${GET_ATTACHMENTS_MAX_ITEMS}, ` +
         'possibly from different email messages; each item is { folder, uid, index } with "index" as ' +
-        'listed by read_message. Same "format" as get_attachment. Returns a JSON summary { succeeded, ' +
-        'failed, items } with one result per item, in request order: { folder, uid, index, ok, error? ' +
-        '} plus the attachment fields. A failed item (unknown message or index, too large) does not ' +
+        'listed by read_message, or { folder, uid, part } with the IMAP "part" number listed by ' +
+        'find_messages (only that part is downloaded). Same "format" as get_attachment. Returns a ' +
+        'JSON summary { succeeded, failed, items } with one result per item, in request order: ' +
+        '{ folder, uid, index or part, ok, error? } plus the attachment fields. A failed item (unknown message or index, too large) does not ' +
         'fail the batch. In "auto" format, images follow the summary as image blocks. With "auto" and ' +
         '"text_base64", inline content is capped at ATTACHMENT_MAX_BYTES in total: extra items fail ' +
         'and can be fetched in another call or with format "url".',
       inputSchema: {
         items: z
           .array(
-            z.object({
-              folder: z.string().min(1).default('INBOX').describe('Folder containing the message'),
-              uid: z.coerce.number().int().positive().describe('IMAP UID of the message'),
-              index: z.coerce
-                .number()
-                .int()
-                .nonnegative()
-                .describe('Attachment index, as reported by read_message'),
-            }),
+            z
+              .object({
+                folder: z
+                  .string()
+                  .min(1)
+                  .default('INBOX')
+                  .describe('Folder containing the message'),
+                uid: z.coerce.number().int().positive().describe('IMAP UID of the message'),
+                index: attachmentIndexInput.optional(),
+                part: attachmentPartInput.optional(),
+              })
+              .superRefine(refineLocator),
           )
           .min(1)
           .max(GET_ATTACHMENTS_MAX_ITEMS)
@@ -249,7 +287,12 @@ export function registerGetAttachmentsTool(server: McpServer): void {
       if (refused) return refused;
 
       log.info({ count: items.length, format }, 'fetching attachments');
-      const batch = await collectAttachments(items, {
+      const requests = items.map((item) => ({
+        folder: item.folder,
+        uid: item.uid,
+        ...toLocator(item),
+      }));
+      const batch = await collectAttachments(requests, {
         format,
         maxBytes: config.ATTACHMENT_MAX_BYTES,
         inlineMaxBytes: config.ATTACHMENT_MAX_BYTES,

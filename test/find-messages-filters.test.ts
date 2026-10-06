@@ -9,7 +9,9 @@ import {
   attachmentFilterOf,
   attachmentParts,
   attachmentTypes,
+  findStructurePart,
   hasSearchCriteria,
+  isMultipartNode,
   isInlinePart,
   matchesAttachmentFilter,
 } from '../src/imap/search-query.js';
@@ -298,6 +300,7 @@ describe('attachments et inline', () => {
     type: 'multipart/mixed',
     childNodes: [
       {
+        part: '1',
         type: 'multipart/related',
         childNodes: [
           { part: '1.1', type: 'text/html' },
@@ -323,9 +326,39 @@ describe('attachments et inline', () => {
 
   it('décrit chaque pièce jointe du BODYSTRUCTURE et marque les parties intégrées', () => {
     assert.deepEqual(attachmentParts(withLogo), [
-      { contentType: 'image/png', filename: 'logo.png', size: 2048, inline: true },
-      { contentType: 'application/pdf', filename: 'Facture.pdf', size: 40960, inline: false },
+      { part: '1.2', contentType: 'image/png', filename: 'logo.png', size: 2048, inline: true },
+      {
+        part: '2',
+        contentType: 'application/pdf',
+        filename: 'Facture.pdf',
+        size: 40960,
+        inline: false,
+      },
     ]);
+  });
+
+  it("numérote « 1 » le corps d'un message mono-partie (imapflow ne lui donne pas de part)", () => {
+    const single: MessageStructureObject = {
+      type: 'application/pdf',
+      disposition: 'attachment',
+      dispositionParameters: { filename: 'scan.pdf' },
+    };
+    assert.deepEqual(
+      attachmentParts(single).map((p) => p.part),
+      ['1'],
+    );
+    assert.equal(findStructurePart(single, '1'), single);
+    assert.equal(findStructurePart(single, '2'), undefined);
+  });
+
+  it('findStructurePart retrouve une partie, conteneurs compris', () => {
+    assert.equal(findStructurePart(withLogo, '1.2')?.type, 'image/png');
+    assert.equal(findStructurePart(withLogo, '2')?.type, 'application/pdf');
+    const container = findStructurePart(withLogo, '1');
+    assert.equal(container?.type, 'multipart/related');
+    assert.equal(isMultipartNode(container!), true);
+    assert.equal(findStructurePart(withLogo, '3'), undefined);
+    assert.equal(findStructurePart(undefined, '1'), undefined);
   });
 
   it('un Content-ID sans disposition vaut inline, sauf disposition attachment', () => {
@@ -342,10 +375,10 @@ describe('attachments et inline', () => {
 
     const filtered = await fetchPage(client, { hasAttachment: true }, 10);
     assert.deepEqual(
-      filtered.messages[0]?.attachments?.map((a) => [a.contentType, a.inline]),
+      filtered.messages[0]?.attachments?.map((a) => [a.part, a.contentType, a.inline]),
       [
-        ['image/png', true],
-        ['application/pdf', false],
+        ['1.2', 'image/png', true],
+        ['2', 'application/pdf', false],
       ],
     );
     assert.doesNotThrow(() => findMessagesResultSchema.parse({ messages: filtered.messages }));

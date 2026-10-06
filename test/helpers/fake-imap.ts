@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { Readable } from 'node:stream';
 import type { ImapFlow, MessageStructureObject } from 'imapflow';
 
 /**
@@ -119,6 +120,8 @@ export interface FakeStoredMessage {
   source?: Buffer;
   size?: number;
   bodyStructure?: MessageStructureObject;
+  /** Contenu DÉCODÉ de chaque partie, par numéro (« 2 », « 1.3 ») : ce que sert `download`. */
+  parts?: Record<string, Buffer>;
 }
 
 export interface FakeMessageInput extends Partial<Omit<FakeStoredMessage, 'flags'>> {
@@ -289,6 +292,8 @@ export class FakeMail extends EventEmitter {
   readonly fetches: { size: number; query: FetchQuery }[] = [];
   /** Adresses (en minuscules) que SEARCH FROM ne trouve qu'en entier, comme iCloud. */
   readonly fromBlindSpots = new Set<string>();
+  /** Appels à `download` : UID, partie, et `maxBytes` demandé. */
+  readonly downloads: { uid: number; part?: string; maxBytes?: number }[] = [];
 
   // --- Mise en place des tests --------------------------------------------
 
@@ -320,6 +325,7 @@ export class FakeMail extends EventEmitter {
       source: input.source,
       size: input.size,
       bodyStructure: input.bodyStructure,
+      parts: input.parts,
     };
     mailbox.messages.push(message);
     if (message.uid >= this.nextUid) this.nextUid = message.uid + 1;
@@ -417,6 +423,29 @@ export class FakeMail extends EventEmitter {
     const uids = this.resolve(range);
     const message = this.current().find((m) => uids.includes(m.uid));
     return message ? this.project(message, query) : false;
+  }
+
+  /**
+   * Comme imapflow : contenu décodé de la partie (ou source entière sans
+   * partie), en flux par morceaux, tronqué silencieusement à `maxBytes`.
+   * Partie ou message inconnu : objet vide.
+   */
+  async download(
+    range: SearchRange,
+    part?: string,
+    options: { uid?: boolean; maxBytes?: number } = {},
+  ): Promise<unknown> {
+    const uid = this.resolve(range)[0] ?? 0;
+    this.downloads.push({ uid, part, maxBytes: options.maxBytes });
+    const message = this.current().find((m) => m.uid === uid);
+    const content = part ? message?.parts?.[part] : message?.source;
+    if (!message || !content) return {};
+    const limited = options.maxBytes ? content.subarray(0, options.maxBytes) : content;
+    const middle = Math.ceil(limited.length / 2);
+    return {
+      meta: { contentType: part ? 'application/octet-stream' : 'message/rfc822' },
+      content: Readable.from([limited.subarray(0, middle), limited.subarray(middle)]),
+    };
   }
 
   async append(path: string, content: string | Buffer, flags?: string[]): Promise<unknown> {
