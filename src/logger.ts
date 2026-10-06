@@ -13,19 +13,32 @@ export function logStreamFd(transport: string): 1 | 2 {
   return transport === 'stdio' || transport === 'both' ? 2 : 1;
 }
 
+export const secretLogPaths = [
+  'password',
+  'pass',
+  'token',
+  'ICLOUD_APP_PASSWORD',
+  'MCP_BEARER_TOKEN',
+  'CONFIRM_SECRET',
+  'DOWNLOAD_URL_SECRET',
+  'headers.authorization',
+  'headers.cookie',
+  'req.headers.authorization',
+  'req.headers.cookie',
+  '*.password',
+  '*.pass',
+  '*.ICLOUD_APP_PASSWORD',
+  '*.token',
+  '*.CONFIRM_SECRET',
+  '*.DOWNLOAD_URL_SECRET',
+];
+
 export const logger = pino(
   {
     level: config.LOG_LEVEL,
     timestamp: pino.stdTimeFunctions.isoTime,
     redact: {
-      paths: [
-        '*.password',
-        '*.pass',
-        '*.ICLOUD_APP_PASSWORD',
-        '*.token',
-        '*.CONFIRM_SECRET',
-        '*.DOWNLOAD_URL_SECRET',
-      ],
+      paths: secretLogPaths,
       censor: '[redacted]',
     },
   },

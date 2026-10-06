@@ -421,7 +421,7 @@ describe('plafond ATTACHMENT_MAX_BYTES (cumul)', () => {
         deps(),
       ),
       AttachmentTooLargeError,
-      /1200 octets au total à attachments\[1\].*limite de 1000 octets/,
+      /attachments\[1\].*base64.*400 octets disponibles/,
     );
   });
 

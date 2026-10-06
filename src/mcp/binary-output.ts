@@ -98,9 +98,19 @@ export type BinaryPayload =
  * Calcule la forme d'un contenu. Le format `url` doit avoir été validé avant
  * (`checkBinaryFormat`) : sans `publicBaseUrl`, l'appel lève.
  */
-export function binaryPayload(file: BinaryContent, options: BinaryOutputOptions): BinaryPayload {
+export interface BinaryMetadata {
+  filename: string;
+  contentType: string;
+  size: number;
+  content?: undefined;
+}
+
+export function binaryPayload(
+  file: BinaryContent | BinaryMetadata,
+  options: BinaryOutputOptions,
+): BinaryPayload {
   const { format } = options;
-  const size = file.content.length;
+  const size = file.content?.length ?? ('size' in file ? file.size : 0);
 
   if (format === 'url') {
     if (!options.publicBaseUrl) throw new Error(URL_FORMAT_UNAVAILABLE);
@@ -117,6 +127,7 @@ export function binaryPayload(file: BinaryContent, options: BinaryOutputOptions)
     };
   }
 
+  if (!file.content) throw new Error('Inline binary output requires content');
   const contentBase64 = file.content.toString('base64');
   if (format === 'auto' && isImageMimeType(file.contentType)) {
     return { type: 'image', data: contentBase64, mimeType: file.contentType };
@@ -128,7 +139,10 @@ export function binaryPayload(file: BinaryContent, options: BinaryOutputOptions)
   };
 }
 
-export function binaryOutput(file: BinaryContent, options: BinaryOutputOptions): CallToolResult {
+export function binaryOutput(
+  file: BinaryContent | BinaryMetadata,
+  options: BinaryOutputOptions,
+): CallToolResult {
   const refused = checkBinaryFormat(options.format, options.publicBaseUrl);
   if (refused) return refused;
 

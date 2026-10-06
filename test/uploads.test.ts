@@ -115,3 +115,39 @@ describe('assainissement des dépôts', () => {
     assert.equal(normalizeUploadContentType(undefined), undefined);
   });
 });
+
+it('reserves in-flight bytes and slots atomically and releases failed uploads', () => {
+  const store = createUploadStore({ maxFiles: 2, maxTotalBytes: 10 });
+  const reservation = store.reserve('a', 8);
+  assert.equal(store.available(), 2);
+  assert.throws(() => store.reserve('b', 3), UploadStoreFullError);
+  reservation.release();
+  assert.equal(store.available(), 10);
+  const next = store.reserve('b', 10);
+  next.commit({ uploadId: 'b', content: Buffer.alloc(6) });
+  assert.equal(store.available(), 4);
+  assert.equal(store.stats().bytes, 6);
+});
+it('leases uploaded files exclusively until composition releases or consumes them', () => {
+  const store = createUploadStore({ maxFiles: 2, maxTotalBytes: 10 });
+  store.put({ uploadId: 'a', content: Buffer.alloc(6) });
+  const claim = store.claim(['a']);
+  assert.throws(() => store.claim(['a']), /indisponible/);
+  claim.release();
+  store.claim(['a']).consume();
+  assert.equal(store.get('a'), undefined);
+  assert.equal(store.stats().bytes, 0);
+});
+
+it('keeps leased uploads within the byte budget until composition finishes', () => {
+  let now = 0;
+  const store = createUploadStore({ maxFiles: 1, maxTotalBytes: 6, ttlMs: 1, now: () => now });
+  store.put({ uploadId: 'a', content: Buffer.alloc(6) });
+  const claim = store.claim(['a']);
+  now = 2;
+  store.sweep();
+  assert.equal(store.available(), 0);
+  claim.release();
+  store.sweep();
+  assert.equal(store.available(), 6);
+});

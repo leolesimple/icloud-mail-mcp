@@ -5,7 +5,6 @@ import type { ComposeAttachment } from './compose.js';
 import { SmtpMessageError } from './errors.js';
 import { checkSendAllowed } from './guards.js';
 import type { GuardContext, GuardMessage } from './guards.js';
-import { sendQuota } from './quota.js';
 import { config } from '../config.js';
 import { getMessage, getMessageSource } from '../imap/messages.js';
 import { markAnswered } from '../imap/answered.js';
@@ -74,7 +73,10 @@ export async function resolveSendOutcome(
 
   if (decision.action === 'draft') {
     const draft = await actions.draft();
-    log.info({ folder: draft.folder, uid: draft.uid }, 'DRAFTS_ONLY: message saved to Drafts, not sent');
+    log.info(
+      { folder: draft.folder, uid: draft.uid },
+      'DRAFTS_ONLY: message saved to Drafts, not sent',
+    );
     return { sent: false, draft: { folder: draft.folder, uid: draft.uid }, reason: 'DRAFTS_ONLY' };
   }
 
@@ -88,7 +90,6 @@ export async function resolveSendOutcome(
   }
 
   const result = await actions.send();
-  sendQuota.record();
   return {
     sent: true,
     messageId: result.messageId,

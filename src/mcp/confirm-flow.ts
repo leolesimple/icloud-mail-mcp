@@ -1,3 +1,8 @@
+import { createHash } from 'node:crypto';
+import { imapPool } from '../imap/pool.js';
+import { downloadMessageOn } from '../imap/messages.js';
+import { config } from '../config.js';
+import { findSpecialFolder } from '../imap/special-folders.js';
 import type {
   CallToolResult,
   ClientCapabilities,
@@ -134,4 +139,87 @@ export function confirmationResult(
     content: [{ type: 'text', text: JSON.stringify(data, null, 2) }],
     structuredContent: data,
   };
+}
+
+/** Wrap a tool action so its first invocation can never mutate anything.
+ * The token binds the entire request except confirmToken. */
+export async function confirmToolAction(
+  host: ElicitationHost,
+  operation: string,
+  input: Record<string, unknown>,
+  execute: () => Promise<CallToolResult>,
+): Promise<CallToolResult> {
+  const { confirmToken, ...params } = input;
+  const folder =
+    typeof params.path === 'string'
+      ? params.path
+      : typeof params.folder === 'string'
+        ? params.folder
+        : operation === 'send_draft'
+          ? 'Drafts'
+          : typeof params.uid === 'number' &&
+              ['compose_message', 'reply_message', 'forward_message'].includes(operation)
+            ? 'INBOX'
+            : undefined;
+  const binding =
+    folder === undefined
+      ? { params }
+      : await imapPool.withConnection(async (client) => {
+          const path =
+            operation === 'send_draft'
+              ? ((await findSpecialFolder(client, '\\Drafts')) ?? 'Drafts')
+              : folder;
+          const lock = await client.getMailboxLock(path, { readOnly: true });
+          try {
+            const uidValidity = client.mailbox ? client.mailbox.uidValidity : undefined;
+            let sourceHash: string | undefined;
+            if (
+              ['send_draft', 'compose_message', 'reply_message', 'forward_message'].includes(
+                operation,
+              ) &&
+              typeof params.uid === 'number'
+            ) {
+              const source = await client.fetchOne(params.uid, { size: true }, { uid: true });
+              if (!source) throw new Error('Message introuvable.');
+              const raw = await downloadMessageOn(
+                client,
+                path,
+                params.uid,
+                config.MAX_MESSAGE_BYTES,
+                source.size,
+              );
+              sourceHash = createHash('sha256').update(raw).digest('hex');
+            }
+            return { folder: path, uidValidity, params: { ...params, sourceHash } };
+          } finally {
+            lock.release();
+          }
+        });
+  const target =
+    typeof params.path === 'string'
+      ? params.path
+      : typeof params.folder === 'string'
+        ? params.folder
+        : 'message demandé';
+  const recipients = [params.to, params.cc, params.bcc].flatMap((list) =>
+    Array.isArray(list) ? list.filter((v): v is string => typeof v === 'string') : [],
+  );
+  const details = [
+    target,
+    ...(recipients.length ? [`destinataires : ${recipients.join(', ')}`] : []),
+    ...(typeof params.subject === 'string' ? [`sujet : ${params.subject}`] : []),
+    ...(typeof params.uid === 'number' ? [`UID ${params.uid}`] : []),
+    ...(Array.isArray(params.uids)
+      ? [`${params.uids.length} messages (UID : ${params.uids.join(', ')})`]
+      : []),
+  ].join(' — ');
+  const outcome = await runConfirmFlow({
+    host,
+    operation,
+    binding,
+    summary: `${operation} — ${details}`,
+    confirmToken: typeof confirmToken === 'string' ? confirmToken : undefined,
+    execute,
+  });
+  return outcome.status === 'executed' ? outcome.result : confirmationResult(outcome);
 }

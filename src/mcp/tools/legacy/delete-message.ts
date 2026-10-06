@@ -1,3 +1,4 @@
+import { confirmToolAction } from '../../confirm-flow.js';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { deleteMessage, deleteMessages, BULK_UID_LIMIT } from '../../../imap/mutations.js';
@@ -17,26 +18,31 @@ export function registerDeleteMessageTool(server: McpServer): void {
         'Trash, or permanently expunges them (flag \\Deleted + EXPUNGE) if they are already in Trash. The ' +
         'move/expunge runs as a single IMAP command. Exactly one of uid / uids is required.',
       inputSchema: {
+        confirmToken: z.string().optional().describe('Token from the first confirmation request'),
         folder: z.string().min(1),
         uid: z.coerce.number().int().positive().optional(),
         uids: z.array(z.coerce.number().int().positive()).min(1).max(BULK_UID_LIMIT).optional(),
       },
-      outputSchema: deleteResultSchema.shape,
     },
-    async ({ folder, uid, uids }) => {
+    async (input) => {
+      const { folder, uid, uids } = input;
+
       if ((uid === undefined) === (uids === undefined)) {
         return errorResult(
           'Fournir exactement un de "uid" (un message) ou "uids" (jusqu\'à 200 messages).',
         );
       }
 
-      if (uids) {
-        log.info({ folder, count: uids.length }, 'deleting messages (bulk)');
-        return jsonResult(await deleteMessages(folder, uids), deleteResultSchema);
-      }
+      const execute = async () => {
+        if (uids) {
+          log.info({ folder, count: uids.length }, 'deleting messages (bulk)');
+          return jsonResult(await deleteMessages(folder, uids), deleteResultSchema);
+        }
 
-      log.info({ folder, uid }, 'deleting message');
-      return jsonResult(await deleteMessage(folder, uid as number), deleteResultSchema);
+        log.info({ folder, uid }, 'deleting message');
+        return jsonResult(await deleteMessage(folder, uid as number), deleteResultSchema);
+      };
+      return confirmToolAction(server.server, 'delete_message', input, execute);
     },
   );
 }

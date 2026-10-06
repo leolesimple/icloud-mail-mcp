@@ -17,7 +17,13 @@ describe('decodeInboundAttachments', () => {
   it('décode le base64 en Buffer en conservant le contenu', () => {
     const content = Buffer.from('bonjour le monde', 'utf8');
     const [decoded] = decodeInboundAttachments(
-      [{ filename: 'note.txt', contentType: 'text/plain', contentBase64: content.toString('base64') }],
+      [
+        {
+          filename: 'note.txt',
+          contentType: 'text/plain',
+          contentBase64: content.toString('base64'),
+        },
+      ],
       LIMIT,
     );
     assert.ok(decoded);
@@ -91,5 +97,22 @@ describe('isImageMimeType', () => {
     assert.equal(isImageMimeType('application/pdf'), false);
     assert.equal(isImageMimeType('text/html'), false);
     assert.equal(isImageMimeType(undefined), false);
+  });
+});
+
+describe('base64 allocation preflight', () => {
+  it('checks the cumulative limit before any decoding allocation', () => {
+    assert.throws(
+      () =>
+        decodeInboundAttachments(
+          [{ filename: 'large.bin', contentBase64: 'QUFB'.repeat(100) }],
+          10,
+        ),
+      /300 octets au total/,
+    );
+  });
+  it('accepts whitespace without overestimating decoded size', () => {
+    const result = decodeInboundAttachments([{ filename: 'a.txt', contentBase64: 'Y Q = =\n' }], 1);
+    assert.equal(result[0]!.content.toString(), 'a');
   });
 });

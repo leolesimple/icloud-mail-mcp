@@ -1,0 +1,8 @@
+{
+  "name": "@semantic-release/npm",
+  "version": "13.2.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "description": "Project-local version-only replacement; not the upstream npm publishing plugin"
+}

@@ -1,3 +1,4 @@
+import { confirmToolAction } from '../confirm-flow.js';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { listFolders, manageFolder } from '../../imap/folders.js';
@@ -20,6 +21,7 @@ export function registerManageFoldersTool(server: McpServer): void {
         'folder with everything in it. Renaming or deleting a system folder (INBOX, Sent, Trash, Drafts, ' +
         'Archive, Junk) is refused.',
       inputSchema: {
+        confirmToken: z.string().optional().describe('Token from the first confirmation request'),
         action: z.enum(['list', 'create', 'rename', 'delete']).default('list'),
         path: z
           .string()
@@ -38,7 +40,6 @@ export function registerManageFoldersTool(server: McpServer): void {
           .default(false)
           .describe('list: wrap the text block as { folders } instead of a bare array'),
       },
-      outputSchema: manageFoldersResultSchema.shape,
       annotations: {
         readOnlyHint: false,
         destructiveHint: true,
@@ -46,7 +47,9 @@ export function registerManageFoldersTool(server: McpServer): void {
         openWorldHint: false,
       },
     },
-    async ({ action, path, newPath, includeStatus, envelope }) => {
+    async (input) => {
+      const { action, path, newPath, includeStatus, envelope } = input;
+
       if (action === 'list') {
         if (path !== undefined || newPath !== undefined) {
           return errorResult('L\'action "list" ne prend ni "path" ni "newPath".');
@@ -65,8 +68,13 @@ export function registerManageFoldersTool(server: McpServer): void {
         return errorResult('"newPath" ne s\'utilise qu\'avec l\'action "rename".');
       }
 
-      log.info({ action, path, newPath }, 'managing folder');
-      return jsonResult(await manageFolder(action, path, newPath), manageFoldersResultSchema);
+      const execute = async () => {
+        log.info({ action, path, newPath }, 'managing folder');
+        return jsonResult(await manageFolder(action, path, newPath), manageFoldersResultSchema);
+      };
+      return input.action === 'delete'
+        ? confirmToolAction(server.server, 'manage_folders', input, execute)
+        : execute();
     },
   );
 }

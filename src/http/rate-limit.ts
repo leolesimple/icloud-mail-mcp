@@ -24,6 +24,7 @@ export class SlidingWindowRateLimiter {
     private readonly limit: number,
     private readonly windowMs = 60_000,
     private readonly clock: Clock = systemClock,
+    private readonly maxKeys = 10_000,
   ) {}
 
   /**
@@ -31,6 +32,10 @@ export class SlidingWindowRateLimiter {
    * Une requête refusée n'est pas comptée (elle ne repousse pas la fenêtre).
    */
   allow(key: string): boolean {
+    if (!this.hits.has(key) && this.hits.size >= this.maxKeys) {
+      this.sweep();
+      if (this.hits.size >= this.maxKeys) return false;
+    }
     const now = this.clock.now();
     const cutoff = now - this.windowMs;
     const recent = (this.hits.get(key) ?? []).filter((t) => t > cutoff);

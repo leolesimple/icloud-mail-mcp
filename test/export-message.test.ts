@@ -83,3 +83,23 @@ describe('exportMessage', () => {
     );
   });
 });
+
+describe('export links use metadata', () => {
+  it('issues URL without reading the source and defers bytes to download', async () => {
+    let read = false;
+    const result = await exportMessage(
+      'INBOX',
+      42,
+      options({
+        format: 'url',
+        fetchMessageMetadata: async () => ({ size: EML.length }),
+        fetchMessageSource: async () => {
+          read = true;
+          throw new Error('must not download');
+        },
+      }),
+    );
+    assert.equal(read, false);
+    assert.equal(textJson(result).size, EML.length);
+  });
+});

@@ -6,9 +6,8 @@ Serveur [MCP](https://modelcontextprotocol.io) qui expose un compte **iCloud Mai
 forme d'outils utilisables par Claude : lire, chercher, trier, répondre et archiver des mails depuis
 une conversation.
 
-Il tourne chez vous, en Docker, derrière un Cloudflare Tunnel et un bearer token. Aucune donnée ne
-transite par un service tiers : Claude parle directement à votre instance, qui parle directement à
-iCloud.
+Il tourne chez vous, en Docker, derrière un Cloudflare Tunnel et un bearer token. Les données renvoyées sont accessibles au client IA et à son fournisseur. Avec le tunnel,
+Cloudflare relaie aussi le trafic HTTPS ; iCloud héberge la boîte. L’instance MCP reste hébergée chez vous.
 
 ```
 Claude  ──HTTPS+Bearer──▶  Cloudflare Tunnel  ──▶  icloud-mail-mcp  ──IMAP/SMTP+TLS──▶  iCloud
@@ -38,24 +37,24 @@ Claude  ──HTTPS+Bearer──▶  Cloudflare Tunnel  ──▶  icloud-mail-m
 
 Dix outils MCP organisés par intention, décrits en détail dans [`docs/tools.md`](docs/tools.md) :
 
-| Outil | Ce qu'il fait |
-|---|---|
-| `inbox_overview` | Vue d'ensemble à appeler en premier : compte, non lus et derniers mails de l'INBOX, compteurs par dossier, garde-fous actifs — jamais de secret |
-| `find_messages` | Liste un dossier ou y cherche côté serveur IMAP : sujet, corps, expéditeur, destinataire, dates, non lus, favoris, sur un ou plusieurs dossiers ; pagination par curseur |
-| `read_message` | Contenu complet d'un message (corps tronqué à la demande, métadonnées des pièces jointes), et en option son fil de discussion |
-| `get_attachment` | Contenu binaire d'une pièce jointe, ciblée par son index |
-| `get_attachments` | Jusqu'à 25 pièces jointes en un appel, chaque message n'étant téléchargé qu'une fois ; un élément en échec ne fait pas échouer le lot |
-| `export_message` | Message brut au format EML (`message/rfc822`), en base64 ou par lien signé |
-| `compose_message` | Nouveau message, réponse (à tous), transfert, envoyé ou enregistré en brouillon, avec threading correct et pièces jointes |
-| `send_draft` | Envoie un brouillon existant, puis le retire de Drafts |
-| `organize_messages` | Déplace, met à la corbeille, marque lu / non lu, favori, répondu, indésirable — jusqu'à 200 messages en une commande IMAP |
-| `manage_folders` | Liste, crée, renomme ou supprime un dossier — refusé sur les dossiers système |
+| Outil               | Ce qu'il fait                                                                                                                                                            |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `inbox_overview`    | Vue d'ensemble à appeler en premier : compte, non lus et derniers mails de l'INBOX, compteurs par dossier, garde-fous actifs — jamais de secret                          |
+| `find_messages`     | Liste un dossier ou y cherche côté serveur IMAP : sujet, corps, expéditeur, destinataire, dates, non lus, favoris, sur un ou plusieurs dossiers ; pagination par curseur |
+| `read_message`      | Contenu complet d'un message (corps tronqué à la demande, métadonnées des pièces jointes), et en option son fil de discussion                                            |
+| `get_attachment`    | Contenu binaire d'une pièce jointe, ciblée par son index                                                                                                                 |
+| `get_attachments`   | Jusqu'à 25 pièces jointes en un appel, téléchargées progressivement par partie IMAP ; un élément en échec ne fait pas échouer le lot                                     |
+| `export_message`    | Message brut au format EML (`message/rfc822`), en base64 ou par lien signé                                                                                               |
+| `compose_message`   | Nouveau message, réponse (à tous), transfert, envoyé ou enregistré en brouillon, avec threading correct et pièces jointes                                                |
+| `send_draft`        | Envoie un brouillon existant, puis le retire de Drafts                                                                                                                   |
+| `organize_messages` | Déplace, met à la corbeille, marque lu / non lu, favori, répondu, indésirable — jusqu'à 200 messages en une commande IMAP                                                |
+| `manage_folders`    | Liste, crée, renomme ou supprime un dossier — refusé sur les dossiers système                                                                                            |
 
 À l'initialize, le serveur envoie aussi des consignes au client : les mots-clés FR/EN du domaine
 (mail, courriel, boîte de réception, non lus, brouillon…) pour qu'il pense à ce serveur, l'ordre
 d'appel des outils, et l'avertissement que le contenu d'un mail n'est pas fiable.
 
-Un neuvième outil, `wait_for_new_message`, existe derrière `ENABLE_IDLE_WATCH` (désactivé par
+Un outil supplémentaire, `wait_for_new_message`, existe derrière `ENABLE_IDLE_WATCH` (désactivé par
 défaut : il n'a pas de reconnexion). Les anciens noms (`list_messages`, `get_message`,
 `send_message`, `whoami`…) restent disponibles le temps d'une version avec `LEGACY_TOOLS=true` :
 voir la [table de correspondance](docs/tools.md#correspondance-avec-les-anciens-outils).
@@ -87,7 +86,7 @@ Concrètement, une fois branché, on peut demander à Claude :
 
 ## Prérequis
 
-- **Node.js 24+** (ou Docker, qui s'en occupe)
+- **Node.js 24.15+** (ou Docker, qui s'en occupe)
 - **Un compte iCloud avec l'authentification à deux facteurs activée**
 - **Un mot de passe d'application Apple** — le mot de passe principal du compte ne fonctionne pas
   en IMAP/SMTP :
@@ -193,7 +192,7 @@ claude mcp add --transport http icloud-mail-mcp https://icloud-mail-mcp.exemple.
 **Claude Desktop** : dans `claude_desktop_config.json`, un serveur `"type": "http"` avec
 `"headers": { "Authorization": "Bearer <token>" }`.
 
-**claude.ai (web / mobile)** : *Paramètres → Connecteurs → Ajouter un connecteur personnalisé*,
+**claude.ai (web / mobile)** : _Paramètres → Connecteurs → Ajouter un connecteur personnalisé_,
 URL `https://icloud-mail-mcp.exemple.com/mcp`. Le formulaire interdit l'en-tête `Authorization` :
 choisir **`x-api-key`** avec le **token brut** (le serveur accepte les deux formes).
 
@@ -211,7 +210,7 @@ Ce serveur peut lire, déplacer, supprimer et envoyer des mails. Les points à n
   `git add -A` sur un fork.
 - **Le mot de passe d'application Apple donne accès à toute la boîte mail.** Il se révoque en un
   clic sur appleid.apple.com si le serveur est compromis.
-- **Commencez avec `ENABLE_SENDING=false`.** Vous rallumerez l'envoi quand vous aurez vu comment
+- **L'envoi est désactivé par défaut (`ENABLE_SENDING=false`).** Vous rallumerez l'envoi quand vous aurez vu comment
   Claude se comporte sur votre boîte.
 - **Le healthcheck `/health` n'est pas authentifié** — il ne révèle que le statut et la version
   du serveur (`{"status":"ok","version":"…"}`), aucune configuration ni secret.
@@ -225,6 +224,8 @@ Détail complet dans [`docs/security.md`](docs/security.md).
 - **Pièces jointes plafonnées à `ATTACHMENT_MAX_BYTES` (5 Mo par défaut).** `get_attachment`
   récupère le binaire d'une pièce jointe et `compose_message` permet d'en joindre, mais au-delà de cette limite (cumul compris) l'outil refuse
   explicitement plutôt que de tronquer.
+- **Source MIME plafonnée à `MAX_MESSAGE_BYTES` (25 Mio par défaut).** Les lectures sont coupées pendant le téléchargement, y compris si le serveur annonce une taille incorrecte. Le corps des resources est également tronqué.
+- **Confirmation serveur avant envoi, corbeille et suppression de dossier.** Sans elicitation MCP, le jeton exige un second appel mais ne prouve pas un accord humain. `compose_message` prépare un brouillon par défaut.
 - **iCloud uniquement en pratique.** Le code est du IMAP/SMTP standard et les hôtes sont
   configurables, mais rien d'autre n'est testé.
 
@@ -232,15 +233,15 @@ Détail complet dans [`docs/security.md`](docs/security.md).
 
 ## Documentation
 
-| Document | Contenu |
-|---|---|
-| [`docs/tools.md`](docs/tools.md) | Référence des dix-sept outils : paramètres, retours, exemples |
-| [`docs/configuration.md`](docs/configuration.md) | Toutes les variables d'environnement |
-| [`docs/deployment.md`](docs/deployment.md) | Docker, Cloudflare Tunnel, branchement des clients MCP |
-| [`docs/architecture.md`](docs/architecture.md) | Découpage en couches, pool IMAP, gestion des erreurs et des sessions |
-| [`docs/security.md`](docs/security.md) | Modèle de menace et bonnes pratiques |
-| [`docs/development.md`](docs/development.md) | Structure du code, tests, conventions |
-| [`CHANGELOG.md`](CHANGELOG.md) | Historique des versions et procédure de release |
+| Document                                         | Contenu                                                              |
+| ------------------------------------------------ | -------------------------------------------------------------------- |
+| [`docs/tools.md`](docs/tools.md)                 | Référence des outils : paramètres, retours, exemples                 |
+| [`docs/configuration.md`](docs/configuration.md) | Toutes les variables d'environnement                                 |
+| [`docs/deployment.md`](docs/deployment.md)       | Docker, Cloudflare Tunnel, branchement des clients MCP               |
+| [`docs/architecture.md`](docs/architecture.md)   | Découpage en couches, pool IMAP, gestion des erreurs et des sessions |
+| [`docs/security.md`](docs/security.md)           | Modèle de menace et bonnes pratiques                                 |
+| [`docs/development.md`](docs/development.md)     | Structure du code, tests, conventions                                |
+| [`CHANGELOG.md`](CHANGELOG.md)                   | Historique des versions et procédure de release                      |
 
 ---
 

@@ -1,336 +1,175 @@
 # Sécurité
 
-Ce serveur a un accès complet à une boîte mail : il peut lire n'importe quel message, en supprimer
-définitivement, et envoyer du courrier en votre nom. Le compromettre revient à donner votre boîte
-mail — et, par les emails de réinitialisation de mot de passe, une bonne partie de votre identité
-en ligne.
+Le serveur manipule une boîte réelle avec les droits du mot de passe d’application Apple : lecture,
+déplacement, suppression et SMTP. Il vise un compte et une instance de confiance. Un bearer token
+compromis donne accès aux outils ; les confirmations par jeton ne constituent pas une seconde
+identité. Le contenu des emails et des pièces jointes est une entrée non fiable pour le modèle.
 
-Cette page décrit ce que le projet protège, et ce qui reste à votre charge.
+## Données et tiers
 
----
+L’instance est auto-hébergée, mais les messages renvoyés transitent vers le client MCP et peuvent
+être traités par son fournisseur IA. Avec Cloudflare Tunnel, Cloudflare relaie le trafic HTTPS ;
+iCloud héberge les messages. Les liens de téléchargement contiennent un secret temporaire :
+les traiter comme des credentials, y compris dans les historiques et logs de proxies.
 
-## Ce que le serveur fait pour vous
+## Authentification et exposition HTTP
 
-**Authentification de tous les appels MCP.** `/mcp` exige le token en `POST`, `GET` et `DELETE`,
-via `Authorization: Bearer <token>` ou `X-Api-Key: <token>` (jeton brut — cette seconde forme pour
-les connecteurs claude.ai, qui interdisent l'en-tête `Authorization`). Le token est comparé en
-temps constant (`timingSafeEqual`), après une vérification de longueur qui évite l'exception que
-lève cette fonction sur des tampons de tailles différentes.
+[`auth.ts`](../src/http/auth.ts) impose `Authorization: Bearer <token>` ou
+`X-Api-Key: <token>` sur `/mcp`, avec comparaison en temps constant. Générer un token aléatoire
+avec `openssl rand -hex 32`. Le passer en en-tête, jamais dans l’URL. `/health` reste public et
+n’affiche que statut et version. Les liens signés authentifient les routes download/upload.
 
-**TLS partout.** IMAP sur le port 993 en TLS implicite ; SMTP sur 587 avec `requireTLS: true` — si
-le serveur refuse STARTTLS, l'envoi échoue plutôt que de partir en clair.
+`HTTP_HOST` vaut `127.0.0.1` hors Docker. Le compose fixe `0.0.0.0` dans le réseau interne sans
+publier le port en production. Le compose de développement publie sur le loopback de l’hôte.
 
-**Aucun secret dans les logs.** pino expurge les champs `password`, `pass`, `ICLOUD_APP_PASSWORD` et
-`token`. Le contenu des messages n'est jamais loggé : seulement des métadonnées (dossier, UID,
-nombre de résultats).
+Host et Origin sont validés : `HTTP_ALLOWED_HOSTS` autorise les hôtes locaux par défaut et le
+hostname de `PUBLIC_BASE_URL` ; `HTTP_ALLOWED_ORIGINS` ajoute son origine et peut autoriser des
+origines exactes supplémentaires. Les clients natifs sans en-tête Origin restent acceptés.
 
-**Aucun secret dans l'image Docker.** `.env` est dans `.dockerignore` et injecté à l'exécution.
+Le rate limit est appliqué avant l’authentification et reste actif avec `UNRESTRICTED=true`.
+L’adresse vient de la socket ou de `X-Forwarded-For` via les seuls proxies déclarés dans
+`TRUSTED_PROXIES`. `CF-Connecting-IP` est ignoré. Ne déclarer que les IP/CIDR de proxies dont vous
+contrôlez le nettoyage des en-têtes. Sans cette configuration, plusieurs clients derrière le tunnel
+partagent le budget de son adresse socket : c’est un choix de sécurité, pas un contournement.
 
-**Le conteneur tourne en utilisateur non-root** (`USER node`), sans port publié sur l'hôte dans la
-configuration de référence.
+`HTTP_MAX_CONCURRENT_REQUESTS`, `HTTP_BODY_MAX_BYTES`, `MAX_SESSIONS` et `SESSION_TTL_MS` bornent
+les requêtes actives, JSON entrants, sessions et leur inactivité. La file du pool IMAP est limitée
+par `IMAP_MAX_WAITERS` et son temps d’attente par `IMAP_ACQUIRE_TIMEOUT_MS`.
 
-**Des garde-fous d'envoi gradués.** Voir la section dédiée plus bas. Le point clé : ils sont
-appliqués **au niveau du transport** ([`src/smtp/client.ts`](../src/smtp/client.ts)), pas seulement
-dans l'orchestration — même un appel qui contournerait `src/smtp/send.ts` ne peut pas émettre. C'est
-verrouillé par des tests.
+## Les garde-fous d’envoi
 
-**Un rate limit sur `/mcp`.** Fenêtre glissante par IP, `429` au-delà de `RATE_LIMIT_PER_MINUTE`,
-placé avant l'authentification pour amortir un brute-force de token. `/health` n'est pas limité.
-Derrière le tunnel, l'IP retenue est celle de l'en-tête `CF-Connecting-IP` (posée par `cloudflared`,
-non usurpable par le client), pas l'IP du conteneur `cloudflared` — sans quoi tout le trafic
-partagerait un seul seau.
+L’envoi est désactivé par défaut (`ENABLE_SENDING=false`) et `compose_message` prépare un
+brouillon (`deliver: "draft"`) sans SMTP. Une demande `deliver: "send"` est explicite.
 
-**Un TTL sur les sessions MCP.** Une session abandonnée sans `DELETE` est évincée après
-`SESSION_TTL_MS` d'inactivité et son transport fermé — la `Map` de sessions ne fuit plus.
+| Protection             | Effet                                                                                |
+| ---------------------- | ------------------------------------------------------------------------------------ |
+| `ENABLE_SENDING=false` | Bloque la transmission SMTP ; la préparation explicite de brouillons reste possible. |
+| `DRAFTS_ONLY=true`     | Convertit les demandes d’envoi en brouillon.                                         |
+| `ALLOWED_RECIPIENTS`   | Refuse tout destinataire to/cc/bcc hors liste d’adresses ou domaines exacts.         |
+| `MAX_SENDS_PER_DAY`    | Réservation atomique avant SMTP : les appels simultanés ne dépassent pas la limite.  |
+| Confirmation           | Premier appel sans effet, ou formulaire d’elicitation selon le client.               |
 
-**Pas de suppression définitive par surprise.** `organize_messages` (`action: "trash"`) déplace
-vers la corbeille ; il ne détruit un message que s'il s'y trouve déjà.
+Les garde-fous SMTP sont également appliqués au niveau du transport
+([`client.ts`](../src/smtp/client.ts)). `UNRESTRICTED=true` contourne les interrupteurs d’envoi,
+la liste de destinataires et le quota ; il ne contourne pas les confirmations, l’authentification,
+Host/Origin, le débit HTTP ni les limites de ressources. L’activer donne donc un pouvoir SMTP
+très large. Les booléens vides ou inconnus sont refusés au démarrage.
 
----
-
-## Les garde-fous d'envoi
-
-`ENABLE_SENDING` seul est binaire : à `false` tout échoue et la rédaction est perdue, à `true` un
-agent peut écrire à n'importe qui, en boucle. Les garde-fous gradués
-([`src/smtp/guards.ts`](../src/smtp/guards.ts)) couvrent l'espace entre les deux. Ils sont évalués
-dans un ordre strict pour `compose_message` (`deliver: "send"`) et `send_draft` :
-
-| # | Garde-fou | Menace couverte | Ce qui se passe |
-|---|---|---|---|
-| 1 | `UNRESTRICTED=true` | *(aucune — c'est l'inverse)* | Court-circuite les garde-fous 2 à 5. Chaque envoi est loggué en `warn`. |
-| 2 | `ENABLE_SENDING=false` | Envoi non désiré, tous cas confondus | Refus. Aucun message transmis. |
-| 3 | `DRAFTS_ONLY=true` | Envoi automatique sans relecture humaine | Le message est composé et déposé dans `Drafts`. **Succès** (`sent: false`, `reason: "DRAFTS_ONLY"`) : la rédaction est conservée, l'appelant sait que rien n'est parti. |
-| 4 | `ALLOWED_RECIPIENTS` | Exfiltration : un agent (souvent via une injection de prompt dans un mail lu) envoie vos données à une adresse tierce | Refus si un destinataire `to`/`cc`/`bcc` est hors liste. Le refus **nomme** les adresses fautives. |
-| 5 | `MAX_SENDS_PER_DAY` | Boucle d'envoi d'un agent qui déraille ; usage de la boîte comme relais de spam | Refus au-delà de N envois sur 24 h glissantes. Compteur persisté si `QUOTA_STATE_PATH` est défini (c'est le cas dans `docker-compose.yml`), sinon en mémoire et remis à zéro au redémarrage. |
-
-Aucun de ces garde-fous n'empêche une injection de prompt : ils **bornent les dégâts** quand elle
-réussit. Le pire cas avec `DRAFTS_ONLY=true` ou `ALLOWED_RECIPIENTS` restrictif se limite à un
-brouillon ou un envoi vers un correspondant déjà approuvé.
-
-### Ce que `UNRESTRICTED` désactive — et ce qu'il ne touche jamais
-
-`UNRESTRICTED=true` est un mode de test : il lève les garde-fous d'envoi 2 à 5 **et** le rate limit
-HTTP. Il ne désactive **jamais** :
-
-- l'**authentification bearer** sur `/mcp` ([`src/http/auth.ts`](../src/http/auth.ts)) ;
-- le **TTL des sessions**.
-
-Cette frontière est explicite dans le code (`src/http/server.ts` teste `config.UNRESTRICTED` dans le
-seul middleware de rate limit, jamais autour de l'auth). Un serveur mail joignable sans token n'est
-pas un mode de test : c'est un incident. À n'utiliser que sur une instance jetable, jamais exposée.
-
----
+Un quota est local à une instance. Sa persistance via `QUOTA_STATE_PATH` survit aux redémarrages,
+mais ne fournit pas de coordination entre processus. Un refus SMTP explicite libère la place ; un
+envoi accepté ou incertain la conserve. Le quota limite la quantité, pas la sensibilité des données.
 
 ## Confirmation des opérations destructives
 
-Les opérations irréversibles (vidage de la corbeille ou des indésirables, suppression définitive,
-envoi en mode confirmé) s'appuient sur un mécanisme de confirmation commun
-([`src/confirm.ts`](../src/confirm.ts), [`src/mcp/confirm-flow.ts`](../src/mcp/confirm-flow.ts)).
-Il est branché sur les outils au fil des lots qui les introduisent.
+Les outils actuels et leurs équivalents historiques demandent une confirmation avant envoi,
+action `trash` et suppression de dossier. Le premier appel n’exécute pas l’opération.
 
-**Menace couverte.** Un contenu de mail (injection de prompt) ou un agent qui enchaîne les appels ne
-peut pas déclencher seul une opération destructive en un appel. Il faut :
+- Si le client supporte l’elicitation par formulaire, une acceptation explicite `confirm: true`
+  autorise l’opération. Refus et annulation n’entraînent aucune mutation.
+- Sinon, le serveur renvoie `confirmation_required` avec un jeton. Le client répète le même appel
+  avec ce jeton ; changer les paramètres invalide la confirmation.
 
-- soit **l'accord explicite de l'utilisateur**, demandé par le serveur via l'*elicitation* MCP
-  quand le client la supporte : formulaire avec une case à cocher, affiché par le client hors du
-  contrôle du modèle. Un refus ou une annulation renvoie un résultat non-erreur (`declined` /
-  `cancelled`) : rien n'est fait, et le modèle n'est pas incité à réessayer ;
-- soit, à défaut, **un aller-retour avec jeton** : le premier appel n'exécute rien et renvoie un
-  jeton avec un résumé de l'opération ; seul le même appel, refait avec ce jeton, l'exécute.
+Le mécanisme ([`confirm.ts`](../src/confirm.ts), [`confirm-flow.ts`](../src/mcp/confirm-flow.ts))
+lie les paramètres, les octets résolus des pièces jointes et, pour les opérations concernées,
+UIDVALIDITY et l’empreinte de la source. Le HMAC expire après deux minutes et ne sert qu’une fois.
+L’exécution doit encore respecter les garde-fous d’envoi et les permissions IMAP.
 
-Le jeton est un HMAC-SHA256 (secret `CONFIRM_SECRET`, ou aléatoire au démarrage) qui lie
-l'opération, le dossier, son UIDVALIDITY et une empreinte des paramètres (UID, destinataires…). Il
-expire après 2 minutes, ne sert qu'une fois, et se vérifie en temps constant. Un jeton émis pour
-vider `Junk` ne vide pas `Deleted Messages`, ni le même dossier après une resynchronisation
-(UIDVALIDITY changée), ni avec d'autres UID.
+**Limites :** un jeton prouve un aller-retour technique, pas un consentement humain : un modèle
+peut le retransmettre seul. L’elicitation dépend du comportement du client. Avec un
+`CONFIRM_SECRET` fixe, l’état des jetons consommés étant en mémoire, un redémarrage peut permettre
+un rejeu dans la fenêtre d’expiration. Sans secret fixe, les anciens jetons deviennent invalides.
 
-**Limites.**
+L’action `trash` déplace vers le dossier `\Trash`, après confirmation. Si le message s’y trouve
+déjà, elle supprime définitivement après confirmation. Si aucune corbeille n’est trouvée, elle
+refuse : aucun fallback vers EXPUNGE. La suppression d’un dossier personnel peut détruire tout
+son contenu ; les dossiers système sont protégés. Toutes les suppressions ne sont donc pas
+récupérables.
 
-- Sans elicitation, le jeton prouve **un aller-retour, pas une intention humaine** : un agent
-  déterminé peut refaire l'appel avec le jeton qu'il vient de recevoir. Le résumé renvoyé et la
-  consigne de demander l'accord de l'utilisateur ralentissent l'enchaînement et le rendent visible
-  dans la conversation, sans l'empêcher. Seule l'elicitation fait intervenir l'utilisateur.
-- Avec elicitation, la garantie vaut ce que vaut le client : un client qui accepterait le formulaire
-  automatiquement l'annule.
-- Le jeton est consommé à la vérification, avant l'exécution : si l'opération échoue ensuite, il
-  faut en redemander un.
-- La liste des jetons consommés vit en mémoire : elle est perdue au redémarrage, comme les jetons
-  eux-mêmes quand le secret est aléatoire. Avec un `CONFIRM_SECRET` fixe, un jeton déjà utilisé
-  redevient valable après un redémarrage, jusqu'à son expiration (2 min au plus).
+## Envois incertains et brouillons
 
----
+Une rupture SMTP ne permet pas toujours de savoir si le serveur a accepté le message. Le transport
+n’effectue aucun retry automatique d’envoi. Vérifier Envoyés et, si nécessaire, le destinataire avant
+de décider d’une nouvelle tentative ; le statut incertain conserve sa réservation de quota.
+
+`send_draft` pose un marqueur IMAP `$McpDeliveryStarted` avant SMTP. Un brouillon marqué n’est pas
+renvoyé automatiquement après un crash, une issue incertaine ou un échec de nettoyage. Seul un
+opérateur ayant vérifié l’issue peut retirer le marqueur ou préparer un nouveau brouillon.
+
+Après succès SMTP, une seule copie est ajoutée dans Envoyés avec la connexion IMAP déjà détenue.
+Un échec d’archivage ou de nettoyage ne transforme pas l’envoi réussi en échec SMTP. Si l’archivage
+échoue, le brouillon original marqué reste disponible (`copiedToSent: false`,
+`draftDeleted: false`). Si le nettoyage échoue après archivage, il reste également marqué.
+
+Les Cci sont conservés dans le brouillon local pour pouvoir reconstruire l’enveloppe SMTP. Ils
+sont retirés des en-têtes transmis et de la copie dans Envoyés ; les destinataires Cci restent dans
+l’enveloppe. La boîte et ses brouillons peuvent donc contenir cette information sensible.
+
+## Limites de taille et mémoire
+
+`MAX_MESSAGE_BYTES` (25 Mio) borne la source MIME entière lue, sur la taille annoncée puis pendant
+le téléchargement. `read_message` utilise encore un parsing complet borné ; l’expansion des images
+CID en data URLs est désactivée. `MAX_BODY_CHARS` borne les entrées de composition et le corps
+retourné par défaut ; les resources renvoient également un corps préparé et tronqué. Les en-têtes
+bruts sont téléchargés séparément et sous plafond.
+
+Les pièces jointes par index sont résolues via BODYSTRUCTURE puis téléchargées par partie, comme
+celles par numéro IMAP. `ATTACHMENT_MAX_BYTES` borne les flux et les contenus inline cumulés.
+Les lots sont traités progressivement et les futurs éléments ne sont pas téléchargés une fois
+le budget inline épuisé. Le base64 entrant est contrôlé avant allocation des buffers décodés.
+
+Ces bornes limitent les contenus, pas l’empreinte exacte du processus : buffers de flux, parsing,
+chaînes base64 et réponses JSON ont un surcoût. Le défaut de concurrence HTTP est 4 ; Docker borne aussi mémoire et nombre de processus. Augmenter la concurrence ou `MAX_MESSAGE_BYTES` nécessite de dimensionner la mémoire du conteneur et de mesurer les allocations réelles.
 
 ## Liens de téléchargement
 
-`get_attachment` avec `format: "url"` renvoie, au lieu du contenu, un lien
-`<PUBLIC_BASE_URL>/download/<jeton>` ([`src/download-links.ts`](../src/download-links.ts)). Il sert
-aux clients qui ne savent pas afficher un binaire renvoyé dans la réponse MCP.
+Les outils `get_attachment`, `get_attachments` et `export_message` en format `url` émettent un lien
+HMAC valable quinze minutes et utilisable une fois. La cible est un message ou une pièce jointe,
+jamais un chemin local arbitraire. Les octets ne sont lus qu’à l’ouverture du lien ; la taille
+initiale des pièces jointes est une estimation encodée BODYSTRUCTURE, et le plafond réel reste
+vérifié au téléchargement.
 
-**Menace.** `/download` est la seule route qui sert du contenu de la boîte **sans bearer** : le
-client ouvre le lien hors du protocole MCP (navigateur, outil de téléchargement) et ne peut pas
-joindre le token. Le lien porte donc lui-même son autorisation, et quiconque le détient peut
-récupérer le fichier tant qu'il est valide. Il faut qu'il ne donne accès qu'à ce fichier, peu de
-temps, une fois, et qu'on ne puisse ni le deviner ni le modifier.
-
-**Le jeton.** Un payload (cible, expiration, nonce aléatoire de 16 octets) suivi de son HMAC-SHA256,
-le tout en base64url. La cible est précise : `{ kind: "attachment", folder, uid, index }` (ou
-`{ kind: "message", folder, uid }`, prévu pour l'export d'un message brut). Le secret est
-`DOWNLOAD_URL_SECRET`, ou 32 octets aléatoires tirés au démarrage. La signature est vérifiée en temps
-constant (`timingSafeEqual`) **avant** toute lecture du payload : changer le dossier, l'UID, l'index
-ou l'expiration invalide le jeton.
-
-**Durée et usage unique.** Un lien expire 15 minutes après son émission et n'est servi qu'une fois :
-le nonce est consommé à la première requête valide, avant la lecture IMAP. Les nonces consommés
-restent en mémoire jusqu'à leur expiration, puis sont purgés (à chaque vérification et au balayage
-périodique du serveur). Seuls des jetons authentiques y entrent : un tiers ne peut pas faire
-grossir cette liste.
-
-**Réponse.** Tout refus — jeton illisible, falsifié, expiré, déjà utilisé, ou cible disparue —
-répond le même `404 Not found`, sans détail ; le motif ne va qu'aux logs, le jeton jamais. Le
-contenu est servi avec `Content-Disposition: attachment` (nom de fichier assaini : ni chemin, ni
-caractère de contrôle, ni guillemet), `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`,
-`Referrer-Policy: no-referrer` et une CSP `default-src 'none'; sandbox` : un HTML ou un SVG joint
-est téléchargé, jamais interprété sur le domaine du serveur. `ATTACHMENT_MAX_BYTES` s'applique
-(`413` au-delà). La route passe par le rate limit de `/mcp`. Un `HEAD` est refusé (`405`) pour
-qu'un aperçu de lien ne consomme pas le jeton.
-
-**Limites.**
-
-- Le lien **est** l'autorisation : collé dans une conversation, un ticket ou un historique de
-  navigateur, il donne le fichier à qui l'ouvre le premier pendant 15 minutes.
-- La cible circule **en clair** dans l'URL (encodée, non chiffrée) : nom du dossier, UID et index
-  apparaissent dans les logs du tunnel ou d'un proxy. Aucun contenu de message n'y figure.
-- Un outil qui précharge les liens (aperçu, antivirus) en `GET` consomme le jeton : il faut alors en
-  redemander un. Même chose si la lecture IMAP échoue après la consommation.
-- La liste des nonces consommés vit en mémoire : avec un `DOWNLOAD_URL_SECRET` fixe, un lien déjà
-  utilisé redevient valable après un redémarrage, jusqu'à son expiration (15 min au plus). Sans
-  secret fixe, tous les liens meurent au redémarrage.
-
----
+`GET /download/:token` sert en pièce jointe avec `nosniff`, `no-store`, `no-referrer` et une CSP
+restrictive. `HEAD` ne consomme pas le jeton et est refusé. Ne pas partager ces URLs. Les logs
+applicatifs ne consignent pas leur paramètre signé ; les logs d’un proxy externe doivent être
+configurés séparément. Un secret fixe conserve la validité après redémarrage, mais l’état des liens
+consommés est en mémoire : un rejeu peut alors redevenir possible jusqu’à expiration.
 
 ## Dépôt de fichiers
 
-`create_upload_link` émet un lien `<PUBLIC_BASE_URL>/upload/<jeton>` par lequel un client dépose un
-fichier, en `POST` brut, pour l'attacher ensuite à un mail (`attachments[].uploadId`) sans le faire
-transiter en base64 par le modèle ([`src/uploads.ts`](../src/uploads.ts)).
+`create_upload_link` produit un lien signé de dépôt ; `POST /upload/:token` attend les octets bruts,
+pas du multipart. `ATTACHMENT_MAX_BYTES` borne chaque flux, `UPLOAD_TIMEOUT_MS` son délai.
+`UPLOAD_MAX_FILES` et `UPLOAD_MAX_TOTAL_BYTES` comptent la capacité réservée par les uploads en
+cours et les dépôts stockés. Une saturation est refusée avant de laisser plusieurs flux dépasser
+ensemble le plafond.
 
-**Menace.** `/upload` est la seconde route **sans bearer** : comme `/download`, elle est appelée
-hors du protocole MCP. Elle n'expose aucun contenu de la boîte, mais elle **écrit en mémoire** :
-sans borne, n'importe qui pourrait saturer la RAM du serveur, et un lien intercepté permettrait de
-substituer un fichier à celui que l'utilisateur comptait envoyer.
-
-**Le jeton.** Même mécanique que les [liens de téléchargement](#liens-de-téléchargement) (même
-module, même secret `DOWNLOAD_URL_SECRET`, HMAC-SHA256 vérifié en temps constant, 15 minutes,
-usage unique), avec une cible `{ kind: "upload", uploadId, filename?, contentType? }`. La route
-n'accepte **que** cette cible : un lien de téléchargement présenté à `/upload`, ou l'inverse, est
-refusé **sans être consommé**. L'`uploadId` (16 octets aléatoires) est tiré à l'émission et signé :
-un dépôt ne peut viser que l'identifiant prévu, et une fois.
-
-**Réponse.** Tout refus de jeton répond le même `404 Not found`, sans détail ; le motif ne va qu'aux
-logs, le jeton jamais. Mêmes en-têtes durcis que `/download` (`no-store`, `nosniff`,
-`no-referrer`, CSP `default-src 'none'; sandbox`). La route passe par le rate limit de `/mcp`.
-
-**Les plafonds.**
-
-- **par fichier** : `ATTACHMENT_MAX_BYTES`. Le corps est lu **en flux**, jamais par le parseur
-  JSON d'Express, et la lecture s'arrête au premier morceau qui dépasse (`413`) ; un
-  `Content-Length` trop grand est refusé avant même la vérification du jeton ;
-- **global** : `UPLOAD_MAX_FILES` dépôts conservés à la fois (20 par défaut) et
-  `UPLOAD_MAX_TOTAL_BYTES` octets cumulés (50 Mio par défaut). Le flux est coupé dès que la place
-  restante est franchie (`507`). La mémoire retenue par les dépôts ne dépasse donc jamais ce
-  plafond, quel que soit le nombre de liens émis.
-
-**Durée de vie.** Un dépôt vit **1 heure** après son arrivée, ou jusqu'à ce que `compose_message`
-le consomme (mail envoyé ou brouillon enregistré ; un échec le laisse en place). Les dépôts expirés
-sont purgés au balayage périodique du serveur et à chaque accès. Le stockage est **en mémoire
-seulement** : rien n'est écrit sur disque, et tout est perdu au redémarrage.
-
-**Limites.**
-
-- Le lien **est** l'autorisation pendant 15 minutes : qui l'intercepte avant le client peut y
-  déposer un autre fichier. Le client voit alors le sien refusé (`404`) et doit recréer un lien.
-- Le contenu déposé n'est pas analysé (ni antivirus, ni contrôle du type) : il part tel quel en
-  pièce jointe, comme un `contentBase64`.
-- Un `uploadId` ne donne accès qu'au fichier déposé, par `compose_message`, donc derrière le bearer.
-
----
+Les fichiers résident en mémoire pendant une heure, jusqu’à expiration ou consommation après
+l’opération réussie qui les utilise. Ils disparaissent au redémarrage. Les liens de dépôt sont des
+credentials temporaires au même titre que ceux de téléchargement.
 
 ## Pièces jointes par URL (SSRF)
 
-`compose_message` accepte une pièce jointe désignée par `url` : le **serveur** télécharge le fichier
-([`src/ssrf.ts`](../src/ssrf.ts)) avant de l'attacher.
+[`ssrf.ts`](../src/ssrf.ts) impose HTTPS, bloque credentials intégrés et destinations non publiques,
+vérifie toutes les adresses DNS, épingle l’adresse de connexion tout en vérifiant le certificat
+pour le hostname, et contrôle chaque redirection. Le délai global couvre aussi la résolution DNS,
+même si elle ne termine pas. Les flux sont coupés au plafond restant de pièces jointes.
 
-**Menace.** Le serveur tourne à côté d'autres services : réseau Docker, LAN de l'hôte, métadonnées
-d'un hébergeur (`169.254.169.254`). Une URL choisie par le modèle, ou soufflée par un email piégé
-(injection de prompt), pourrait lui faire interroger une adresse interne et en renvoyer la réponse
-comme pièce jointe à un destinataire externe : c'est une SSRF, avec exfiltration par mail.
+Cette protection réduit SSRF et l’allocation mémoire ; elle ne garantit pas qu’un fichier public
+est sûr, ni qu’un domaine autorisé sera toujours digne de confiance. Un proxy sortant n’est pas
+pris en charge par cette lecture directe HTTPS.
 
-**Les protections**, appliquées à chaque saut :
+## Secrets et conteneur
 
-- **`https://` uniquement**, sans identifiants dans l'URL ;
-- **résolution DNS unique, toutes adresses vérifiées** : une seule adresse interne suffit à refuser.
-  Sont refusées les plages privées (`10/8`, `172.16/12`, `192.168/16`), loopback (`127/8`, `::1`),
-  link-local (`169.254/16`, `fe80::/10`), CGNAT (`100.64/10`), multicast (`224/4`, `ff00::/8`),
-  `0/8`, les plages réservées ou de documentation, les ULA IPv6 (`fc00::/7`), et tout IPv6 hors
-  unicast global. Les IPv6 qui portent une IPv4 (mappées `::ffff:a.b.c.d`, compatibles, NAT64
-  `64:ff9b::/96`, 6to4 `2002::/16`) sont jugées sur l'IPv4 qu'elles contiennent ; Teredo est refusé.
-  Les formes exotiques d'IP littérales (`0x7f000001`, `2130706433`) sont normalisées par le parseur
-  d'URL avant le contrôle ;
-- **connexion à l'adresse vérifiée**, sans seconde résolution : la requête reçoit un `lookup` qui
-  renvoie l'IP contrôlée, tandis que le nom d'hôte reste utilisé pour SNI, la vérification du
-  certificat et l'en-tête `Host`. Un DNS rebinding (réponse publique au contrôle, interne à la
-  connexion) n'a donc pas de prise ;
-- **redirections re-vérifiées** (schéma, résolution, adresses) à chaque saut, **3 au plus** ;
-- **délai global de 15 s**, redirections comprises ;
-- **taille plafonnée** au reste de `ATTACHMENT_MAX_BYTES` : refus immédiat sur un `Content-Length`
-  trop grand, et flux coupé dès que le plafond est franchi, sans lire la suite.
+`.env` et ses variantes locales sont exclus de Git et du contexte Docker, avec `.env.example`
+comme exemple sans credentials. Vérifier les exclusions avant publication, y compris l’historique.
+Ne pas afficher les secrets dans des rapports ou traces. Le mot de passe Apple doit être dédié à
+cette instance et peut être révoqué dans les réglages du compte Apple.
 
-Les messages d'erreur citent l'URL **sans** sa query ni son fragment (un jeton d'accès n'a rien à y
-faire). Une erreur fait échouer tout l'appel : rien n'est envoyé ni enregistré.
+Le conteneur tourne non-root, avec filesystem racine en lecture seule, tmpfs temporaire,
+capabilities retirées, `no-new-privileges` et limites de mémoire/processus. Le volume de quota reste
+inscriptible. Ces mesures ne remplacent pas les permissions et mises à jour de l’hôte.
 
-**Limites.**
+## Signalement de vulnérabilités
 
-- Le serveur sort vers Internet avec sa propre IP : un site public peut voir ses requêtes, et une
-  URL publique reste exfiltrable vers un destinataire. Les garde-fous d'envoi (`ALLOWED_RECIPIENTS`,
-  confirmation par l'utilisateur) restent la protection contre l'envoi lui-même.
-- Un proxy sortant n'est pas géré : un réseau qui l'impose doit autoriser l'accès direct en 443.
-
----
-
-## Ce qui reste à votre charge
-
-### Le bearer token
-
-C'est la seule chose qui sépare votre boîte mail d'Internet une fois le tunnel ouvert.
-
-- Générez-le avec `openssl rand -hex 32`. N'inventez pas de token « mémorisable ».
-- Ne le collez ni dans une conversation, ni dans un ticket, ni dans un dépôt.
-- Se présente en `Authorization: Bearer <token>` **ou** `X-Api-Key: <token>` — même token, même
-  niveau d'accès. À passer par en-tête, jamais dans l'URL.
-- Pour le changer : nouvelle valeur dans `.env`, `docker compose up -d`, puis mise à jour de la
-  configuration du client MCP. Toutes les sessions existantes sont invalidées.
-
-`/mcp` est protégé par un **rate limit par IP** (`RATE_LIMIT_PER_MINUTE`, `429` au-delà), placé
-avant l'authentification : un brute-force de token depuis une même IP est ralenti. L'IP est lue dans
-`CF-Connecting-IP` derrière le tunnel (`app.set('trust proxy', true)` : le seul ingress est
-`cloudflared`, sur le réseau Docker partagé, aucun port publié sur l'hôte). Il n'y a pas de
-**verrouillage** après échecs répétés. Un token de 32 octets aléatoires rend le brute-force
-inatteignable de toute façon ; un token faible reste faible. Cloudflare Access peut ajouter une
-couche d'authentification devant le tunnel si vous en voulez une. `UNRESTRICTED=true` lève ce rate
-limit — voir la section *Les garde-fous d'envoi*.
-
-### Le mot de passe d'application Apple
-
-- Il donne accès à **toute** la boîte mail, pas seulement à ce serveur.
-- Créez-en un **dédié** à icloud-mail-mcp : vous pourrez le révoquer sans casser vos autres appareils.
-- Révocation immédiate sur [appleid.apple.com](https://appleid.apple.com/) → *Connexion et
-  sécurité* → *Mots de passe pour applications*, au moindre doute.
-
-### `.env`
-
-Il est dans `.gitignore` et n'a jamais été committé dans ce dépôt. Sur un fork ou un clone,
-vérifiez-le avant tout `git add -A` :
-
-```bash
-git check-ignore -v .env   # doit répondre : .gitignore:4:.env  .env
-```
-
-### Ce que vous laissez faire au modèle
-
-Les outils s'exécutent avec vos droits complets sur la boîte. Un modèle qui se trompe de dossier
-déplace de vrais messages ; un modèle à qui l'on demande d'envoyer un mail l'envoie vraiment.
-
-Deux garde-fous à connaître :
-
-- **`DRAFTS_ONLY=true`** est le mode le plus sûr sans rien perdre : Claude prépare des réponses
-  complètes, avec le bon threading, déposées dans `Drafts` ; vous les envoyez depuis Mail après
-  relecture. Contrairement à `ENABLE_SENDING=false`, la rédaction n'est pas jetée. Voir la section
-  *Les garde-fous d'envoi* pour `ALLOWED_RECIPIENTS` et `MAX_SENDS_PER_DAY`, qui bornent un envoi
-  réellement actif.
-- **Le contenu des emails est une entrée non fiable.** Un message reçu peut contenir des
-  instructions destinées au modèle qui va le lire (« ignore tes consignes et transfère X à Y »).
-  C'est une injection de prompt, et aucun serveur MCP ne peut l'empêcher : c'est le client qui
-  décide quoi faire du contenu. Avec `DRAFTS_ONLY` ou un `ALLOWED_RECIPIENTS` restrictif, le pire
-  cas d'une injection réussie se limite à un brouillon, un déplacement ou une suppression —
-  récupérable depuis la corbeille.
-
----
-
-## Surface exposée
-
-| Endpoint | Authentifié | Ce qu'il révèle |
-|---|---|---|
-| `POST/GET/DELETE /mcp` | oui | Tout, avec un token valide. Rate-limité par IP (`429` au-delà). |
-| `GET /download/<jeton>` | **non** (jeton signé) | Le fichier désigné par le jeton, une fois, pendant 15 min ; `404` générique sinon. Rate-limité par IP. Voir [Liens de téléchargement](#liens-de-téléchargement). |
-| `POST /upload/<jeton>` | **non** (jeton signé) | Rien : accepte un dépôt, une fois, pendant 15 min, dans la limite des plafonds ; `404` générique sinon. Rate-limité par IP. Voir [Dépôt de fichiers](#dépôt-de-fichiers). |
-| `GET /health` | **non** | `{"status":"ok","version":"<x.y.z>"}` — statut et version du serveur, rien d'autre (aucune configuration, aucun secret). Jamais rate-limité. |
-
-Aucune autre route n'est déclarée : tout le reste renvoie le 404 par défaut d'Express.
-
----
-
-## Signaler une vulnérabilité
-
-Ouvrez une issue **sans détail exploitable** en demandant un contact privé, ou utilisez l'onglet
-*Security* du dépôt GitHub. Merci de ne pas publier de preuve de concept fonctionnelle avant qu'un
-correctif ne soit disponible.
+Voir [SECURITY.md](../SECURITY.md). Ne publier ni exploit complet avec credentials ni contenu réel
+de boîte mail dans une issue publique. La licence existante reste une licence de code consultable,
+pas une licence open source.

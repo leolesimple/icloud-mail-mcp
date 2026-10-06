@@ -1,9 +1,13 @@
 node_modules/
 dist/
 *.tsbuildinfo
-.env
-.env.local
-.env.bak
+.env*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
 *.log
 .DS_Store
 CLAUDE.md

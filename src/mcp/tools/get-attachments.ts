@@ -2,13 +2,14 @@ import { z } from 'zod';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import {
+  getAttachment,
+  getAttachmentMetadata,
   getAttachmentPart,
   getMessageAttachments,
   type AttachmentContent,
   type AttachmentPartContent,
 } from '../../imap/messages.js';
 import { classifyImapError } from '../../imap/errors.js';
-import { folderConcurrency, mapWithConcurrency } from '../../imap/concurrency.js';
 import { assertReadableSize, AttachmentTooLargeError } from '../../attachments.js';
 import { config } from '../../config.js';
 import type { DownloadLinkService } from '../../download-links.js';
@@ -118,64 +119,69 @@ export async function collectAttachments(
   const fetchAttachments = options.fetchMessageAttachments ?? getMessageAttachments;
   const fetchPart = options.fetchAttachmentPart ?? getAttachmentPart;
 
-  // Un téléchargement par message distinct, dans l'ordre de première apparition.
-  const messages = new Map<string, { folder: string; uid: number }>();
-  for (const { folder, uid, part } of requests) {
-    if (part !== undefined) continue;
-    const key = messageKey(folder, uid);
-    if (!messages.has(key)) messages.set(key, { folder, uid });
-  }
-
-  // Une partie téléchargée une fois, même demandée plusieurs fois.
-  const parts = new Map<string, { folder: string; uid: number; part: string }>();
-  for (const { folder, uid, part } of requests) {
-    if (part !== undefined) parts.set(partKey(folder, uid, part), { folder, uid, part });
-  }
-
-  // Téléchargements en parallèle bornée (connexions du pool moins une), dans
-  // l'ordre des éléments pour les résultats ; le reste de la logique est
-  // séquentiel et inchangé.
-  const concurrency = options.concurrency ?? folderConcurrency();
-  const jobs: { key: string; run: () => Promise<unknown> }[] = [
-    ...[...messages].map(([key, { folder, uid }]) => ({
-      key,
-      run: () => settle(() => fetchAttachments(folder, uid)),
-    })),
-    ...[...parts].map(([key, { folder, uid, part }]) => ({
-      key,
-      run: () => settle(() => fetchPart(folder, uid, part, options.maxBytes)),
-    })),
-  ];
-  const results = await mapWithConcurrency(jobs, concurrency, (job) => job.run());
-  const fetched = new Map<string, unknown>(jobs.map((job, i) => [job.key, results[i]]));
+  // Process one item at a time. No buffers for rejected/future items are retained.
+  // Injected bulk readers remain supported for callers/tests; production reads
+  // precisely the requested part, with the remaining byte budget.
+  const fetched = new Map<string, unknown>();
+  const lastUse = new Map<string, number>();
+  requests.forEach((r, i) => {
+    const key =
+      r.part !== undefined ? partKey(r.folder, r.uid, r.part) : messageKey(r.folder, r.uid);
+    lastUse.set(key, i);
+  });
 
   const items: AttachmentItemResult[] = [];
   const images: AttachmentsBatch['images'] = [];
   const inline = options.format !== 'url';
   let inlineBytes = 0;
 
-  for (const request of requests) {
+  for (const [requestIndex, request] of requests.entries()) {
     const { folder, uid } = request;
     const locator = toLocator(request);
     const key: AttachmentRequest = { folder, uid, ...locator };
     const fail = (error: string) => items.push({ ...key, ok: false, error });
 
-    let attachment: { filename?: string; contentType: string; size: number; content: Buffer };
-    if (locator.part !== undefined) {
-      const part = fetched.get(partKey(folder, uid, locator.part)) as
-        | AttachmentPartContent
-        | FetchFailure
-        | undefined;
+    if (inline && inlineBytes >= options.inlineMaxBytes) {
+      fail(
+        `Limite cumulée du lot atteinte (${options.inlineMaxBytes} octets). Utilisez format "url".`,
+      );
+      continue;
+    }
+    const remaining = inline
+      ? Math.min(options.maxBytes, options.inlineMaxBytes - inlineBytes)
+      : options.maxBytes;
+    let attachment: { filename?: string; contentType: string; size: number; content?: Buffer };
+    const metadataOnly =
+      options.format === 'url' && !options.fetchMessageAttachments && !options.fetchAttachmentPart;
+    if (metadataOnly) {
+      const metadata = await settle(() => getAttachmentMetadata(folder, uid, locator));
+      if (isFailure(metadata)) {
+        fail(metadata.error);
+        continue;
+      }
+      attachment = metadata;
+    } else if (locator.index !== undefined && !options.fetchMessageAttachments) {
+      const value = await settle(() => getAttachment(folder, uid, locator.index, remaining));
+      if (isFailure(value)) {
+        fail(value.error);
+        continue;
+      }
+      attachment = value;
+    } else if (locator.part !== undefined) {
+      const cacheKey = partKey(folder, uid, locator.part);
+      if (!fetched.has(cacheKey))
+        fetched.set(cacheKey, await settle(() => fetchPart(folder, uid, locator.part, remaining)));
+      const part = fetched.get(cacheKey) as AttachmentPartContent | FetchFailure | undefined;
       if (!part || isFailure(part)) {
         fail(part?.error ?? `Partie ${locator.part} introuvable pour le message UID ${uid}`);
         continue;
       }
       attachment = part;
     } else {
-      const message = fetched.get(messageKey(folder, uid)) as
-        | AttachmentContent[]
-        | FetchFailure
-        | undefined;
+      const cacheKey = messageKey(folder, uid);
+      if (!fetched.has(cacheKey))
+        fetched.set(cacheKey, await settle(() => fetchAttachments(folder, uid)));
+      const message = fetched.get(cacheKey) as AttachmentContent[] | FetchFailure | undefined;
       if (!message || isFailure(message)) {
         fail(message?.error ?? `Message UID ${uid} introuvable dans "${folder}"`);
         continue;
@@ -191,6 +197,9 @@ export async function collectAttachments(
       attachment = found;
     }
 
+    const cacheKey =
+      locator.part !== undefined ? partKey(folder, uid, locator.part) : messageKey(folder, uid);
+    if (lastUse.get(cacheKey) === requestIndex) fetched.delete(cacheKey);
     try {
       assertReadableSize(attachment.size, options.maxBytes);
     } catch (err) {
@@ -215,7 +224,7 @@ export async function collectAttachments(
       {
         filename: attachment.filename ?? `attachment-${locator.part ?? locator.index}`,
         contentType: attachment.contentType,
-        content: attachment.content,
+        ...(attachment.content ? { content: attachment.content } : { size: attachment.size }),
       },
       {
         format: options.format,

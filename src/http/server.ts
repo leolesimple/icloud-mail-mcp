@@ -7,6 +7,7 @@ import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { createMailMcpServer } from '../mcp/server.js';
 import { bearerAuth } from './auth.js';
 import { clientIp } from './client-ip.js';
+import { validateIngress } from './ingress.js';
 import { SlidingWindowRateLimiter } from './rate-limit.js';
 import { contentDisposition, downloadLinks, safeContentType } from '../download-links.js';
 import type { DownloadLinkService, DownloadTarget } from '../download-links.js';
@@ -34,10 +35,10 @@ const publicDir = fileURLToPath(new URL('../../public', import.meta.url));
 function rpcMethods(body: unknown): string | string[] | undefined {
   const methodOf = (msg: unknown): string | undefined =>
     msg && typeof msg === 'object' && 'method' in msg && typeof msg.method === 'string'
-      ? msg.method
+      ? msg.method.slice(0, 128)
       : undefined;
   if (Array.isArray(body)) {
-    return body.map((msg) => methodOf(msg) ?? 'response');
+    return body.slice(0, 16).map((msg) => methodOf(msg) ?? 'response');
   }
   return methodOf(body);
 }
@@ -86,14 +87,23 @@ class BodyTooLargeError extends Error {}
  * lecture s'arrête au premier morceau qui dépasse.
  */
 async function readBodyCapped(req: Request, limit: number): Promise<Buffer> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const chunk of req as AsyncIterable<Buffer>) {
-    size += chunk.length;
-    if (size > limit) throw new BodyTooLargeError();
-    chunks.push(chunk);
+  const timer = setTimeout(
+    () => req.destroy(new Error('Upload body timeout')),
+    config.UPLOAD_TIMEOUT_MS,
+  );
+  timer.unref();
+  try {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for await (const chunk of req as AsyncIterable<Buffer>) {
+      size += chunk.length;
+      if (size > limit) throw new BodyTooLargeError();
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks, size);
+  } finally {
+    clearTimeout(timer);
   }
-  return Buffer.concat(chunks, size);
 }
 
 /** Valeur d'un en-tête ou paramètre de requête (première occurrence). */
@@ -147,6 +157,8 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
     options.sweepIntervalMs ?? Math.min(300_000, Math.max(10_000, Math.floor(sessionTtlMs / 2)));
 
   const sessions = new Map<string, Session>();
+  let pendingSessions = 0;
+  let activeRequests = 0;
   const rateLimiter = new SlidingWindowRateLimiter(rateLimitPerMinute);
 
   const links = options.download?.links ?? downloadLinks;
@@ -195,14 +207,10 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
   sweepTimer.unref();
 
   function rateLimit(req: Request, res: Response, next: express.NextFunction): void {
-    // UNRESTRICTED lève le rate limit — mais jamais l'auth ni le TTL (voir docs/security.md).
-    if (config.UNRESTRICTED) {
-      next();
-      return;
-    }
+    // Resource limits remain enabled even when sending restrictions are relaxed.
     const key = clientIp(req);
     if (!rateLimiter.allow(key)) {
-      log.warn({ ip: key, path: req.path }, 'rate limit exceeded');
+      log.warn({ ip: key, route: req.route?.path ?? 'unknown' }, 'rate limit exceeded');
       res.status(429).json({
         jsonrpc: '2.0',
         error: { code: -32002, message: 'Too Many Requests: rate limit exceeded' },
@@ -231,6 +239,9 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
     const sessionId = req.headers['mcp-session-id'];
     const existing = touch(typeof sessionId === 'string' ? sessionId : undefined);
 
+    let reservedSession = false;
+    let createdTransport: StreamableHTTPServerTransport | undefined;
+    let initialized = false;
     try {
       let transport = existing?.transport;
 
@@ -250,9 +261,16 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
           return;
         }
 
+        if (sessions.size + pendingSessions >= config.MAX_SESSIONS) {
+          res.status(503).json({ error: 'Session capacity reached' });
+          return;
+        }
+        pendingSessions += 1;
+        reservedSession = true;
         transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (newSessionId) => {
+            initialized = true;
             sessions.set(newSessionId, { transport: transport!, lastSeen: Date.now() });
             log.info({ sessionId: newSessionId }, 'mcp session initialized');
           },
@@ -262,6 +280,7 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
           },
         });
 
+        createdTransport = transport;
         const server = createMailMcpServer();
         await server.connect(transport);
       }
@@ -276,6 +295,9 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
           id: null,
         });
       }
+    } finally {
+      if (reservedSession) pendingSessions -= 1;
+      if (createdTransport && !initialized) await createdTransport.close();
     }
   }
 
@@ -328,7 +350,7 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
       const attachment =
         target.part !== undefined
           ? await fetchAttachmentPart(target.folder, target.uid, target.part, downloadMaxBytes)
-          : await fetchAttachment(target.folder, target.uid, target.index);
+          : await fetchAttachment(target.folder, target.uid, target.index, downloadMaxBytes);
       return {
         filename: attachment.filename ?? `attachment-${target.part ?? target.index}`,
         contentType: attachment.contentType,
@@ -338,7 +360,7 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
     return {
       filename: `message-${target.uid}.eml`,
       contentType: 'message/rfc822',
-      content: await fetchMessageSource(target.folder, target.uid),
+      content: await fetchMessageSource(target.folder, target.uid, downloadMaxBytes),
     };
   }
 
@@ -451,10 +473,18 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
 
     const room = uploads.available();
     const limit = Math.min(uploadMaxBytes, room);
+    let reservation;
+    try {
+      reservation = uploads.reserve(target.uploadId, limit);
+    } catch {
+      fail(507, 'Stockage des dépôts plein.');
+      return;
+    }
     let content: Buffer;
     try {
       content = await readBodyCapped(req, limit);
     } catch (err) {
+      reservation.release();
       if (err instanceof BodyTooLargeError) {
         log.warn({ uploadId: target.uploadId, limit }, 'upload refused: too large');
         if (limit < uploadMaxBytes) {
@@ -484,7 +514,7 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
 
     let stored;
     try {
-      stored = uploads.put({ uploadId: target.uploadId, filename, contentType, content });
+      stored = reservation.commit({ uploadId: target.uploadId, filename, contentType, content });
     } catch (err) {
       if (err instanceof UploadStoreFullError) {
         log.warn({ uploadId: target.uploadId, size: content.length }, 'upload refused: store full');
@@ -508,15 +538,47 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
   // Le seul ingress est cloudflared, sur le réseau bridge privé : on lui fait
   // confiance pour X-Forwarded-For afin que req.ip porte l'IP cliente. La
   // résolution fine passe par clientIp() (CF-Connecting-IP en priorité).
-  app.set('trust proxy', true);
+  const trustedProxies = config.TRUSTED_PROXIES.split(',')
+    .map((v) => v.trim())
+    .filter(Boolean);
+  app.set('trust proxy', trustedProxies.length ? trustedProxies : false);
+  const allowedHosts = new Set(
+    config.HTTP_ALLOWED_HOSTS.split(',')
+      .map((v) => v.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const allowedOrigins = new Set(
+    config.HTTP_ALLOWED_ORIGINS.split(',')
+      .map((v) => v.trim())
+      .filter(Boolean),
+  );
+  if (config.PUBLIC_BASE_URL) {
+    const publicUrl = new URL(config.PUBLIC_BASE_URL);
+    allowedHosts.add(publicUrl.hostname.toLowerCase());
+    allowedOrigins.add(publicUrl.origin);
+  }
+  app.use(validateIngress(allowedHosts, allowedOrigins));
+  function capacity(_req: Request, res: Response, next: express.NextFunction): void {
+    if (activeRequests >= config.HTTP_MAX_CONCURRENT_REQUESTS) {
+      res.status(503).send('Request capacity reached');
+      return;
+    }
+    activeRequests += 1;
+    let released = false;
+    const release = () => {
+      if (!released) activeRequests -= 1;
+      released = true;
+    };
+    res.once('finish', release);
+    res.once('close', release);
+    next();
+  }
 
   // AVANT express.json() : le corps d'un dépôt est brut, de n'importe quel type
   // (un fichier JSON compris), et lu en flux par la route elle-même.
-  app.post('/upload/:token', rateLimit, (req, res, next) => {
+  app.post('/upload/:token', rateLimit, capacity, (req, res, next) => {
     handleUpload(req, res).catch(next);
   });
-
-  app.use(express.json());
 
   // Favicon/webclip : servis à la racine du domaine public (pas d'auth, pas de
   // secret dedans) pour que les connecteurs MCP distants (Claude Desktop,
@@ -541,19 +603,48 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
   });
 
   app.use('/mcp', logMcpRequest);
-  app.post('/mcp', rateLimit, bearerAuth, handlePost);
-  app.get('/mcp', rateLimit, bearerAuth, handleSessionRequest);
-  app.delete('/mcp', rateLimit, bearerAuth, handleSessionRequest);
+  app.post(
+    '/mcp',
+    rateLimit,
+    bearerAuth,
+    capacity,
+    express.json({ limit: config.HTTP_BODY_MAX_BYTES }),
+    handlePost,
+  );
+  app.get('/mcp', rateLimit, bearerAuth, capacity, handleSessionRequest);
+  app.delete('/mcp', rateLimit, bearerAuth, capacity, handleSessionRequest);
 
   // Express route HEAD vers le handler GET : un HEAD (aperçu de lien, antivirus)
   // consommerait le jeton à usage unique sans rien livrer. On le refuse.
   app.head('/download/:token', (_req, res) => {
     res.status(405).set({ Allow: 'GET', 'Cache-Control': 'no-store' }).end();
   });
-  app.get('/download/:token', rateLimit, handleDownload);
+  app.get('/download/:token', rateLimit, capacity, handleDownload);
 
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', version: serverVersion });
+  });
+
+  // Do not return parser stacks or log their attached request body (which may contain mail content).
+  app.use((error: unknown, _req: Request, res: Response, next: express.NextFunction) => {
+    if (res.headersSent) {
+      next(error);
+      return;
+    }
+    const status =
+      error && typeof error === 'object' && 'status' in error ? error.status : undefined;
+    const safeStatus = status === 413 ? 413 : status === 400 ? 400 : 500;
+    log.warn({ status: safeStatus }, 'HTTP request failed');
+    res
+      .status(safeStatus)
+      .json({
+        error:
+          safeStatus === 413
+            ? 'Request body too large'
+            : safeStatus === 400
+              ? 'Invalid request body'
+              : 'Internal server error',
+      });
   });
 
   async function close(): Promise<void> {

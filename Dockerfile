@@ -6,12 +6,13 @@ ARG NODE_IMAGE=node:24-alpine
 FROM ${NODE_IMAGE} AS development-dependencies-env
 COPY . /app
 WORKDIR /app
-RUN npm ci
+RUN npm ci --ignore-scripts
 
 FROM ${NODE_IMAGE} AS production-dependencies-env
-COPY ./package.json package-lock.json /app/
+COPY ./vendor/release-version /app/vendor/release-version
+COPY ./package.json package-lock.json .npmrc /app/
 WORKDIR /app
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev --ignore-scripts
 
 FROM ${NODE_IMAGE} AS build-env
 COPY . /app/
@@ -21,7 +22,8 @@ RUN npm run build
 
 FROM ${NODE_IMAGE}
 ENV NODE_ENV=production
-COPY ./package.json package-lock.json /app/
+ENV HTTP_HOST=0.0.0.0
+COPY ./package.json package-lock.json .npmrc /app/
 COPY --from=production-dependencies-env /app/node_modules /app/node_modules
 COPY --from=build-env /app/dist /app/dist
 COPY ./public /app/public

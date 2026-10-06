@@ -1,3 +1,4 @@
+import { confirmToolAction } from '../confirm-flow.js';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { sendDraft } from '../../imap/drafts.js';
@@ -19,13 +20,13 @@ export function registerSendDraftTool(server: McpServer): void {
         'removed from Drafts. If sending fails, the draft is left untouched. Always confirm with the ' +
         'user before sending.',
       inputSchema: {
+        confirmToken: z.string().optional().describe('Token from the first confirmation request'),
         uid: z.coerce
           .number()
           .int()
           .positive()
           .describe('UID of the draft to send, in the Drafts folder'),
       },
-      outputSchema: sendDraftResultSchema.shape,
       annotations: {
         readOnlyHint: false,
         destructiveHint: true,
@@ -33,9 +34,14 @@ export function registerSendDraftTool(server: McpServer): void {
         openWorldHint: true,
       },
     },
-    async ({ uid }) => {
-      log.info({ uid }, 'sending draft');
-      return jsonResult(await sendDraft(uid), sendDraftResultSchema);
+    async (input) => {
+      const execute = async () => {
+        const { uid } = input;
+
+        log.info({ uid }, 'sending draft');
+        return jsonResult(await sendDraft(uid), sendDraftResultSchema);
+      };
+      return confirmToolAction(server.server, 'send_draft', input, execute);
     },
   );
 }

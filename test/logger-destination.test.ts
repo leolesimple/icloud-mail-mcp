@@ -20,3 +20,27 @@ describe('logStreamFd', () => {
     assert.equal(logStreamFd('both'), 2);
   });
 });
+
+import pino from 'pino';
+import { secretLogPaths } from '../src/logger.js';
+
+it('redacts root credentials and request authorization headers', () => {
+  let output = '';
+  const instance = pino(
+    { redact: { paths: secretLogPaths, censor: '[redacted]' } },
+    {
+      write(chunk: string) {
+        output += chunk;
+      },
+    },
+  );
+  instance.info({
+    password: 'fixture-password',
+    token: 'fixture-token',
+    MCP_BEARER_TOKEN: 'fixture-bearer',
+    req: { headers: { authorization: 'Bearer fixture-auth', cookie: 'fixture-cookie' } },
+    smtp: { pass: 'fixture-smtp' },
+  });
+  assert.ok(output.includes('[redacted]'));
+  assert.ok(!output.includes('fixture-'));
+});

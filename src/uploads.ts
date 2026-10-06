@@ -53,6 +53,13 @@ export class UploadStoreFullError extends Error {
 }
 
 export interface UploadStore {
+  /** Reserves bytes and one slot before reading an HTTP body. */
+  reserve(
+    uploadId: string,
+    maxBytes: number,
+  ): { commit(upload: NewUpload): StoredUpload; release(): void };
+  /** Exclusively leases uploads until composition succeeds or fails. */
+  claim(uploadIds: string[]): { uploads: StoredUpload[]; consume(): void; release(): void };
   /** Dépôt encore valide, ou `undefined` (inconnu, expiré, déjà consommé). */
   get(uploadId: string): StoredUpload | undefined;
   /** Range un dépôt. Lève `UploadStoreFullError` au-delà d'un plafond. */
@@ -79,6 +86,9 @@ export function createUploadStore(options: UploadStoreOptions): UploadStore {
   const now = options.now ?? Date.now;
   const uploads = new Map<string, StoredUpload>();
   let bytes = 0;
+  const reservations = new Map<string, number>();
+  const claimed = new Set<string>();
+  const pendingBytes = () => [...reservations.values()].reduce((sum, size) => sum + size, 0);
 
   function remove(uploadId: string): boolean {
     const upload = uploads.get(uploadId);
@@ -91,15 +101,70 @@ export function createUploadStore(options: UploadStoreOptions): UploadStore {
   function sweep(): void {
     const current = now();
     for (const [uploadId, upload] of uploads) {
-      if (upload.expiresAt <= current) remove(uploadId);
+      if (upload.expiresAt <= current && !claimed.has(uploadId)) remove(uploadId);
     }
   }
 
-  return {
+  const store: UploadStore = {
+    reserve(uploadId, maxBytes) {
+      sweep();
+      if (
+        !Number.isSafeInteger(maxBytes) ||
+        maxBytes < 0 ||
+        uploads.has(uploadId) ||
+        reservations.has(uploadId)
+      ) {
+        throw new UploadStoreFullError('Dépôt invalide ou déjà en cours.');
+      }
+      if (
+        uploads.size + reservations.size >= options.maxFiles ||
+        bytes + pendingBytes() + maxBytes > options.maxTotalBytes
+      ) {
+        throw new UploadStoreFullError('Stockage des dépôts plein (dépôts en cours inclus).');
+      }
+      reservations.set(uploadId, maxBytes);
+      let active = true;
+      return {
+        commit(upload) {
+          if (!active || upload.uploadId !== uploadId || upload.content.length > maxBytes)
+            throw new Error('Réservation de dépôt invalide');
+          reservations.delete(uploadId);
+          active = false;
+          return store.put(upload);
+        },
+        release() {
+          if (active) reservations.delete(uploadId);
+          active = false;
+        },
+      };
+    },
+    claim(uploadIds) {
+      const ids = [...new Set(uploadIds)];
+      const selected = ids.map((id) => {
+        const upload = store.get(id);
+        if (!upload || claimed.has(id))
+          throw new Error('Dépôt indisponible ou déjà utilisé par une autre opération.');
+        return upload;
+      });
+      ids.forEach((id) => claimed.add(id));
+      let active = true;
+      return {
+        uploads: selected,
+        consume() {
+          if (active) ids.forEach((id) => remove(id));
+          ids.forEach((id) => claimed.delete(id));
+          active = false;
+        },
+        release() {
+          if (active) ids.forEach((id) => claimed.delete(id));
+          active = false;
+        },
+      };
+    },
     get(uploadId) {
       const upload = uploads.get(uploadId);
       if (!upload) return undefined;
-      if (upload.expiresAt <= now()) {
+      if (upload.expiresAt <= now() && !claimed.has(uploadId)) {
         remove(uploadId);
         return undefined;
       }
@@ -111,13 +176,13 @@ export function createUploadStore(options: UploadStoreOptions): UploadStore {
       if (uploads.has(uploadId)) {
         throw new Error(`Dépôt ${uploadId} déjà présent`);
       }
-      if (uploads.size >= options.maxFiles) {
+      if (uploads.size + reservations.size >= options.maxFiles) {
         throw new UploadStoreFullError(
           `Trop de dépôts en attente (${options.maxFiles}, UPLOAD_MAX_FILES) : ` +
             'attacher ou laisser expirer les précédents.',
         );
       }
-      if (bytes + content.length > options.maxTotalBytes) {
+      if (bytes + pendingBytes() + content.length > options.maxTotalBytes) {
         throw new UploadStoreFullError(
           `Stockage des dépôts plein (${options.maxTotalBytes} octets, UPLOAD_MAX_TOTAL_BYTES) : ` +
             'attacher ou laisser expirer les précédents.',
@@ -140,8 +205,8 @@ export function createUploadStore(options: UploadStoreOptions): UploadStore {
 
     available() {
       sweep();
-      if (uploads.size >= options.maxFiles) return 0;
-      return Math.max(options.maxTotalBytes - bytes, 0);
+      if (uploads.size + reservations.size >= options.maxFiles) return 0;
+      return Math.max(options.maxTotalBytes - bytes - pendingBytes(), 0);
     },
 
     sweep,
@@ -150,6 +215,7 @@ export function createUploadStore(options: UploadStoreOptions): UploadStore {
       return { count: uploads.size, bytes };
     },
   };
+  return store;
 }
 
 /** Stockage partagé du serveur (route `/upload` et `compose_message`). */

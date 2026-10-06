@@ -346,7 +346,13 @@ export async function fetchHttpsGuarded(
 
   try {
     for (let hop = 0; ; hop++) {
-      const address = await checkTarget(url, resolveHost);
+      let address;
+      try {
+        address = await abortable(checkTarget(url, resolveHost), controller.signal);
+      } catch (err) {
+        if (controller.signal.aborted) throw timedOut();
+        throw err;
+      }
       if (controller.signal.aborted) throw timedOut();
 
       let response: PinnedResponse;

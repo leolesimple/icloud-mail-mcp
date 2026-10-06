@@ -1,9 +1,10 @@
 import { z } from 'zod';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { getMessageSource } from '../../imap/messages.js';
+import { getMessageSource, getMessageMetadata } from '../../imap/messages.js';
 import { config } from '../../config.js';
 import type { DownloadLinkService } from '../../download-links.js';
+import { AttachmentTooLargeError } from '../../attachments.js';
 import { errorResult } from '../result.js';
 import {
   binaryFormatSchema,
@@ -25,6 +26,7 @@ export interface ExportMessageOptions {
   links?: DownloadLinkService;
   /** Lecture de la source brute. Défaut : `getMessageSource` (IMAP). */
   fetchMessageSource?: (folder: string, uid: number) => Promise<Buffer>;
+  fetchMessageMetadata?: (folder: string, uid: number) => Promise<{ size: number }>;
 }
 
 /**
@@ -41,16 +43,33 @@ export async function exportMessage(
   const refused = checkBinaryFormat(options.format, options.publicBaseUrl);
   if (refused) return refused;
 
-  const source = await (options.fetchMessageSource ?? getMessageSource)(folder, uid);
-  if (source.length > options.maxBytes) {
+  let source: Buffer | undefined;
+  let size: number;
+  try {
+    if (options.format === 'url' && (!options.fetchMessageSource || options.fetchMessageMetadata)) {
+      size = (await (options.fetchMessageMetadata ?? getMessageMetadata)(folder, uid)).size;
+    } else {
+      source = await (
+        options.fetchMessageSource ??
+        ((f: string, u: number) => getMessageSource(f, u, options.maxBytes))
+      )(folder, uid);
+      size = source.length;
+    }
+  } catch (err) {
+    if (err instanceof AttachmentTooLargeError) return errorResult(err.message);
+    throw err;
+  }
+  if (size > options.maxBytes) {
     return errorResult(
-      `Message de ${source.length} octets, au-delà de la limite de ${options.maxBytes} octets ` +
+      `Message de ${size} octets, au-delà de la limite de ${options.maxBytes} octets ` +
         `(ATTACHMENT_MAX_BYTES). Exportez-le depuis Mail.app.`,
     );
   }
 
   return binaryOutput(
-    { filename: `message-${uid}.eml`, contentType: 'message/rfc822', content: source },
+    source
+      ? { filename: `message-${uid}.eml`, contentType: 'message/rfc822', content: source }
+      : { filename: `message-${uid}.eml`, contentType: 'message/rfc822', size },
     {
       format: options.format,
       target: { kind: 'message', folder, uid },

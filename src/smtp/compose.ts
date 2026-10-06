@@ -20,6 +20,8 @@ export interface ComposeInput {
   inReplyTo?: string;
   references?: string[];
   attachments?: ComposeAttachment[];
+  /** Only for the stored draft; outgoing MIME always omits Bcc. */
+  keepBcc?: boolean;
 }
 
 /**
@@ -28,7 +30,7 @@ export interface ComposeInput {
  * brouillons IMAP et, à terme, par l'envoi SMTP.
  */
 export async function composeRaw(input: ComposeInput): Promise<Buffer> {
-  return new MailComposer({
+  const compiled = new MailComposer({
     from: input.from ?? account.email,
     to: input.to,
     cc: input.cc,
@@ -45,7 +47,7 @@ export async function composeRaw(input: ComposeInput): Promise<Buffer> {
       contentDisposition: attachment.contentDisposition,
       cid: attachment.cid,
     })),
-  })
-    .compile()
-    .build();
+  }).compile();
+  compiled.keepBcc = input.keepBcc ?? false;
+  return compiled.build();
 }

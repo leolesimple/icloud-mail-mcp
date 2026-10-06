@@ -31,13 +31,19 @@ describe('parseConfig', () => {
 
     for (const value of ['true', '1', 'yes']) {
       it(`s'active pour ${JSON.stringify(value)}`, () => {
-        assert.equal(parseConfig({ ...validEnv, ENABLE_IDLE_WATCH: value }).ENABLE_IDLE_WATCH, true);
+        assert.equal(
+          parseConfig({ ...validEnv, ENABLE_IDLE_WATCH: value }).ENABLE_IDLE_WATCH,
+          true,
+        );
       });
     }
 
     for (const value of ['false', '0', 'no', ' FALSE ']) {
       it(`reste off pour ${JSON.stringify(value)}`, () => {
-        assert.equal(parseConfig({ ...validEnv, ENABLE_IDLE_WATCH: value }).ENABLE_IDLE_WATCH, false);
+        assert.equal(
+          parseConfig({ ...validEnv, ENABLE_IDLE_WATCH: value }).ENABLE_IDLE_WATCH,
+          false,
+        );
       });
     }
   });
@@ -67,7 +73,10 @@ describe('parseConfig', () => {
   });
 
   it('rejette un bearer token trop court', () => {
-    assert.throws(() => parseConfig({ ...validEnv, MCP_BEARER_TOKEN: 'court' }), /au moins 16 caractères/);
+    assert.throws(
+      () => parseConfig({ ...validEnv, MCP_BEARER_TOKEN: 'court' }),
+      /au moins 16 caractères/,
+    );
   });
 
   it('rejette une configuration sans identifiants', () => {
@@ -85,7 +94,8 @@ describe('parseConfig', () => {
   it('liste toutes les variables fautives dans le message d’erreur', () => {
     assert.throws(
       () => parseConfig({ ICLOUD_EMAIL: 'x', ICLOUD_APP_PASSWORD: 'y', MCP_BEARER_TOKEN: 'z' }),
-      (err: Error) => err.message.includes('ICLOUD_EMAIL') && err.message.includes('MCP_BEARER_TOKEN'),
+      (err: Error) =>
+        err.message.includes('ICLOUD_EMAIL') && err.message.includes('MCP_BEARER_TOKEN'),
     );
   });
 
@@ -98,14 +108,14 @@ describe('parseConfig', () => {
       });
     }
 
-    for (const value of ['true', '1', 'yes', 'nimporte quoi']) {
+    for (const value of ['true', '1', 'yes']) {
       it(`laisse l'envoi actif pour ${JSON.stringify(value)}`, () => {
         assert.equal(parseConfig({ ...validEnv, ENABLE_SENDING: value }).ENABLE_SENDING, true);
       });
     }
 
-    it("est actif par défaut quand la variable n'est pas définie", () => {
-      assert.equal(parseConfig({ ...validEnv }).ENABLE_SENDING, true);
+    it("est désactivé par défaut quand la variable n'est pas définie", () => {
+      assert.equal(parseConfig({ ...validEnv }).ENABLE_SENDING, false);
     });
   });
 
@@ -148,7 +158,8 @@ describe('parseConfig', () => {
       assert.throws(
         () => parseConfig({ ...validEnv, MCP_TRANSPORT: 'grpc' }),
         (err: Error) =>
-          err.message.includes('MCP_TRANSPORT') && err.message.includes('"http", "stdio" ou "both"'),
+          err.message.includes('MCP_TRANSPORT') &&
+          err.message.includes('"http", "stdio" ou "both"'),
       );
     });
   });
@@ -160,7 +171,8 @@ describe('parseConfig', () => {
 
     it('accepte une URL https et retire le slash final', () => {
       assert.equal(
-        parseConfig({ ...validEnv, PUBLIC_BASE_URL: 'https://mail-mcp.exemple.com/' }).PUBLIC_BASE_URL,
+        parseConfig({ ...validEnv, PUBLIC_BASE_URL: 'https://mail-mcp.exemple.com/' })
+          .PUBLIC_BASE_URL,
         'https://mail-mcp.exemple.com',
       );
     });
@@ -208,7 +220,7 @@ describe('parseConfig', () => {
       });
     }
 
-    for (const value of ['true', '1', 'yes', 'peu importe']) {
+    for (const value of ['true', '1', 'yes']) {
       it(`traite ${JSON.stringify(value)} comme vrai`, () => {
         assert.equal(envBool(false).parse(value), true);
       });
@@ -230,3 +242,9 @@ describe('parseConfig', () => {
     });
   });
 });
+
+for (const value of ['', 'maybe', 'on', 'off']) {
+  it(`rejects ambiguous boolean ${JSON.stringify(value)}`, () => {
+    assert.throws(() => parseConfig({ ...validEnv, UNRESTRICTED: value }), /UNRESTRICTED/);
+  });
+}

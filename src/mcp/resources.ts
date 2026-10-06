@@ -1,5 +1,7 @@
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { listFolders } from '../imap/folders.js';
+import { config } from '../config.js';
+import { prepareMessageBody } from './message-content.js';
 import { getMessage } from '../imap/messages.js';
 import { completeFolder } from './folder-cache.js';
 import { logger } from '../logger.js';
@@ -21,14 +23,17 @@ export function registerMailResources(server: McpServer): void {
     'mail://folders',
     {
       title: 'Dossiers IMAP',
-      description: 'La liste des dossiers du compte iCloud Mail (chemin, rôle spécial, abonnement).',
+      description:
+        'La liste des dossiers du compte iCloud Mail (chemin, rôle spécial, abonnement).',
       mimeType: 'application/json',
     },
     async (uri) => {
       log.info('reading folders resource');
       const folders = await listFolders();
       return {
-        contents: [{ uri: uri.href, mimeType: 'application/json', text: JSON.stringify(folders, null, 2) }],
+        contents: [
+          { uri: uri.href, mimeType: 'application/json', text: JSON.stringify(folders, null, 2) },
+        ],
       };
     },
   );
@@ -55,7 +60,23 @@ export function registerMailResources(server: McpServer): void {
       log.info({ path, uid }, 'reading message resource');
       const message = await getMessage(path, uid);
       return {
-        contents: [{ uri: uri.href, mimeType: 'application/json', text: JSON.stringify(message, null, 2) }],
+        contents: [
+          {
+            uri: uri.href,
+            mimeType: 'application/json',
+            text: JSON.stringify(
+              {
+                ...message,
+                ...prepareMessageBody(message, {
+                  maxBodyChars: config.MAX_BODY_CHARS,
+                  includeHtml: false,
+                }),
+              },
+              null,
+              2,
+            ),
+          },
+        ],
       };
     },
   );

@@ -20,21 +20,21 @@ ce soit, et sauvegarde un `.env` existant en `.env.bak`. `npm run auth:check`
 rejoue la seule vérification, sans écriture. `npm run verify:imap` reste
 disponible pour un contrôle IMAP seul.
 
-| Commande | Rôle |
-|---|---|
-| `npm run auth` | Mise en route : identifiants, vérification IMAP + SMTP, écriture de `.env` |
-| `npm run auth:check` | Rejoue la vérification IMAP + SMTP sur le `.env` existant, sans écriture |
-| `npm run dev` | Serveur HTTP MCP en TypeScript direct (tsx) |
-| `npm run build` | Compile `src/` vers `dist/` |
-| `npm start` | Lance le build compilé |
-| `npm test` | Suite de tests complète |
-| `npm run test:watch` | Tests en mode veille |
-| `npm run typecheck` | TypeScript strict sur `src/` **et** `test/` |
-| `npm run lint` | ESLint |
-| `npm run format` | Prettier |
-| `npm run verify:imap` | Connexion IMAP réelle + liste des dossiers |
+| Commande              | Rôle                                                                       |
+| --------------------- | -------------------------------------------------------------------------- |
+| `npm run auth`        | Mise en route : identifiants, vérification IMAP + SMTP, écriture de `.env` |
+| `npm run auth:check`  | Rejoue la vérification IMAP + SMTP sur le `.env` existant, sans écriture   |
+| `npm run dev`         | Serveur HTTP MCP en TypeScript direct (tsx)                                |
+| `npm run build`       | Compile `src/` vers `dist/`                                                |
+| `npm start`           | Lance le build compilé                                                     |
+| `npm test`            | Suite de tests complète                                                    |
+| `npm run test:watch`  | Tests en mode veille                                                       |
+| `npm run typecheck`   | TypeScript strict sur `src/` **et** `test/`                                |
+| `npm run lint`        | ESLint                                                                     |
+| `npm run format`      | Prettier                                                                   |
+| `npm run verify:imap` | Connexion IMAP réelle + liste des dossiers                                 |
 
-Node **24+** est requis (`engines`), pour le runner de tests intégré et le support ESM natif.
+Node **24.15+** est requis (`engines`), pour le runner de tests intégré et le support ESM natif.
 
 ---
 
@@ -87,21 +87,21 @@ qui mérite un test appartient aux couches basses.
 npm test
 ```
 
-**340 tests**, exécutés par le runner intégré de Node (`node:test`) via tsx. Aucune dépendance de
+**750 tests**, exécutés par le runner intégré de Node (`node:test`) via tsx. Aucune dépendance de
 test supplémentaire, aucun framework à maintenir.
 
-| Fichier | Ce qui est couvert |
-|---|---|
-| `config.test.ts` | Validation de l'environnement, valeurs par défaut, tous les cas de `ENABLE_SENDING` |
-| `imap-errors.test.ts` | Classification IMAP : auth, réseau, commande, idempotence, priorités |
-| `smtp-errors.test.ts` | Classification SMTP, conservation de la cause |
-| `threading.test.ts` | Préfixe `Re:`, chaîne `References`, destinataires déduits, non-mutation |
-| `messages.test.ts` | Projections d'enveloppe, flags, dates ISO, champs manquants |
-| `pool.test.ts` | Réutilisation, taille max, file d'attente, purge des connexions mortes, retry, fermeture |
-| `auth.test.ts` | Bearer valide, absent, tronqué, rallongé, mauvais schéma |
-| `http.test.ts` | Serveur réel : `/health` + version, `401`, rate limit par `CF-Connecting-IP`, cycle de session MCP complet |
-| `client-ip.test.ts` | Résolution de l'IP appelante (`CF-Connecting-IP`, `req.ip`, socket, `unknown`) |
-| `sending-guard.test.ts` | `ENABLE_SENDING=false` bloque l'envoi avant toute connexion SMTP |
+| Fichier                 | Ce qui est couvert                                                                                                             |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `config.test.ts`        | Validation de l'environnement, valeurs par défaut, tous les cas de `ENABLE_SENDING`                                            |
+| `imap-errors.test.ts`   | Classification IMAP : auth, réseau, commande, idempotence, priorités                                                           |
+| `smtp-errors.test.ts`   | Classification SMTP, conservation de la cause                                                                                  |
+| `threading.test.ts`     | Préfixe `Re:`, chaîne `References`, destinataires déduits, non-mutation                                                        |
+| `messages.test.ts`      | Projections d'enveloppe, flags, dates ISO, champs manquants                                                                    |
+| `pool.test.ts`          | Réutilisation, taille max, file d'attente, purge des connexions mortes, retry, fermeture                                       |
+| `auth.test.ts`          | Bearer valide, absent, tronqué, rallongé, mauvais schéma                                                                       |
+| `http.test.ts`          | Serveur réel : `/health` + version, `401`, rate limit par socket ou proxy explicitement autorisé, cycle de session MCP complet |
+| `client-ip.test.ts`     | Résolution de l’IP appelante (socket, proxies explicitement approuvés ; CF-Connecting-IP ignoré)                               |
+| `sending-guard.test.ts` | `ENABLE_SENDING=false` bloque l'envoi avant toute connexion SMTP                                                               |
 
 ### Deux invariants tenus par la suite
 
@@ -111,7 +111,7 @@ un vrai serveur Express sur un port éphémère mais n'appellent jamais d'outil,
 connexion IMAP ou SMTP.
 
 **Aucun test ne peut envoyer d'email.** `test/helpers/env.ts` force `ENABLE_SENDING=false`, et
-`sending-guard.test.ts` vérifie que cette configuration est bien active *et* qu'elle bloque
+`sending-guard.test.ts` vérifie que cette configuration est bien active _et_ qu'elle bloque
 effectivement l'envoi. Le helper pose ses valeurs avec `??=` avant que `dotenv` ne s'exécute : un
 `.env` réel présent sur la machine ne peut pas fuiter dans les tests.
 
@@ -121,7 +121,7 @@ Tout fichier de test qui charge, directement ou non, `src/config.ts` doit import
 de test **en premier** — les modules ESM sont évalués dans l'ordre des imports :
 
 ```ts
-import './helpers/env.js';        // toujours en première ligne
+import './helpers/env.js'; // toujours en première ligne
 import { describe, it } from 'node:test';
 ```
 
@@ -151,7 +151,7 @@ bump à partir des commits mergés depuis le dernier tag, pose le tag `vX.Y.Z` e
 Release avec ses notes. Le job `docker` du même workflow pousse ensuite l'image sur GHCR taguée
 `{X.Y.Z, X.Y, latest}`.
 
-À chaque release, `@semantic-release/npm` (sans publication npm) bumpe `package.json` et
+À chaque release, le hook local `vendor/release-version` bumpe `package.json` et
 `package-lock.json`, et `@semantic-release/git` les commite directement sur `main`
 (`chore(release): X.Y.Z [skip ci]`) avant de poser le tag sur ce commit. L'image construite depuis
 le tag embarque donc la bonne version (`/health`, `inbox_overview`, initialize MCP). Ce push direct
@@ -169,6 +169,7 @@ Le calcul du bump dépend des commits en [Conventional Commits](https://www.conv
 
 En 0.x, tout est décalé d'un cran : la mineure joue le rôle de la majeure, le patch celui de la
 mineure. Les deux règles `releaseRules` de `.releaserc.json` sont à retirer pour passer en 1.0.0.
+
 - `chore:`, `docs:`, `refactor:`, `test:`, `ci:`, … → pas de release
 
 [`commitlint.yml`](../.github/workflows/commitlint.yml) vérifie ce format sur chaque commit d'une
@@ -186,7 +187,7 @@ Pour tester localement sans rien publier : `npx semantic-release --dry-run --no-
 - **ESM uniquement** (`"type": "module"`), imports avec extension `.js`.
 - **Prettier** fait foi sur le formatage ; `eslint-config-prettier` neutralise les règles de style
   d'ESLint.
-- **Commentaires** : expliquer *pourquoi*, pas *quoi*. Les commentaires existants documentent des
+- **Commentaires** : expliquer _pourquoi_, pas _quoi_. Les commentaires existants documentent des
   pièges réels (coercition zod de `"false"`, ordre de libération verrou/connexion, absence
   d'`instanceof` sur les erreurs imapflow) — c'est le registre attendu.
 - Les messages d'erreur destinés à l'utilisateur sont en français ; les descriptions d'outils MCP,
@@ -197,3 +198,9 @@ Avant de proposer un changement :
 ```bash
 npm run typecheck && npm run lint && npm test
 ```
+
+### Dependance braces corrigee
+
+La chaine de release utilise `braces` via micromatch. Faute de release upstream corrigee, un override epingle `@dieub/braces-depth-guard` 3.0.3-pn.3. Le runtime a ete compare a braces 3.0.3 ; les gardes de profondeur sont testees avec les globs de release. Le lockfile fixe son integrite et le registre fournit une attestation de provenance. Ce backport reste une dependance tierce temporaire a remplacer par une release upstream corrigee lorsqu elle sera disponible.
+
+Le workspace `vendor/release-version`, resolu sous le nom `@semantic-release/npm` pour satisfaire semantic-release, est un remplacement local explicite du plugin de publication. Il ne contient pas le CLI npm ni ses dependances : le projet ne publie pas de paquet npm. Son hook prepare met seulement a jour les versions dans package.json et package-lock.json, sans scripts lifecycle, tag ni commit. La suite teste ce comportement.

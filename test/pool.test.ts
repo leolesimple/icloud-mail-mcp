@@ -145,7 +145,11 @@ describe('ImapConnectionPool', () => {
 
     const client = await pool.acquire();
     assert.ok(client);
-    assert.equal(created.length, 2, 'un second client doit être construit pour la seconde tentative');
+    assert.equal(
+      created.length,
+      2,
+      'un second client doit être construit pour la seconde tentative',
+    );
     await pool.close();
   });
 
@@ -364,4 +368,16 @@ describe('ImapConnectionPool — délai d’acquisition', () => {
     assert.equal(pool.stats().waiting, 0);
     await pool.close();
   });
+});
+
+it('caps queued IMAP acquisitions without losing the admitted waiter', async () => {
+  const pool = new ImapConnectionPool(1, () => new FakeImapClient().asImapFlow(), 1000, 1);
+  const occupied = await pool.acquire();
+  const waiting = pool.acquire();
+  await tick();
+  await assert.rejects(pool.acquire(), /File IMAP pleine/);
+  assert.equal(pool.stats().waiting, 1);
+  pool.release(occupied);
+  pool.release(await waiting);
+  await pool.close();
 });
