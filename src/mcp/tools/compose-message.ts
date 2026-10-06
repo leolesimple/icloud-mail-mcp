@@ -3,7 +3,13 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { sendForward, sendNewMessage, sendReply } from '../../smtp/send.js';
 import { saveDraft, updateDraft } from '../../imap/drafts.js';
 import { AttachmentTooLargeError } from '../../attachments.js';
-import { AttachmentSourceError, resolveAttachmentSources } from '../../attachment-sources.js';
+import {
+  AttachmentSourceError,
+  consumeUploads,
+  resolveAttachmentSources,
+} from '../../attachment-sources.js';
+import { uploadStore } from '../../uploads.js';
+import type { UploadStore } from '../../uploads.js';
 import { config } from '../../config.js';
 import { COMPOSE_DELIVERIES, COMPOSE_MODES, planCompose } from '../compose-plan.js';
 import { jsonResult, errorResult } from '../result.js';
@@ -15,7 +21,27 @@ const log = logger.child({ tool: 'compose_message' });
 
 const DEFAULT_FOLDER = 'INBOX';
 
-export function registerComposeMessageTool(server: McpServer): void {
+/** Accès IMAP/SMTP et stockage des dépôts, injectables pour les tests. */
+export interface ComposeMessageDeps {
+  sendNewMessage?: typeof sendNewMessage;
+  sendReply?: typeof sendReply;
+  sendForward?: typeof sendForward;
+  saveDraft?: typeof saveDraft;
+  updateDraft?: typeof updateDraft;
+  /** Dépôts de `create_upload_link` (défaut : le stockage partagé). */
+  uploads?: Pick<UploadStore, 'get' | 'delete'>;
+}
+
+export function registerComposeMessageTool(server: McpServer, deps: ComposeMessageDeps = {}): void {
+  const ops = {
+    sendNewMessage: deps.sendNewMessage ?? sendNewMessage,
+    sendReply: deps.sendReply ?? sendReply,
+    sendForward: deps.sendForward ?? sendForward,
+    saveDraft: deps.saveDraft ?? saveDraft,
+    updateDraft: deps.updateDraft ?? updateDraft,
+  };
+  const uploads = deps.uploads ?? uploadStore;
+
   server.registerTool(
     'compose_message',
     {
@@ -32,7 +58,8 @@ export function registerComposeMessageTool(server: McpServer): void {
         'instead (sent: false). Attachments: each item has exactly one source — contentBase64 (small ' +
         'files only), fromMessage { folder, uid, index } to reuse an attachment of a message already in ' +
         'the mailbox (filename and contentType kept unless overridden; preferred for large files), or url ' +
-        '(a public https:// URL the server downloads; private or local addresses are refused). The ' +
+        '(a public https:// URL the server downloads; private or local addresses are refused), or ' +
+        'uploadId (a file uploaded out of band through create_upload_link; consumed once sent). The ' +
         'total is capped at ATTACHMENT_MAX_BYTES; if any source fails, nothing is sent or saved. ' +
         'Always confirm recipients and content with the user before sending.',
       inputSchema: {
@@ -99,7 +126,13 @@ export function registerComposeMessageTool(server: McpServer): void {
         // Toutes les sources sont résolues avant d'envoyer ou d'écrire quoi que ce soit.
         const attachments = await resolveAttachmentSources(input.attachments, {
           maxBytes: config.ATTACHMENT_MAX_BYTES,
+          uploads,
         });
+        // Dépôts consommés seulement après un envoi ou un brouillon réussi.
+        const done = <T>(result: T): T => {
+          consumeUploads(input.attachments, uploads);
+          return result;
+        };
         log.info(
           { operation: plan.operation, mode, folder: input.folder, uid: input.uid, draftUid },
           'composing',
@@ -107,7 +140,7 @@ export function registerComposeMessageTool(server: McpServer): void {
 
         switch (plan.operation) {
           case 'send_new': {
-            const result = await sendNewMessage({
+            const result = await ops.sendNewMessage({
               to: to as string[],
               cc,
               bcc,
@@ -116,10 +149,10 @@ export function registerComposeMessageTool(server: McpServer): void {
               html,
               attachments,
             });
-            return jsonResult(result, composeResultSchema);
+            return done(jsonResult(result, composeResultSchema));
           }
           case 'send_reply': {
-            const result = await sendReply({
+            const result = await ops.sendReply({
               folder,
               uid,
               to,
@@ -130,10 +163,10 @@ export function registerComposeMessageTool(server: McpServer): void {
               replyAll: mode === 'reply_all',
               attachments,
             });
-            return jsonResult(result, composeResultSchema);
+            return done(jsonResult(result, composeResultSchema));
           }
           case 'send_forward': {
-            const result = await sendForward({
+            const result = await ops.sendForward({
               folder,
               uid,
               to: to as string[],
@@ -143,7 +176,7 @@ export function registerComposeMessageTool(server: McpServer): void {
               html,
               attachments,
             });
-            return jsonResult(result, composeResultSchema);
+            return done(jsonResult(result, composeResultSchema));
           }
           case 'save_draft':
           case 'update_draft': {
@@ -158,11 +191,14 @@ export function registerComposeMessageTool(server: McpServer): void {
               ...(mode === 'reply' ? { replyFolder: folder, replyUid: uid } : {}),
             };
             if (plan.operation === 'update_draft') {
-              const { replacedUid, ...draft } = await updateDraft(draftUid as number, draftInput);
-              return jsonResult({ sent: false, draft, replacedUid }, composeResultSchema);
+              const { replacedUid, ...draft } = await ops.updateDraft(
+                draftUid as number,
+                draftInput,
+              );
+              return done(jsonResult({ sent: false, draft, replacedUid }, composeResultSchema));
             }
-            const draft = await saveDraft(draftInput);
-            return jsonResult({ sent: false, draft }, composeResultSchema);
+            const draft = await ops.saveDraft(draftInput);
+            return done(jsonResult({ sent: false, draft }, composeResultSchema));
           }
         }
       } catch (err) {
