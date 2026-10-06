@@ -1,5 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { config } from './config.js';
+import { PART_PATTERN } from './attachment-locator.js';
+import type { AttachmentLocator } from './attachment-locator.js';
 
 /**
  * Liens de téléchargement signés, servis par `GET /download/:token`.
@@ -12,7 +14,12 @@ import { config } from './config.js';
  *
  * Format (base64url, opaque) : payload JSON (version, cible, expiration en ms,
  * nonce) suivi du HMAC-SHA256 (32 octets) de ce payload. La cible circule en
- * clair (encodée, non chiffrée) : dossier, UID et index, aucun contenu.
+ * clair (encodée, non chiffrée) : dossier, UID et index ou partie, aucun contenu.
+ *
+ * Le même mécanisme signe les liens de DÉPÔT servis par `POST /upload/:token`
+ * (cible `upload`, émise par `create_upload_link`) : `redeem` ne rend que les
+ * types de cible attendus par la route, et un jeton d'un autre type est refusé
+ * sans être consommé.
  *
  * Ce module ne parle pas à IMAP : la route récupère le contenu de la cible.
  */
@@ -29,8 +36,29 @@ const MAX_TOKEN_CHARS = 4096;
 
 /** Ce que désigne un lien : une pièce jointe, ou un message entier (EML brut). */
 export type DownloadTarget =
-  | { kind: 'attachment'; folder: string; uid: number; index: number }
+  | ({ kind: 'attachment'; folder: string; uid: number } & AttachmentLocator)
   | { kind: 'message'; folder: string; uid: number };
+
+/**
+ * Dépôt d'un fichier (`POST /upload/:token`) : l'identifiant sous lequel le
+ * ranger, et le nom et le type éventuellement fixés à l'émission.
+ */
+export interface UploadTarget {
+  kind: 'upload';
+  uploadId: string;
+  filename?: string;
+  contentType?: string;
+}
+
+/** Toute cible signée. */
+export type LinkTarget = DownloadTarget | UploadTarget;
+export type LinkKind = LinkTarget['kind'];
+
+/** Types acceptés par `redeem` sans liste explicite : ceux de `/download`. */
+export const DOWNLOAD_KINDS = ['attachment', 'message'] as const;
+
+/** Forme d'un `uploadId` : 22 caractères base64url (16 octets aléatoires). */
+export const UPLOAD_ID_PATTERN = /^[A-Za-z0-9_-]{22}$/;
 
 export interface IssuedDownloadLink {
   token: string;
@@ -38,16 +66,26 @@ export interface IssuedDownloadLink {
   expiresAt: number;
 }
 
-/** Motif d'un refus. Réservé aux logs : la route répond un 404 générique. */
-export type DownloadLinkRefusal = 'malformed' | 'forged' | 'expired' | 'replayed';
+/**
+ * Motif d'un refus. Réservé aux logs : la route répond un 404 générique.
+ * `wrong_kind` : jeton authentique présenté à la mauvaise route (non consommé).
+ */
+export type DownloadLinkRefusal = 'malformed' | 'forged' | 'expired' | 'replayed' | 'wrong_kind';
 
-export type RedeemResult =
-  { ok: true; target: DownloadTarget } | { ok: false; reason: DownloadLinkRefusal };
+export type RedeemResult<T extends LinkTarget = DownloadTarget> =
+  { ok: true; target: T } | { ok: false; reason: DownloadLinkRefusal };
 
 export interface DownloadLinkService {
-  issue(target: DownloadTarget): IssuedDownloadLink;
-  /** Vérifie le jeton et le consomme : un second appel avec le même jeton est refusé. */
+  issue(target: LinkTarget): IssuedDownloadLink;
+  /**
+   * Vérifie le jeton et le consomme : un second appel avec le même jeton est
+   * refusé. Sans `kinds`, seules les cibles de `/download` sont acceptées.
+   */
   redeem(token: string): RedeemResult;
+  redeem<K extends LinkKind>(
+    token: string,
+    kinds: readonly K[],
+  ): RedeemResult<Extract<LinkTarget, { kind: K }>>;
   /** Oublie les nonces consommés dont l'expiration est passée. */
   sweep(): void;
 }
@@ -62,21 +100,40 @@ export interface DownloadLinkServiceOptions {
 
 interface Payload {
   v: number;
-  t: DownloadTarget;
+  t: LinkTarget;
   exp: number;
   n: string;
 }
 
 const isUid = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) > 0;
 
+const isOptionalString = (v: unknown): v is string | undefined =>
+  v === undefined || (typeof v === 'string' && v.length > 0);
+
 /** Relit une cible signée. Le HMAC est déjà vérifié : ceci ne protège que d'un bug d'émission. */
-function parseTarget(value: unknown): DownloadTarget | undefined {
+function parseTarget(value: unknown): LinkTarget | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const t = value as Record<string, unknown>;
+  if (t.kind === 'upload') {
+    if (typeof t.uploadId !== 'string' || !UPLOAD_ID_PATTERN.test(t.uploadId)) return undefined;
+    if (!isOptionalString(t.filename) || !isOptionalString(t.contentType)) return undefined;
+    return {
+      kind: 'upload',
+      uploadId: t.uploadId,
+      ...(t.filename !== undefined ? { filename: t.filename } : {}),
+      ...(t.contentType !== undefined ? { contentType: t.contentType } : {}),
+    };
+  }
   if (typeof t.folder !== 'string' || t.folder.length === 0 || !isUid(t.uid)) return undefined;
   if (t.kind === 'message') return { kind: 'message', folder: t.folder, uid: t.uid };
   if (t.kind === 'attachment' && Number.isSafeInteger(t.index) && (t.index as number) >= 0) {
+    if (t.part !== undefined) return undefined;
     return { kind: 'attachment', folder: t.folder, uid: t.uid, index: t.index as number };
+  }
+  // Pièce jointe désignée par son numéro de partie IMAP (voir attachment-locator.ts).
+  if (t.kind === 'attachment' && typeof t.part === 'string' && PART_PATTERN.test(t.part)) {
+    if (t.index !== undefined) return undefined;
+    return { kind: 'attachment', folder: t.folder, uid: t.uid, part: t.part };
   }
   return undefined;
 }
@@ -122,6 +179,35 @@ export function createDownloadLinkService(
     }
   }
 
+  function redeem(token: string, kinds: readonly LinkKind[] = DOWNLOAD_KINDS) {
+    if (
+      typeof token !== 'string' ||
+      token.length > MAX_TOKEN_CHARS ||
+      !/^[A-Za-z0-9_-]+$/.test(token)
+    ) {
+      return { ok: false, reason: 'malformed' } as const;
+    }
+    const raw = Buffer.from(token, 'base64url');
+    if (raw.length <= MAC_BYTES) return { ok: false, reason: 'malformed' } as const;
+
+    const bytes = raw.subarray(0, raw.length - MAC_BYTES);
+    // Signature d'abord, en temps constant : rien n'est lu d'un jeton non authentifié.
+    if (!timingSafeEqual(raw.subarray(raw.length - MAC_BYTES), mac(bytes))) {
+      return { ok: false, reason: 'forged' } as const;
+    }
+    const payload = parsePayload(bytes);
+    if (!payload) return { ok: false, reason: 'malformed' } as const;
+
+    sweep();
+    if (payload.exp <= now()) return { ok: false, reason: 'expired' } as const;
+    // Avant la consommation : un lien de téléchargement présenté à /upload (ou
+    // l'inverse) reste utilisable sur sa propre route.
+    if (!kinds.includes(payload.t.kind)) return { ok: false, reason: 'wrong_kind' } as const;
+    if (consumed.has(payload.n)) return { ok: false, reason: 'replayed' } as const;
+    consumed.set(payload.n, payload.exp);
+    return { ok: true, target: payload.t } as const;
+  }
+
   return {
     issue(target) {
       const expiresAt = now() + ttlMs;
@@ -138,31 +224,8 @@ export function createDownloadLinkService(
       };
     },
 
-    redeem(token) {
-      if (
-        typeof token !== 'string' ||
-        token.length > MAX_TOKEN_CHARS ||
-        !/^[A-Za-z0-9_-]+$/.test(token)
-      ) {
-        return { ok: false, reason: 'malformed' };
-      }
-      const raw = Buffer.from(token, 'base64url');
-      if (raw.length <= MAC_BYTES) return { ok: false, reason: 'malformed' };
-
-      const bytes = raw.subarray(0, raw.length - MAC_BYTES);
-      // Signature d'abord, en temps constant : rien n'est lu d'un jeton non authentifié.
-      if (!timingSafeEqual(raw.subarray(raw.length - MAC_BYTES), mac(bytes))) {
-        return { ok: false, reason: 'forged' };
-      }
-      const payload = parsePayload(bytes);
-      if (!payload) return { ok: false, reason: 'malformed' };
-
-      sweep();
-      if (payload.exp <= now()) return { ok: false, reason: 'expired' };
-      if (consumed.has(payload.n)) return { ok: false, reason: 'replayed' };
-      consumed.set(payload.n, payload.exp);
-      return { ok: true, target: payload.t };
-    },
+    // Surcharges de l'interface : la liste `kinds` garantit le type de cible rendu.
+    redeem: redeem as DownloadLinkService['redeem'],
 
     sweep,
   };
@@ -176,6 +239,19 @@ export const downloadLinks: DownloadLinkService = createDownloadLinkService({
 /** URL publique d'un jeton. `baseUrl` sans slash final (comme `PUBLIC_BASE_URL`). */
 export function downloadUrl(baseUrl: string, token: string): string {
   return `${baseUrl}/download/${token}`;
+}
+
+/** URL publique d'un lien de dépôt (`POST /upload/:token`). */
+export function uploadUrl(baseUrl: string, token: string): string {
+  return `${baseUrl}/upload/${token}`;
+}
+
+/** Type MIME servi tel quel s'il est bien formé, sinon `application/octet-stream`. */
+export function safeContentType(contentType: string): string {
+  const trimmed = contentType.trim().toLowerCase();
+  return /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/.test(trimmed)
+    ? trimmed
+    : 'application/octet-stream';
 }
 
 /**

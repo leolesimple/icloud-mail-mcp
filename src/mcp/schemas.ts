@@ -234,6 +234,7 @@ export const readMessageResultSchema = schemaFor<ReadMessageResult>()(
  */
 export const attachmentPartSchema = schemaFor<AttachmentPart>()(
   z.object({
+    part: z.string(),
     contentType: z.string(),
     filename: z.string().optional(),
     size: z.number().optional(),
@@ -285,7 +286,14 @@ export const whoamiReportSchema = schemaFor<WhoamiReport>()(
       bearerTokenConfigured: z.boolean(),
     }),
     guardrails: guardrailsSchema,
-    imapPool: z.object({ open: z.number(), inUse: z.number(), max: z.number() }),
+    imapPool: z.object({
+      open: z.number(),
+      inUse: z.number(),
+      max: z.number(),
+      waiting: z.number(),
+      maxRecentWaitMs: z.number(),
+      acquireTimeouts: z.number(),
+    }),
     probe: z
       .object({
         attempted: z.literal(true),
@@ -380,4 +388,13 @@ export const manageFoldersResultSchema = z.object({
   action: z.enum(['create', 'rename', 'delete']).optional(),
   path: z.string().optional(),
   newPath: z.string().optional(),
+});
+
+// `create_upload_link` : lien de dépôt signé, à usage unique.
+export const uploadLinkSchema = z.object({
+  uploadUrl: z.string(),
+  uploadId: z.string(),
+  expiresAt: z.string(),
+  maxBytes: z.number(),
+  method: z.literal('POST'),
 });

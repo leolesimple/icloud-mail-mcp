@@ -49,28 +49,30 @@ function toFolderInfo(entry: ListResponse): FolderInfo {
 
 /**
  * Cœur testable : liste les dossiers, et si `includeStatus`, ajoute les
- * compteurs via une commande STATUS par dossier (~10 allers-retours sur un
- * compte iCloud typique — d'où l'option pour un listing rapide).
+ * compteurs. Ils sont demandés avec le LIST lui-même (LIST-STATUS, RFC 5819,
+ * annoncé par iCloud) : un seul aller-retour au lieu d'un STATUS par dossier.
+ * Sur un serveur sans LIST-STATUS, imapflow retombe de lui-même sur un STATUS
+ * par dossier.
  */
 export async function listFoldersOn(
   client: ImapFlow,
   includeStatus: boolean,
 ): Promise<FolderInfo[]> {
-  const infos = (await client.list()).map(toFolderInfo);
-  if (!includeStatus) return infos;
+  if (!includeStatus) return (await client.list()).map(toFolderInfo);
 
-  for (const info of infos) {
-    try {
-      const status = await client.status(info.path, { messages: true, unseen: true });
-      // imapflow renvoie `false` (sans lever) quand le serveur refuse le STATUS.
-      if (!status) continue;
-      info.messages = status.messages;
-      info.unseen = status.unseen;
-    } catch {
-      // Un conteneur \Noselect n'accepte pas STATUS : on le laisse sans compteurs.
+  const entries = await client.list({ statusQuery: { messages: true, unseen: true } });
+  return entries.map((entry) => {
+    const info = toFolderInfo(entry);
+    // Absent pour un conteneur \Noselect ; `false` ou `{ error }` quand le serveur
+    // refuse le STATUS de repli : on laisse alors le dossier sans compteurs.
+    const status: unknown = entry.status;
+    if (status && typeof status === 'object' && !('error' in status)) {
+      const { messages, unseen } = status as { messages?: number; unseen?: number };
+      info.messages = messages;
+      info.unseen = unseen;
     }
-  }
-  return infos;
+    return info;
+  });
 }
 
 export async function listFolders(includeStatus = true): Promise<FolderInfo[]> {

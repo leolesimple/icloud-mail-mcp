@@ -3,6 +3,7 @@ import { getQuotaStatus } from '../smtp/quota.js';
 import { account } from '../account.js';
 import { serverVersion } from '../version.js';
 import { imapPool } from '../imap/pool.js';
+import type { PoolStats } from '../imap/pool.js';
 import { listFolders } from '../imap/folders.js';
 import { classifyImapError } from '../imap/errors.js';
 
@@ -44,13 +45,14 @@ export interface WhoamiReport {
   };
   credentials: { appPasswordConfigured: boolean; bearerTokenConfigured: boolean };
   guardrails: WhoamiGuardrails;
-  imapPool: { open: number; inUse: number; max: number };
+  /** État du pool IMAP : taille, connexions occupées, file d'attente, attente récente. */
+  imapPool: PoolStats;
   probe?: { attempted: true; ok: boolean; folderCount?: number; error?: string };
 }
 
 export interface WhoamiDeps {
   /** Photo du pool IMAP. Défaut : `imapPool.stats()`. */
-  poolStats?: () => { open: number; inUse: number; max: number };
+  poolStats?: () => PoolStats;
   /** Vérification de connexion réelle et légère. Défaut : `listFolders()`. */
   probe?: () => Promise<{ folderCount: number }>;
   /** Quota d'envoi restant, si le lot D l'expose. Défaut : indisponible. */

@@ -168,6 +168,95 @@ qu'un aperçu de lien ne consomme pas le jeton.
 
 ---
 
+## Dépôt de fichiers
+
+`create_upload_link` émet un lien `<PUBLIC_BASE_URL>/upload/<jeton>` par lequel un client dépose un
+fichier, en `POST` brut, pour l'attacher ensuite à un mail (`attachments[].uploadId`) sans le faire
+transiter en base64 par le modèle ([`src/uploads.ts`](../src/uploads.ts)).
+
+**Menace.** `/upload` est la seconde route **sans bearer** : comme `/download`, elle est appelée
+hors du protocole MCP. Elle n'expose aucun contenu de la boîte, mais elle **écrit en mémoire** :
+sans borne, n'importe qui pourrait saturer la RAM du serveur, et un lien intercepté permettrait de
+substituer un fichier à celui que l'utilisateur comptait envoyer.
+
+**Le jeton.** Même mécanique que les [liens de téléchargement](#liens-de-téléchargement) (même
+module, même secret `DOWNLOAD_URL_SECRET`, HMAC-SHA256 vérifié en temps constant, 15 minutes,
+usage unique), avec une cible `{ kind: "upload", uploadId, filename?, contentType? }`. La route
+n'accepte **que** cette cible : un lien de téléchargement présenté à `/upload`, ou l'inverse, est
+refusé **sans être consommé**. L'`uploadId` (16 octets aléatoires) est tiré à l'émission et signé :
+un dépôt ne peut viser que l'identifiant prévu, et une fois.
+
+**Réponse.** Tout refus de jeton répond le même `404 Not found`, sans détail ; le motif ne va qu'aux
+logs, le jeton jamais. Mêmes en-têtes durcis que `/download` (`no-store`, `nosniff`,
+`no-referrer`, CSP `default-src 'none'; sandbox`). La route passe par le rate limit de `/mcp`.
+
+**Les plafonds.**
+
+- **par fichier** : `ATTACHMENT_MAX_BYTES`. Le corps est lu **en flux**, jamais par le parseur
+  JSON d'Express, et la lecture s'arrête au premier morceau qui dépasse (`413`) ; un
+  `Content-Length` trop grand est refusé avant même la vérification du jeton ;
+- **global** : `UPLOAD_MAX_FILES` dépôts conservés à la fois (20 par défaut) et
+  `UPLOAD_MAX_TOTAL_BYTES` octets cumulés (50 Mio par défaut). Le flux est coupé dès que la place
+  restante est franchie (`507`). La mémoire retenue par les dépôts ne dépasse donc jamais ce
+  plafond, quel que soit le nombre de liens émis.
+
+**Durée de vie.** Un dépôt vit **1 heure** après son arrivée, ou jusqu'à ce que `compose_message`
+le consomme (mail envoyé ou brouillon enregistré ; un échec le laisse en place). Les dépôts expirés
+sont purgés au balayage périodique du serveur et à chaque accès. Le stockage est **en mémoire
+seulement** : rien n'est écrit sur disque, et tout est perdu au redémarrage.
+
+**Limites.**
+
+- Le lien **est** l'autorisation pendant 15 minutes : qui l'intercepte avant le client peut y
+  déposer un autre fichier. Le client voit alors le sien refusé (`404`) et doit recréer un lien.
+- Le contenu déposé n'est pas analysé (ni antivirus, ni contrôle du type) : il part tel quel en
+  pièce jointe, comme un `contentBase64`.
+- Un `uploadId` ne donne accès qu'au fichier déposé, par `compose_message`, donc derrière le bearer.
+
+---
+
+## Pièces jointes par URL (SSRF)
+
+`compose_message` accepte une pièce jointe désignée par `url` : le **serveur** télécharge le fichier
+([`src/ssrf.ts`](../src/ssrf.ts)) avant de l'attacher.
+
+**Menace.** Le serveur tourne à côté d'autres services : réseau Docker, LAN de l'hôte, métadonnées
+d'un hébergeur (`169.254.169.254`). Une URL choisie par le modèle, ou soufflée par un email piégé
+(injection de prompt), pourrait lui faire interroger une adresse interne et en renvoyer la réponse
+comme pièce jointe à un destinataire externe : c'est une SSRF, avec exfiltration par mail.
+
+**Les protections**, appliquées à chaque saut :
+
+- **`https://` uniquement**, sans identifiants dans l'URL ;
+- **résolution DNS unique, toutes adresses vérifiées** : une seule adresse interne suffit à refuser.
+  Sont refusées les plages privées (`10/8`, `172.16/12`, `192.168/16`), loopback (`127/8`, `::1`),
+  link-local (`169.254/16`, `fe80::/10`), CGNAT (`100.64/10`), multicast (`224/4`, `ff00::/8`),
+  `0/8`, les plages réservées ou de documentation, les ULA IPv6 (`fc00::/7`), et tout IPv6 hors
+  unicast global. Les IPv6 qui portent une IPv4 (mappées `::ffff:a.b.c.d`, compatibles, NAT64
+  `64:ff9b::/96`, 6to4 `2002::/16`) sont jugées sur l'IPv4 qu'elles contiennent ; Teredo est refusé.
+  Les formes exotiques d'IP littérales (`0x7f000001`, `2130706433`) sont normalisées par le parseur
+  d'URL avant le contrôle ;
+- **connexion à l'adresse vérifiée**, sans seconde résolution : la requête reçoit un `lookup` qui
+  renvoie l'IP contrôlée, tandis que le nom d'hôte reste utilisé pour SNI, la vérification du
+  certificat et l'en-tête `Host`. Un DNS rebinding (réponse publique au contrôle, interne à la
+  connexion) n'a donc pas de prise ;
+- **redirections re-vérifiées** (schéma, résolution, adresses) à chaque saut, **3 au plus** ;
+- **délai global de 15 s**, redirections comprises ;
+- **taille plafonnée** au reste de `ATTACHMENT_MAX_BYTES` : refus immédiat sur un `Content-Length`
+  trop grand, et flux coupé dès que le plafond est franchi, sans lire la suite.
+
+Les messages d'erreur citent l'URL **sans** sa query ni son fragment (un jeton d'accès n'a rien à y
+faire). Une erreur fait échouer tout l'appel : rien n'est envoyé ni enregistré.
+
+**Limites.**
+
+- Le serveur sort vers Internet avec sa propre IP : un site public peut voir ses requêtes, et une
+  URL publique reste exfiltrable vers un destinataire. Les garde-fous d'envoi (`ALLOWED_RECIPIENTS`,
+  confirmation par l'utilisateur) restent la protection contre l'envoi lui-même.
+- Un proxy sortant n'est pas géré : un réseau qui l'impose doit autoriser l'accès direct en 443.
+
+---
+
 ## Ce qui reste à votre charge
 
 ### Le bearer token
@@ -233,6 +322,7 @@ Deux garde-fous à connaître :
 |---|---|---|
 | `POST/GET/DELETE /mcp` | oui | Tout, avec un token valide. Rate-limité par IP (`429` au-delà). |
 | `GET /download/<jeton>` | **non** (jeton signé) | Le fichier désigné par le jeton, une fois, pendant 15 min ; `404` générique sinon. Rate-limité par IP. Voir [Liens de téléchargement](#liens-de-téléchargement). |
+| `POST /upload/<jeton>` | **non** (jeton signé) | Rien : accepte un dépôt, une fois, pendant 15 min, dans la limite des plafonds ; `404` générique sinon. Rate-limité par IP. Voir [Dépôt de fichiers](#dépôt-de-fichiers). |
 | `GET /health` | **non** | `{"status":"ok","version":"<x.y.z>"}` — statut et version du serveur, rien d'autre (aucune configuration, aucun secret). Jamais rate-limité. |
 
 Aucune autre route n'est déclarée : tout le reste renvoie le 404 par défaut d'Express.

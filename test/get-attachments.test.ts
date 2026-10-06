@@ -334,3 +334,56 @@ describe('collectAttachments — formats', () => {
     assert.equal(batch.images.length, 0);
   });
 });
+
+describe('collectAttachments — téléchargements en parallèle', () => {
+  it('borne les téléchargements simultanés, dédoublonne les parties et garde l’ordre', async () => {
+    let running = 0;
+    let peak = 0;
+    const calls: string[] = [];
+    const fetchAttachmentPart = async (folder: string, uid: number, part: string) => {
+      calls.push(`${uid}/${part}`);
+      running += 1;
+      peak = Math.max(peak, running);
+      // Les uid pairs finissent avant les impairs : l'ordre d'achèvement diffère.
+      await new Promise((resolve) => setTimeout(resolve, uid % 2 === 0 ? 1 : 15));
+      running -= 1;
+      if (uid === 404) throw new Error(`Partie ${part} introuvable`);
+      const content = Buffer.from(`uid ${uid} part ${part}`);
+      return {
+        part,
+        filename: `f-${uid}.pdf`,
+        contentType: 'application/pdf',
+        size: content.length,
+        content,
+      };
+    };
+    const requests: AttachmentRequest[] = [
+      ...[1, 2, 3, 4, 5, 6].map((uid) => ({ folder: 'INBOX', uid, part: '2' })),
+      { folder: 'INBOX', uid: 1, part: '2' },
+      { folder: 'INBOX', uid: 404, part: '2' },
+    ];
+
+    const batch = await collectAttachments(
+      requests,
+      options({ format: 'text_base64', fetchAttachmentPart, concurrency: 2 }),
+    );
+
+    assert.equal(peak, 2, 'jamais plus de 2 téléchargements à la fois');
+    assert.equal(calls.length, 7, 'la partie demandée deux fois n’est téléchargée qu’une fois');
+    assert.deepEqual(
+      batch.items.map((r) => [r.uid, r.ok]),
+      [
+        [1, true],
+        [2, true],
+        [3, true],
+        [4, true],
+        [5, true],
+        [6, true],
+        [1, true],
+        [404, false],
+      ],
+    );
+    const last = batch.items.at(-1)!;
+    assert.ok(!last.ok && /introuvable/.test(last.error));
+  });
+});

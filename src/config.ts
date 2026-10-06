@@ -30,6 +30,9 @@ const envSchema = z.object({
   IMAP_HOST: z.string().min(1).default('imap.mail.me.com'),
   IMAP_PORT: z.coerce.number().int().positive().default(993),
   IMAP_POOL_SIZE: z.coerce.number().int().positive().default(2),
+  // Attente maximale d'une connexion IMAP libre, en millisecondes. Au-delà,
+  // l'appel échoue avec une erreur explicite au lieu de rester bloqué en file.
+  IMAP_ACQUIRE_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
   SMTP_HOST: z.string().min(1).default('smtp.mail.me.com'),
   SMTP_PORT: z.coerce.number().int().positive().default(587),
   SMTP_POOL_SIZE: z.coerce.number().int().positive().default(2),
@@ -73,6 +76,13 @@ const envSchema = z.object({
     (v) => (v === '' ? undefined : v),
     z.string().min(32, 'DOWNLOAD_URL_SECRET doit faire au moins 32 caractères').optional(),
   ),
+
+  // --- Dépôts de fichiers (create_upload_link, POST /upload/:token) --------
+  // Plafonds du stockage EN MÉMOIRE des fichiers déposés, pour qu'un client ne
+  // sature pas la RAM : nombre de dépôts conservés à la fois, et octets cumulés.
+  // Chaque fichier reste en outre borné par ATTACHMENT_MAX_BYTES.
+  UPLOAD_MAX_FILES: z.coerce.number().int().positive().default(20),
+  UPLOAD_MAX_TOTAL_BYTES: z.coerce.number().int().positive().default(52_428_800),
 
   // --- Protocole MCP / sessions (lots C, E) -------------------------------
   // Plafond d'appels par minute et par session.

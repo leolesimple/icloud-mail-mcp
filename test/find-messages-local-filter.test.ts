@@ -2,7 +2,7 @@ import './helpers/env.js';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ImapFlow, MessageStructureObject } from 'imapflow';
-import { fetchPage, searchMessagesAcross } from '../src/imap/messages.js';
+import { CANDIDATE_FETCH_BATCH, fetchPage, searchMessagesAcross } from '../src/imap/messages.js';
 import { FakeMail } from './helpers/fake-imap.js';
 
 const textOnly: MessageStructureObject = { type: 'text/plain', part: '1' };
@@ -214,7 +214,8 @@ describe('from / to / subject vérifiés localement (SEARCH FROM d’iCloud non 
     function bigFolder(): { mail: FakeMail; apple: number[] } {
       const mail = new FakeMail().addMailbox('INBOX');
       const apple: number[] = [];
-      for (let uid = 1; uid <= 250; uid += 1) {
+      // Deux lots et demi de candidats.
+      for (let uid = 1; uid <= CANDIDATE_FETCH_BATCH * 2.5; uid += 1) {
         const fromApple = uid % 3 === 0;
         if (fromApple) apple.unshift(uid);
         mail.addMessage('INBOX', {
@@ -251,7 +252,7 @@ describe('from / to / subject vérifiés localement (SEARCH FROM d’iCloud non 
       await fetchPage(mail.asImapFlow(), { from: 'apple.com' }, 10);
       assert.deepEqual(
         mail.fetches.map((f) => f.size),
-        [100],
+        [CANDIDATE_FETCH_BATCH],
       );
     });
   });

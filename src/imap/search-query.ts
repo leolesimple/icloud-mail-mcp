@@ -274,6 +274,11 @@ export function attachmentFilterOf(criteria: SearchCriteria): AttachmentFilter |
 
 /** Pièce jointe lue dans le BODYSTRUCTURE, telle que la renvoie `find_messages`. */
 export interface AttachmentPart {
+  /**
+   * Numéro de partie IMAP (« 2 », « 1.3 ») : à passer en `part` à `get_attachment`,
+   * `get_attachments` ou `fromMessage` pour ne télécharger que cette partie.
+   */
+  part: string;
   /** Type MIME, en minuscules. */
   contentType: string;
   filename?: string;
@@ -284,6 +289,42 @@ export interface AttachmentPart {
    * Content-ID sans disposition `attachment` (image référencée par le HTML).
    */
   inline: boolean;
+}
+
+/**
+ * Numéro de partie IMAP d'un nœud. imapflow n'en donne pas à la racine d'un
+ * message mono-partie : son corps est alors la partie « 1 » (RFC 3501).
+ */
+function partNumber(node: MessageStructureObject): string {
+  return node.part ?? '1';
+}
+
+/** Vrai pour un conteneur (multipart/*), qui n'est jamais une pièce jointe téléchargeable. */
+export function isMultipartNode(node: MessageStructureObject): boolean {
+  return node.type.toLowerCase().startsWith('multipart/');
+}
+
+/**
+ * Nœud du BODYSTRUCTURE portant ce numéro de partie, ou `undefined`. Parcours
+ * en profondeur, premier trouvé : un message joint (message/rfc822) et la
+ * racine de son contenu partagent leur numéro chez imapflow, c'est le message
+ * joint qui l'emporte.
+ */
+export function findStructurePart(
+  structure: MessageStructureObject | undefined,
+  part: string,
+): MessageStructureObject | undefined {
+  if (!structure) return undefined;
+  if (!isMultipartNode(structure)) return part === '1' ? structure : undefined;
+  const visit = (node: MessageStructureObject): MessageStructureObject | undefined => {
+    if (node.part === part) return node;
+    for (const child of node.childNodes ?? []) {
+      const found = visit(child);
+      if (found) return found;
+    }
+    return undefined;
+  };
+  return visit(structure);
 }
 
 function isAttachmentPart(node: MessageStructureObject): boolean {
@@ -314,10 +355,10 @@ export function attachmentParts(structure: MessageStructureObject | undefined): 
   if (!structure) return [];
   const parts: AttachmentPart[] = [];
   const visit = (node: MessageStructureObject): void => {
-    const isMultipart = node.type.toLowerCase().startsWith('multipart/');
-    if (!isMultipart && isAttachmentPart(node)) {
+    if (!isMultipartNode(node) && isAttachmentPart(node)) {
       const filename = node.dispositionParameters?.filename || node.parameters?.name;
       parts.push({
+        part: partNumber(node),
         contentType: node.type.toLowerCase(),
         ...(filename ? { filename } : {}),
         ...(node.size !== undefined ? { size: node.size } : {}),

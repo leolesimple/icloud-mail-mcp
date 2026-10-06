@@ -3,13 +3,20 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ImapFlow, MessageStructureObject } from 'imapflow';
 import { simpleParser } from 'mailparser';
-import { fetchPage, isInlineAttachment, searchMessagesAcross } from '../src/imap/messages.js';
+import {
+  CANDIDATE_FETCH_BATCH,
+  fetchPage,
+  isInlineAttachment,
+  searchMessagesAcross,
+} from '../src/imap/messages.js';
 import { listFoldersOn, searchableFolderPaths } from '../src/imap/folders.js';
 import {
   attachmentFilterOf,
   attachmentParts,
   attachmentTypes,
+  findStructurePart,
   hasSearchCriteria,
+  isMultipartNode,
   isInlinePart,
   matchesAttachmentFilter,
 } from '../src/imap/search-query.js';
@@ -115,7 +122,8 @@ describe('fetchPage avec filtre pièces jointes', () => {
   function bigFolder(): { mail: FakeMail; withPdf: number[] } {
     const mail = new FakeMail().addMailbox('INBOX');
     const withPdf: number[] = [];
-    for (let uid = 1; uid <= 250; uid += 1) {
+    // Deux lots et demi de candidats.
+    for (let uid = 1; uid <= CANDIDATE_FETCH_BATCH * 2.5; uid += 1) {
       const pdf = uid % 3 === 0;
       if (pdf) withPdf.push(uid);
       mail.addMessage('INBOX', {
@@ -155,13 +163,15 @@ describe('fetchPage avec filtre pièces jointes', () => {
 
   it('lit le BODYSTRUCTURE par lots et s’arrête dès qu’une page est pleine', async () => {
     const { mail } = bigFolder();
+    const batch = CANDIDATE_FETCH_BATCH;
     await fetchPage(mail.asImapFlow(), { hasAttachment: true }, 10);
     // 11 correspondances (10 + 1 pour savoir s'il reste une page) tiennent dans le premier lot.
-    assert.deepEqual(mail.bodyStructureFetches, [100]);
+    assert.deepEqual(mail.bodyStructureFetches, [batch]);
 
     mail.bodyStructureFetches.length = 0;
-    await fetchPage(mail.asImapFlow(), { hasAttachment: true }, 50);
-    assert.deepEqual(mail.bodyStructureFetches, [100, 100]);
+    // Un message sur trois correspond : batch / 2 + 1 correspondances débordent sur un second lot.
+    await fetchPage(mail.asImapFlow(), { hasAttachment: true }, batch / 2);
+    assert.deepEqual(mail.bodyStructureFetches, [batch, batch]);
   });
 
   it('se combine avec les critères IMAP SEARCH', async () => {
@@ -298,6 +308,7 @@ describe('attachments et inline', () => {
     type: 'multipart/mixed',
     childNodes: [
       {
+        part: '1',
         type: 'multipart/related',
         childNodes: [
           { part: '1.1', type: 'text/html' },
@@ -323,9 +334,39 @@ describe('attachments et inline', () => {
 
   it('décrit chaque pièce jointe du BODYSTRUCTURE et marque les parties intégrées', () => {
     assert.deepEqual(attachmentParts(withLogo), [
-      { contentType: 'image/png', filename: 'logo.png', size: 2048, inline: true },
-      { contentType: 'application/pdf', filename: 'Facture.pdf', size: 40960, inline: false },
+      { part: '1.2', contentType: 'image/png', filename: 'logo.png', size: 2048, inline: true },
+      {
+        part: '2',
+        contentType: 'application/pdf',
+        filename: 'Facture.pdf',
+        size: 40960,
+        inline: false,
+      },
     ]);
+  });
+
+  it("numérote « 1 » le corps d'un message mono-partie (imapflow ne lui donne pas de part)", () => {
+    const single: MessageStructureObject = {
+      type: 'application/pdf',
+      disposition: 'attachment',
+      dispositionParameters: { filename: 'scan.pdf' },
+    };
+    assert.deepEqual(
+      attachmentParts(single).map((p) => p.part),
+      ['1'],
+    );
+    assert.equal(findStructurePart(single, '1'), single);
+    assert.equal(findStructurePart(single, '2'), undefined);
+  });
+
+  it('findStructurePart retrouve une partie, conteneurs compris', () => {
+    assert.equal(findStructurePart(withLogo, '1.2')?.type, 'image/png');
+    assert.equal(findStructurePart(withLogo, '2')?.type, 'application/pdf');
+    const container = findStructurePart(withLogo, '1');
+    assert.equal(container?.type, 'multipart/related');
+    assert.equal(isMultipartNode(container!), true);
+    assert.equal(findStructurePart(withLogo, '3'), undefined);
+    assert.equal(findStructurePart(undefined, '1'), undefined);
   });
 
   it('un Content-ID sans disposition vaut inline, sauf disposition attachment', () => {
@@ -342,10 +383,10 @@ describe('attachments et inline', () => {
 
     const filtered = await fetchPage(client, { hasAttachment: true }, 10);
     assert.deepEqual(
-      filtered.messages[0]?.attachments?.map((a) => [a.contentType, a.inline]),
+      filtered.messages[0]?.attachments?.map((a) => [a.part, a.contentType, a.inline]),
       [
-        ['image/png', true],
-        ['application/pdf', false],
+        ['1.2', 'image/png', true],
+        ['2', 'application/pdf', false],
       ],
     );
     assert.doesNotThrow(() => findMessagesResultSchema.parse({ messages: filtered.messages }));

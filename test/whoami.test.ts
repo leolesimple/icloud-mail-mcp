@@ -13,7 +13,14 @@ import type { MessageSummary } from '../src/imap/messages.js';
 const APP_PASSWORD = process.env.ICLOUD_APP_PASSWORD as string;
 const BEARER_TOKEN = process.env.MCP_BEARER_TOKEN as string;
 
-const noPool = () => ({ open: 0, inUse: 0, max: 2 });
+const noPool = () => ({
+  open: 0,
+  inUse: 0,
+  max: 2,
+  waiting: 0,
+  maxRecentWaitMs: 0,
+  acquireTimeouts: 0,
+});
 
 describe('buildWhoami', () => {
   it('décrit le compte, le serveur et le pool IMAP', async () => {
@@ -26,7 +33,7 @@ describe('buildWhoami', () => {
     assert.equal(report.account.smtp.port, 587);
     assert.equal(report.server.name, 'icloud-mail');
     assert.match(report.server.version, /^\d+\.\d+\.\d+/);
-    assert.deepEqual(report.imapPool, { open: 0, inUse: 0, max: 2 });
+    assert.deepEqual(report.imapPool, noPool());
   });
 
   it('expose les identifiants comme des booléens « configuré », jamais leur valeur', async () => {
@@ -273,7 +280,7 @@ describe('buildInboxOverview', () => {
       overviewDeps(),
     );
     assert.deepEqual(overview.diagnostics?.probe, { attempted: true, ok: true, folderCount: 3 });
-    assert.deepEqual(overview.diagnostics?.imapPool, { open: 0, inUse: 0, max: 2 });
+    assert.deepEqual(overview.diagnostics?.imapPool, noPool());
   });
 
   it('ne laisse sortir aucun secret, diagnostics et sonde en échec compris', async () => {

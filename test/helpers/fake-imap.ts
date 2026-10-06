@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { Readable } from 'node:stream';
 import type { ImapFlow, MessageStructureObject } from 'imapflow';
 
 /**
@@ -119,6 +120,8 @@ export interface FakeStoredMessage {
   source?: Buffer;
   size?: number;
   bodyStructure?: MessageStructureObject;
+  /** Contenu DÉCODÉ de chaque partie, par numéro (« 2 », « 1.3 ») : ce que sert `download`. */
+  parts?: Record<string, Buffer>;
 }
 
 export interface FakeMessageInput extends Partial<Omit<FakeStoredMessage, 'flags'>> {
@@ -280,7 +283,17 @@ export class FakeMail extends EventEmitter {
   readonly mailboxes = new Map<string, FakeMailboxState>();
   selected: string | null = null;
   nextUid = 1000;
-  readonly counters = { move: 0, delete: 0, flagAdd: 0, flagRemove: 0, status: 0, append: 0, search: 0 };
+  readonly counters = {
+    move: 0,
+    delete: 0,
+    flagAdd: 0,
+    flagRemove: 0,
+    status: 0,
+    /** LIST avec statuts en ligne (LIST-STATUS) : un seul aller-retour pour tous les dossiers. */
+    listStatus: 0,
+    append: 0,
+    search: 0,
+  };
   /** Taille de chaque FETCH de BODYSTRUCTURE (filtre pièces jointes). */
   readonly bodyStructureFetches: number[] = [];
   /** Requêtes SEARCH reçues, dans l'ordre. */
@@ -289,6 +302,8 @@ export class FakeMail extends EventEmitter {
   readonly fetches: { size: number; query: FetchQuery }[] = [];
   /** Adresses (en minuscules) que SEARCH FROM ne trouve qu'en entier, comme iCloud. */
   readonly fromBlindSpots = new Set<string>();
+  /** Appels à `download` : UID, partie, et `maxBytes` demandé. */
+  readonly downloads: { uid: number; part?: string; maxBytes?: number }[] = [];
 
   // --- Mise en place des tests --------------------------------------------
 
@@ -320,6 +335,7 @@ export class FakeMail extends EventEmitter {
       source: input.source,
       size: input.size,
       bodyStructure: input.bodyStructure,
+      parts: input.parts,
     };
     mailbox.messages.push(message);
     if (message.uid >= this.nextUid) this.nextUid = message.uid + 1;
@@ -350,7 +366,37 @@ export class FakeMail extends EventEmitter {
     return { path, release: () => {} };
   }
 
-  async list(): Promise<unknown[]> {
+  /**
+   * Le serveur annonce-t-il LIST-STATUS (RFC 5819) ? Oui par défaut, comme iCloud.
+   * Sinon `list({ statusQuery })` retombe, comme imapflow, sur un `status()` par
+   * dossier sélectionnable, une erreur devenant `{ error }`.
+   */
+  supportsListStatus = true;
+
+  async list(options?: {
+    statusQuery?: { messages?: boolean; unseen?: boolean };
+  }): Promise<unknown[]> {
+    const entries = this.listEntries();
+    const query = options?.statusQuery;
+    if (!query) return entries;
+    if (this.supportsListStatus) this.counters.listStatus += 1;
+    for (const entry of entries) {
+      // imapflow ne demande jamais le STATUS d'un \\Noselect ; le serveur, lui, n'en renvoie pas.
+      if (this.require(entry.path).noSelect) continue;
+      if (this.supportsListStatus) {
+        (entry as { status?: unknown }).status = this.statusOf(entry.path, query);
+        continue;
+      }
+      try {
+        (entry as { status?: unknown }).status = await this.status(entry.path, query);
+      } catch (error) {
+        (entry as { status?: unknown }).status = { error };
+      }
+    }
+    return entries;
+  }
+
+  private listEntries() {
     return [...this.mailboxes.entries()].map(([path, mailbox]) => ({
       path,
       pathAsListed: path,
@@ -369,6 +415,11 @@ export class FakeMail extends EventEmitter {
     this.counters.status += 1;
     const mailbox = this.require(path);
     if (mailbox.noSelect) throw new Error(`STATUS not allowed on "${path}"`);
+    return this.statusOf(path, query);
+  }
+
+  private statusOf(path: string, query: { messages?: boolean; unseen?: boolean }) {
+    const mailbox = this.require(path);
     return {
       path,
       messages: query.messages ? mailbox.messages.length : undefined,
@@ -417,6 +468,29 @@ export class FakeMail extends EventEmitter {
     const uids = this.resolve(range);
     const message = this.current().find((m) => uids.includes(m.uid));
     return message ? this.project(message, query) : false;
+  }
+
+  /**
+   * Comme imapflow : contenu décodé de la partie (ou source entière sans
+   * partie), en flux par morceaux, tronqué silencieusement à `maxBytes`.
+   * Partie ou message inconnu : objet vide.
+   */
+  async download(
+    range: SearchRange,
+    part?: string,
+    options: { uid?: boolean; maxBytes?: number } = {},
+  ): Promise<unknown> {
+    const uid = this.resolve(range)[0] ?? 0;
+    this.downloads.push({ uid, part, maxBytes: options.maxBytes });
+    const message = this.current().find((m) => m.uid === uid);
+    const content = part ? message?.parts?.[part] : message?.source;
+    if (!message || !content) return {};
+    const limited = options.maxBytes ? content.subarray(0, options.maxBytes) : content;
+    const middle = Math.ceil(limited.length / 2);
+    return {
+      meta: { contentType: part ? 'application/octet-stream' : 'message/rfc822' },
+      content: Readable.from([limited.subarray(0, middle), limited.subarray(middle)]),
+    };
   }
 
   async append(path: string, content: string | Buffer, flags?: string[]): Promise<unknown> {
