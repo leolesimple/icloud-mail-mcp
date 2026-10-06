@@ -12,6 +12,18 @@ export class ImapNetworkError extends Error {
   }
 }
 
+/**
+ * Aucune connexion du pool ne s'est libérée à temps (`IMAP_ACQUIRE_TIMEOUT_MS`).
+ * Sous-classe d'`ImapNetworkError` : comme une panne réseau, elle concerne tout
+ * le serveur et non un dossier, et doit donc être propagée telle quelle.
+ */
+export class ImapPoolTimeoutError extends ImapNetworkError {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'ImapPoolTimeoutError';
+  }
+}
+
 export class ImapCommandError extends Error {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);

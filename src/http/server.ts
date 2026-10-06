@@ -8,9 +8,17 @@ import { createMailMcpServer } from '../mcp/server.js';
 import { bearerAuth } from './auth.js';
 import { clientIp } from './client-ip.js';
 import { SlidingWindowRateLimiter } from './rate-limit.js';
-import { contentDisposition, downloadLinks } from '../download-links.js';
+import { contentDisposition, downloadLinks, safeContentType } from '../download-links.js';
 import type { DownloadLinkService, DownloadTarget } from '../download-links.js';
-import { getAttachment, getMessageSource } from '../imap/messages.js';
+import {
+  normalizeUploadContentType,
+  sanitizeUploadFilename,
+  uploadStore,
+  UploadStoreFullError,
+} from '../uploads.js';
+import type { UploadStore } from '../uploads.js';
+import { getAttachment, getAttachmentPart, getMessageSource } from '../imap/messages.js';
+import { AttachmentTooLargeError } from '../attachments.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { serverVersion } from '../version.js';
@@ -49,6 +57,59 @@ export interface HttpServerOptions {
   sweepIntervalMs?: number;
   /** Dépendances de `GET /download/:token`, injectables pour les tests. */
   download?: DownloadOptions;
+  /** Dépendances de `POST /upload/:token`, injectables pour les tests. */
+  upload?: UploadOptions;
+}
+
+export interface UploadOptions {
+  /** Défaut : le service partagé `downloadLinks` (mêmes jetons, cible `upload`). */
+  links?: DownloadLinkService;
+  /** Défaut : le stockage partagé `uploadStore`. */
+  store?: UploadStore;
+  /** Taille maximale d'un dépôt. Défaut : `config.ATTACHMENT_MAX_BYTES`. */
+  maxBytes?: number;
+}
+
+/** En-têtes durcis des routes à lien signé (`/download`, `/upload`). */
+const SIGNED_LINK_HEADERS = {
+  'Cache-Control': 'no-store',
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+  'Content-Security-Policy': "default-src 'none'; sandbox",
+};
+
+/** Lecture du corps interrompue au-delà de la limite. */
+class BodyTooLargeError extends Error {}
+
+/**
+ * Lit un corps brut en flux, sans jamais garder plus de `limit` octets : la
+ * lecture s'arrête au premier morceau qui dépasse.
+ */
+async function readBodyCapped(req: Request, limit: number): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req as AsyncIterable<Buffer>) {
+    size += chunk.length;
+    if (size > limit) throw new BodyTooLargeError();
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks, size);
+}
+
+/** Valeur d'un en-tête ou paramètre de requête (première occurrence). */
+function firstValue(value: unknown): string | undefined {
+  const v = Array.isArray(value) ? value[0] : value;
+  return typeof v === 'string' && v.length > 0 ? v : undefined;
+}
+
+/** `X-Filename` est encodé en pourcentage (UTF-8) ; illisible → pris tel quel. */
+function decodeFilenameHeader(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 export interface DownloadOptions {
@@ -56,6 +117,8 @@ export interface DownloadOptions {
   links?: DownloadLinkService;
   /** Défaut : `getAttachment` (IMAP). */
   fetchAttachment?: typeof getAttachment;
+  /** Défaut : `getAttachmentPart` (IMAP, une seule partie). */
+  fetchAttachmentPart?: typeof getAttachmentPart;
   /** Défaut : `getMessageSource` (IMAP). */
   fetchMessageSource?: typeof getMessageSource;
   /** Taille maximale servie. Défaut : `config.ATTACHMENT_MAX_BYTES`. */
@@ -67,14 +130,6 @@ interface DownloadFile {
   filename: string;
   contentType: string;
   content: Buffer;
-}
-
-/** Type MIME servi tel quel s'il est bien formé, sinon `application/octet-stream`. */
-function safeContentType(contentType: string): string {
-  const trimmed = contentType.trim().toLowerCase();
-  return /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/.test(trimmed)
-    ? trimmed
-    : 'application/octet-stream';
 }
 
 export interface HttpServer {
@@ -96,8 +151,13 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
 
   const links = options.download?.links ?? downloadLinks;
   const fetchAttachment = options.download?.fetchAttachment ?? getAttachment;
+  const fetchAttachmentPart = options.download?.fetchAttachmentPart ?? getAttachmentPart;
   const fetchMessageSource = options.download?.fetchMessageSource ?? getMessageSource;
   const downloadMaxBytes = options.download?.maxBytes ?? config.ATTACHMENT_MAX_BYTES;
+
+  const uploadLinks = options.upload?.links ?? downloadLinks;
+  const uploads = options.upload?.store ?? uploadStore;
+  const uploadMaxBytes = options.upload?.maxBytes ?? config.ATTACHMENT_MAX_BYTES;
 
   function touch(sessionId: string | undefined): Session | undefined {
     const session = typeof sessionId === 'string' ? sessions.get(sessionId) : undefined;
@@ -125,6 +185,8 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
     evictIdleSessions();
     rateLimiter.sweep();
     links.sweep();
+    if (uploadLinks !== links) uploadLinks.sweep();
+    uploads.sweep();
   }
 
   // .unref() est indispensable : sans lui, ce timer empêche le process de
@@ -263,9 +325,12 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
 
   async function fetchDownload(target: DownloadTarget): Promise<DownloadFile> {
     if (target.kind === 'attachment') {
-      const attachment = await fetchAttachment(target.folder, target.uid, target.index);
+      const attachment =
+        target.part !== undefined
+          ? await fetchAttachmentPart(target.folder, target.uid, target.part, downloadMaxBytes)
+          : await fetchAttachment(target.folder, target.uid, target.index);
       return {
-        filename: attachment.filename ?? `attachment-${target.index}`,
+        filename: attachment.filename ?? `attachment-${target.part ?? target.index}`,
         contentType: attachment.contentType,
         content: attachment.content,
       };
@@ -285,12 +350,7 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
    * détail ; le motif ne va qu'aux logs. Le jeton n'est jamais loggé.
    */
   async function handleDownload(req: Request, res: Response): Promise<void> {
-    res.set({
-      'Cache-Control': 'no-store',
-      'X-Content-Type-Options': 'nosniff',
-      'Referrer-Policy': 'no-referrer',
-      'Content-Security-Policy': "default-src 'none'; sandbox",
-    });
+    res.set(SIGNED_LINK_HEADERS);
     const notFound = () => res.status(404).type('text/plain').send('Not found');
 
     const token = req.params.token;
@@ -306,6 +366,12 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
     try {
       file = await fetchDownload(target);
     } catch (err) {
+      // Partie IMAP refusée avant ou pendant son téléchargement.
+      if (err instanceof AttachmentTooLargeError) {
+        log.warn({ kind: target.kind }, 'download refused: too large');
+        res.status(413).type('text/plain').send(err.message);
+        return;
+      }
       log.warn(
         { err, kind: target.kind, folder: target.folder, uid: target.uid },
         'download fetch failed',
@@ -337,11 +403,119 @@ export function createHttpServer(options: HttpServerOptions = {}): HttpServer {
     res.status(200).end(file.content);
   }
 
+  /**
+   * Dépôt d'un fichier par un lien signé (`create_upload_link`). Comme
+   * `/download` : pas de bearer, le jeton porte l'autorisation ; tout refus de
+   * jeton répond le même 404 générique, le jeton n'est jamais loggé.
+   *
+   * Corps BRUT, de n'importe quel type, lu en flux et coupé dès `uploadMaxBytes`
+   * (413) ou dès la place restante du stockage (507). Les refus qui ne
+   * dépendent que de la requête (multipart, Content-Length trop grand) passent
+   * AVANT le jeton, pour ne pas le brûler ; une fois le jeton vérifié, il est
+   * consommé, même si le dépôt échoue ensuite.
+   *
+   * Nom : celui du jeton, sinon `X-Filename` (UTF-8 encodé en pourcentage), sinon
+   * `?filename=`. Type : celui du jeton, sinon `Content-Type`. Tous deux assainis.
+   */
+  async function handleUpload(req: Request, res: Response): Promise<void> {
+    res.set(SIGNED_LINK_HEADERS);
+    const fail = (status: number, message: string) => {
+      // Corps peut-être pas entièrement lu : on ferme la connexion après la réponse.
+      res.set('Connection', 'close');
+      res.on('finish', () => req.destroy());
+      res.status(status).type('text/plain').send(message);
+    };
+
+    const requestType = firstValue(req.headers['content-type'])?.toLowerCase() ?? '';
+    if (requestType.startsWith('multipart/')) {
+      fail(415, 'Envoyer le fichier en corps brut (curl --data-binary), pas en multipart.');
+      return;
+    }
+    const declared = Number(firstValue(req.headers['content-length']));
+    if (Number.isFinite(declared) && declared > uploadMaxBytes) {
+      fail(
+        413,
+        `Fichier de ${declared} octets, au-delà de la limite de ${uploadMaxBytes} octets (ATTACHMENT_MAX_BYTES).`,
+      );
+      return;
+    }
+
+    const token = req.params.token;
+    const redeemed = uploadLinks.redeem(typeof token === 'string' ? token : '', ['upload']);
+    if (!redeemed.ok) {
+      log.info({ reason: redeemed.reason }, 'upload link refused');
+      fail(404, 'Not found');
+      return;
+    }
+    const { target } = redeemed;
+
+    const room = uploads.available();
+    const limit = Math.min(uploadMaxBytes, room);
+    let content: Buffer;
+    try {
+      content = await readBodyCapped(req, limit);
+    } catch (err) {
+      if (err instanceof BodyTooLargeError) {
+        log.warn({ uploadId: target.uploadId, limit }, 'upload refused: too large');
+        if (limit < uploadMaxBytes) {
+          fail(
+            507,
+            `Stockage des dépôts plein (UPLOAD_MAX_FILES / UPLOAD_MAX_TOTAL_BYTES) : réessayer plus tard.`,
+          );
+        } else {
+          fail(
+            413,
+            `Fichier au-delà de la limite de ${uploadMaxBytes} octets (ATTACHMENT_MAX_BYTES).`,
+          );
+        }
+        return;
+      }
+      log.warn({ err, uploadId: target.uploadId }, 'upload body read failed');
+      if (!res.headersSent) fail(400, 'Lecture du corps interrompue.');
+      return;
+    }
+
+    const filename =
+      sanitizeUploadFilename(target.filename) ??
+      sanitizeUploadFilename(decodeFilenameHeader(firstValue(req.headers['x-filename']))) ??
+      sanitizeUploadFilename(firstValue(req.query.filename));
+    const contentType =
+      normalizeUploadContentType(target.contentType) ?? normalizeUploadContentType(requestType);
+
+    let stored;
+    try {
+      stored = uploads.put({ uploadId: target.uploadId, filename, contentType, content });
+    } catch (err) {
+      if (err instanceof UploadStoreFullError) {
+        log.warn({ uploadId: target.uploadId, size: content.length }, 'upload refused: store full');
+        fail(507, err.message);
+        return;
+      }
+      throw err;
+    }
+
+    log.info({ uploadId: stored.uploadId, size: stored.size }, 'upload stored');
+    res.status(201).json({
+      uploadId: stored.uploadId,
+      size: stored.size,
+      filename: stored.filename ?? null,
+      contentType: stored.contentType,
+      expiresAt: new Date(stored.expiresAt).toISOString(),
+    });
+  }
+
   const app = express();
   // Le seul ingress est cloudflared, sur le réseau bridge privé : on lui fait
   // confiance pour X-Forwarded-For afin que req.ip porte l'IP cliente. La
   // résolution fine passe par clientIp() (CF-Connecting-IP en priorité).
   app.set('trust proxy', true);
+
+  // AVANT express.json() : le corps d'un dépôt est brut, de n'importe quel type
+  // (un fichier JSON compris), et lu en flux par la route elle-même.
+  app.post('/upload/:token', rateLimit, (req, res, next) => {
+    handleUpload(req, res).catch(next);
+  });
+
   app.use(express.json());
 
   // Favicon/webclip : servis à la racine du domaine public (pas d'auth, pas de

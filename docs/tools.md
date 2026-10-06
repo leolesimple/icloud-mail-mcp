@@ -1,6 +1,6 @@
 # Référence des outils
 
-Les dix outils exposés par le serveur MCP, organisés par intention (onze avec
+Les onze outils exposés par le serveur MCP, organisés par intention (douze avec
 `wait_for_new_message`, désactivé par défaut), plus ses [resources et prompts](#resources-et-prompts).
 Les descriptions transmises au client sont en anglais, avec les synonymes français entre parenthèses
 (« unread (non lus) », « draft (brouillon) »…) ; cette page en donne la version détaillée.
@@ -15,6 +15,7 @@ Les descriptions transmises au client sont en anglais, avec les synonymes franç
 | [`export_message`](#export_message) | Exporter un message brut (EML) | oui |
 | [`compose_message`](#compose_message) | Écrire, répondre, transférer, ou enregistrer en brouillon | non |
 | [`send_draft`](#send_draft) | Envoyer un brouillon existant | non |
+| [`create_upload_link`](#create_upload_link) | Déposer un fichier hors MCP pour l'attacher sans base64 | non |
 | [`organize_messages`](#organize_messages) | Déplacer, mettre à la corbeille, marquer | non |
 | [`manage_folders`](#manage_folders) | Lister, créer, renommer, supprimer des dossiers | non |
 
@@ -101,8 +102,8 @@ l'appeler **en premier** pour toute demande qui touche aux mails. Remplace `whoa
 }
 ```
 
-Coût : trois opérations IMAP (deux `SEARCH` + `FETCH` sur l'INBOX, un `LIST` + un `STATUS` par
-dossier), lancées en parallèle sur le pool.
+Coût : trois opérations IMAP (deux `SEARCH` + `FETCH` sur l'INBOX, un `LIST` avec les compteurs
+de tous les dossiers en ligne, via `LIST-STATUS`), lancées en parallèle sur le pool.
 
 Avec `includeDiagnostics: true`, `diagnostics` porte le rapport qu'exposait `whoami` avec
 `probe: true` :
@@ -117,7 +118,12 @@ Avec `includeDiagnostics: true`, `diagnostics` porte le rapport qu'exposait `who
   },
   "credentials": { "appPasswordConfigured": true, "bearerTokenConfigured": true },
   "guardrails": { /* identique à ci-dessus */ },
-  "imapPool": { "open": 1, "inUse": 0, "max": 2 },
+  // waiting : appels en file ; maxRecentWaitMs : plus longue attente sur 15 min ;
+  // acquireTimeouts : appels abandonnés après IMAP_ACQUIRE_TIMEOUT_MS depuis le démarrage
+  "imapPool": {
+    "open": 1, "inUse": 0, "max": 2,
+    "waiting": 0, "maxRecentWaitMs": 0, "acquireTimeouts": 0
+  },
   "probe": { "attempted": true, "ok": true, "folderCount": 12 }
 }
 ```
@@ -210,8 +216,13 @@ filtre pièces jointes peut lire beaucoup de `BODYSTRUCTURE` dans un gros dossie
 préférence à `from`, `since`…
 
 Avec un filtre pièces jointes, chaque message porte en plus `attachments`, lu dans le même
-`BODYSTRUCTURE` : `[{ contentType, filename?, size?, inline }]`. `size` est la taille de la partie
-encodée (base64 : environ un tiers de plus que le fichier). `inline: true` marque une partie
+`BODYSTRUCTURE` : `[{ part, contentType, filename?, size?, inline }]`. `part` est le numéro de
+partie IMAP (`"2"`, `"1.3"`, `"1"` pour un message mono-partie) : le passer en `part` à
+[`get_attachment`](#get_attachment), [`get_attachments`](#get_attachments) ou à la source
+`fromMessage` de [`compose_message`](#compose_message) récupère **directement** cette pièce jointe,
+sans `read_message` ni téléchargement du message entier. Il ne se confond pas avec l'`index` de
+`read_message` : mailparser compte aussi, par exemple, les images intégrées sans nom. `size` est la
+taille de la partie encodée (base64 : environ un tiers de plus que le fichier). `inline: true` marque une partie
 **affichée dans le corps** plutôt que jointe (disposition `inline`, ou Content-ID sans disposition
 `attachment` : images intégrées au HTML, logos de signature). Ces parties comptent pour
 `hasAttachment` et `attachmentType` ; c'est à l'agent d'écarter les `inline` s'il ne veut que les
@@ -249,7 +260,8 @@ aux suppressions. `nextCursor` est absent dès qu'il ne reste plus rien.
 
 **Recherche multi-dossiers** (`folders`) — chaque message porte en plus son `folder` d'origine ;
 les résultats sont fusionnés, triés par date et tronqués à `limit`. Pas de `nextCursor` dans ce
-mode. Un dossier en échec (nom inexistant…) est écarté et reporté dans `errors` au lieu de faire
+mode. Les dossiers sont fouillés en parallèle sur toutes les connexions du pool sauf une
+(`IMAP_POOL_SIZE - 1`, voir [configuration](configuration.md#connexion-imap)). Un dossier en échec (nom inexistant…) est écarté et reporté dans `errors` au lieu de faire
 échouer toute la recherche ; une erreur d'authentification ou de réseau, elle, est propagée.
 
 `folders: "*"` fouille tous les dossiers sélectionnables (les conteneurs `\Noselect` sont
@@ -275,8 +287,8 @@ les ajoute. Un critère reste obligatoire (un filtre pièces jointes en est un).
     "folder": "INBOX",
     "subject": "Votre facture Apple",
     "attachments": [
-      { "contentType": "image/png", "filename": "logo.png", "size": 2048, "inline": true },
-      { "contentType": "application/pdf", "filename": "Facture.pdf", "size": 40960, "inline": false }
+      { "part": "1.2", "contentType": "image/png", "filename": "logo.png", "size": 2048, "inline": true },
+      { "part": "2", "contentType": "application/pdf", "filename": "Facture.pdf", "size": 40960, "inline": false }
     ]
   }
 ]
@@ -363,14 +375,30 @@ est un résumé d'enveloppe identique à ceux de `find_messages`, augmenté de `
 
 ### `get_attachment`
 
-Contenu binaire d'**une** pièce jointe, ciblée par l'`index` renvoyé par `read_message`.
+Contenu binaire d'**une** pièce jointe, ciblée par l'`index` renvoyé par `read_message` **ou** par
+le numéro de partie IMAP `part` renvoyé par `find_messages`.
 
 | Paramètre | Type | Défaut | Description |
 |---|---|---|---|
 | `folder` | string | `INBOX` | Dossier contenant le message |
 | `uid` | number | *(requis)* | UID IMAP du message |
-| `index` | number | *(requis)* | Index de la pièce jointe (tel que renvoyé par `read_message`) |
+| `index` | number | — | Index de la pièce jointe (tel que renvoyé par `read_message`) |
+| `part` | string | — | Numéro de partie IMAP (`"2"`, `"1.3"`), tel que renvoyé par `find_messages` |
 | `format` | `auto` \| `text_base64` \| `url` | `auto` | Forme du retour, voir ci-dessous |
+
+**Exactement un** de `index` ou `part` est requis (aucun, ou les deux : refusé à la validation ;
+`part` doit avoir la forme `^\d+(\.\d+)*$`). Les deux ne sont **pas** interchangeables : `index` est
+une position dans la liste de mailparser, `part` un numéro dans le `BODYSTRUCTURE`.
+
+- **Par `index`**, le message entier est téléchargé puis parsé.
+- **Par `part`**, seule cette partie est téléchargée (le serveur décode le base64 ou le
+  quoted-printable) : c'est le chemin direct depuis un résultat de `find_messages`, sans
+  `read_message`. Le serveur vérifie d'abord dans le `BODYSTRUCTURE` que la partie existe et n'est
+  pas un conteneur `multipart/*` (refus explicite, avec la liste des parties de pièces jointes) ;
+  `filename` et `contentType` en sont tirés. La limite de taille s'applique **avant** le
+  téléchargement, sur la taille annoncée, puis **pendant**, en coupant le flux. Réserve : une partie
+  `text/*` sans disposition `attachment` est convertie en UTF-8 par imapflow, ses octets peuvent donc
+  différer de ceux obtenus par `index`.
 
 Le retour dépend de `format` :
 
@@ -398,7 +426,8 @@ Aucun format ne renvoie de bloc `resource` : Claude Desktop les refuse pour les 
 
 Au-delà de `ATTACHMENT_MAX_BYTES` (5 Mo par défaut), l'outil **refuse** en indiquant la taille
 réelle et la limite : jamais de troncature silencieuse d'un binaire. La limite vaut aussi pour le
-format `url`, au moment de l'émission du lien comme à son téléchargement.
+format `url`, au moment de l'émission du lien comme à son téléchargement. Un lien émis pour une
+`part` ne télécharge, lui aussi, que cette partie.
 
 ---
 
@@ -408,22 +437,23 @@ Plusieurs pièces jointes en **un seul appel**, éventuellement de messages et d
 
 | Paramètre | Type | Défaut | Description |
 |---|---|---|---|
-| `items` | `{ folder, uid, index }[]` | *(requis)* | 1 à 25 pièces jointes ; `folder` vaut `INBOX` par défaut, `index` comme pour `get_attachment` |
+| `items` | `{ folder, uid, index }[]` ou `{ folder, uid, part }[]` | *(requis)* | 1 à 25 pièces jointes ; `folder` vaut `INBOX` par défaut, `index` ou `part` (exactement un par élément) comme pour `get_attachment` |
 | `format` | `auto` \| `text_base64` \| `url` | `auto` | Même paramètre que [`get_attachment`](#get_attachment) |
 
-Les éléments sont regroupés par message (`folder`, `uid`) : chaque message n'est téléchargé et
-parsé **qu'une fois**, quel que soit le nombre d'index demandés.
+Les éléments par `index` sont regroupés par message (`folder`, `uid`) : chaque message n'est
+téléchargé et parsé **qu'une fois**, quel que soit le nombre d'index demandés. Un élément par `part`
+ne télécharge que sa partie ; les deux formes peuvent se mélanger dans un même appel.
 
 Le premier bloc est un `text` contenant le récapitulatif JSON `{ succeeded, failed, items }`, avec
 un résultat par élément, **dans l'ordre de la demande** :
 
-- succès : `{ folder, uid, index, ok: true, filename, contentType, size, … }` complété selon le
+- succès : `{ folder, uid, index | part, ok: true, filename, contentType, size, … }` complété selon le
   format : `contentBase64` (`text_base64`, et `auto` hors images), `url` + `expiresAt` (`url`), ou
   `imageBlock: true` pour une image en `auto` ;
-- échec : `{ folder, uid, index, ok: false, error }`.
+- échec : `{ folder, uid, index | part, ok: false, error }`.
 
 En `auto`, chaque image suit le récapitulatif : une ligne `text` qui la situe
-(`items[0] : photo.png (folder "INBOX", uid 4512, index 1)`), puis son bloc `image`
+(`items[0] : photo.png (folder "INBOX", uid 4512, index 1)`, ou `part 2`), puis son bloc `image`
 (`data` + `mimeType`, comme `get_attachment`).
 
 ```json
@@ -452,10 +482,10 @@ En `auto`, chaque image suit le récapitulatif : une ligne `text` qui la situe
 }
 ```
 
-**Échecs partiels.** Un élément en échec — message ou index introuvable, pièce jointe au-delà de
-`ATTACHMENT_MAX_BYTES`, limite cumulée dépassée — porte son `error` sans faire échouer le lot. Seule
-une erreur d'authentification ou réseau IMAP, qui touche la connexion entière, fait échouer l'appel
-(même logique que `find_messages` sur plusieurs dossiers).
+**Échecs partiels.** Un élément en échec — message, index ou partie introuvable, partie multipart,
+pièce jointe au-delà de `ATTACHMENT_MAX_BYTES`, limite cumulée dépassée — porte son `error` sans
+faire échouer le lot. Seule une erreur d'authentification ou réseau IMAP, qui touche la connexion
+entière, fait échouer l'appel (même logique que `find_messages` sur plusieurs dossiers).
 
 **Limites de taille.**
 
@@ -524,7 +554,7 @@ brouillon. Remplace `send_message`, `reply_message`, `forward_message`, `save_dr
 | `subject` | string | — | Requis pour `new` ; dérivé de l'original en réponse / transfert |
 | `text` | string | — | Corps en texte brut (ou note au-dessus d'un message transféré) |
 | `html` | string | — | Corps en HTML |
-| `attachments` | object[] | — | Pièces jointes : `{ filename, contentType?, contentBase64 }` |
+| `attachments` | object[] | — | Pièces jointes, chacune avec **une** source : `contentBase64`, `fromMessage`, `url` ou `uploadId` (voir plus bas) |
 
 **Combinaisons acceptées**, et l'opération qu'elles déclenchent :
 
@@ -567,9 +597,50 @@ threading : envoyé plus tard depuis Mail.app, il atterrira dans le bon fil.
 **Transfert.** Le message d'origine est joint **verbatim** en `message/rfc822` (en-têtes et pièces
 jointes préservés), et non recopié en texte. Le sujet est préfixé `Fwd: ` de façon idempotente.
 
-**Pièces jointes.** Le contenu de chaque pièce jointe est fourni en **base64** dans
-`contentBase64`. Le cumul est refusé au-delà de `ATTACHMENT_MAX_BYTES` (5 Mo par défaut). Les
-pièces jointes sont acceptées aussi au remplacement d'un brouillon (`draftUid`).
+**Pièces jointes.** Chaque élément de `attachments` désigne son contenu par **exactement une**
+source ; zéro ou plusieurs sont refusées à la validation :
+
+| Source | Forme | Nom et type |
+|---|---|---|
+| `contentBase64` | le contenu en base64 | `filename` requis, `contentType` facultatif |
+| `fromMessage` | `{ folder?, uid, index }` ou `{ folder?, uid, part }` : une pièce jointe d'un message de la boîte (`folder` vaut `INBOX` par défaut ; `index` comme dans `read_message`, ou `part` comme dans `find_messages`, exactement un des deux) | repris de l'original (`BODYSTRUCTURE` avec `part`) |
+| `url` | une URL `https://` publique, téléchargée par le serveur | `Content-Disposition`, sinon dernier segment du chemin ; type de la réponse |
+| `uploadId` | l'identifiant d'un fichier déposé par [`create_upload_link`](#create_upload_link) | repris du dépôt (`filename` requis si le dépôt n'en a pas) |
+
+`filename` et `contentType`, s'ils sont fournis, **remplacent** toujours le nom et le type repris ou
+déduits. Pour `url`, `filename` devient obligatoire si aucun nom ne peut être déduit.
+
+```jsonc
+"attachments": [
+  { "fromMessage": { "folder": "INBOX", "uid": 42, "index": 0 } },   // facture reçue, renvoyée telle quelle
+  { "fromMessage": { "folder": "Apple", "uid": 371, "part": "2" } },  // part tiré de find_messages
+  { "url": "https://exemple.fr/devis.pdf", "filename": "Devis.pdf" },
+  { "uploadId": "q3Vx0Zl1Hc4yN8sTt2Kp9w" },                            // fichier déposé par create_upload_link
+  { "filename": "note.txt", "contentBase64": "Qm9uam91cg==" }
+]
+```
+
+Le base64 inline convient aux petits fichiers : un PDF de 430 Ko fait environ 570 000 caractères, que
+le client doit générer d'un bloc. Pour renvoyer une pièce jointe déjà reçue, `fromMessage` la reprend
+directement dans iCloud, sans qu'elle transite par le modèle ; plusieurs pièces jointes d'un même
+message désignées par `index` ne le téléchargent qu'une fois, et une pièce jointe désignée par `part`
+ne télécharge que sa partie (refusée d'emblée si sa taille annoncée dépasse ce qui reste du plafond). La source `url` passe par une garde anti-SSRF (`https`
+seulement, adresses privées ou locales refusées, 3 redirections au plus, 15 s) décrite dans
+[security.md](security.md#pièces-jointes-par-url-ssrf). Pour un fichier **local** volumineux,
+`uploadId` évite le base64 : le client le dépose d'abord par HTTP (voir
+[`create_upload_link`](#create_upload_link)).
+
+Un dépôt `uploadId` est **consommé** (supprimé) une fois le mail envoyé ou le brouillon enregistré
+(`DRAFTS_ONLY` compris), et seulement alors : un échec le laisse réutilisable. Un `uploadId`
+inconnu, expiré ou déjà consommé fait échouer l'appel (`attachments[0] (uploadId) : dépôt … inconnu,
+expiré ou déjà utilisé`).
+
+Le **cumul** de toutes les sources est plafonné à `ATTACHMENT_MAX_BYTES` (5 Mo par défaut) ; une URL
+ne reçoit que ce qui reste et son téléchargement est coupé dès le dépassement. Toutes les sources
+sont résolues **avant** l'envoi ou l'écriture du brouillon : si l'une échoue (message ou pièce jointe
+introuvable, URL refusée, injoignable ou trop grosse), l'appel échoue avec un message qui nomme
+l'élément (`attachments[1] (url) : …`), et rien n'est envoyé ni enregistré. Les pièces jointes sont
+acceptées aussi au remplacement d'un brouillon (`draftUid`).
 
 **Brouillons.** `deliver: "draft"` n'utilise que l'IMAP (`APPEND` dans le dossier `\Drafts`) : il
 n'est **jamais bloqué par `ENABLE_SENDING`**. Avec `draftUid`, la nouvelle version est **d'abord**
@@ -629,6 +700,69 @@ copié ni supprimé).
 
 Pour **lister** les brouillons : `find_messages` sur le dossier Drafts. Pour en **supprimer** un :
 `organize_messages` avec `action: "trash"` sur ce même dossier.
+
+---
+
+### `create_upload_link`
+
+Émet un lien de **dépôt** signé, pour joindre à un mail un fichier que le client a sur disque sans
+le faire passer en base64 par le modèle. Le client envoie le fichier **hors du protocole MCP**, par
+un simple `POST`, puis `compose_message` l'attache par son `uploadId`.
+
+| Paramètre | Type | Défaut | Description |
+|---|---|---|---|
+| `filename` | string | — | Nom de la pièce jointe (sinon pris de la requête de dépôt) |
+| `contentType` | string | — | Type MIME (sinon pris du `Content-Type` du dépôt) |
+
+```jsonc
+{
+  "uploadUrl": "https://mail-mcp.exemple.fr/upload/eyJ2Ijox…",
+  "uploadId": "q3Vx0Zl1Hc4yN8sTt2Kp9w",
+  "expiresAt": "2026-10-06T14:15:00.000Z",   // le lien vaut 15 minutes, pour un seul dépôt
+  "maxBytes": 5242880,                       // ATTACHMENT_MAX_BYTES
+  "method": "POST"
+}
+```
+
+Exige `PUBLIC_BASE_URL` : sans elle, l'outil renvoie une erreur explicite.
+
+**Le dépôt.** `POST <uploadUrl>`, **sans bearer** (le jeton de l'URL porte l'autorisation), avec le
+fichier en **corps brut** — pas de `multipart/form-data` (refusé en `415`) :
+
+```bash
+curl --data-binary @rapport.pdf \
+  -H "Content-Type: application/pdf" \
+  -H "X-Filename: $(printf %s 'Rapport été.pdf' | jq -sRr @uri)" \
+  "$UPLOAD_URL"
+# 201 {"uploadId":"q3Vx…","size":431207,"filename":"Rapport été.pdf","contentType":"application/pdf",
+#      "expiresAt":"2026-10-06T15:02:11.000Z"}
+```
+
+- **Nom** : celui fixé dans `create_upload_link`, sinon l'en-tête `X-Filename` (UTF-8 encodé en
+  pourcentage), sinon le paramètre `?filename=`. Il est assaini (chemin retiré, caractères de
+  contrôle et réservés remplacés). Sans nom, il faudra passer `filename` à `compose_message`.
+- **Type** : celui fixé dans `create_upload_link`, sinon le `Content-Type` réduit à son essence
+  (`text/plain; charset=utf-8` → `text/plain`), sinon `application/octet-stream`.
+  `application/x-www-form-urlencoded`, que `curl --data-binary` pose par défaut, est ignoré :
+  préciser `-H "Content-Type: …"`.
+- **Réponses** : `201` (dépôt rangé), `404` générique (jeton illisible, falsifié, expiré, déjà
+  utilisé), `413` (au-delà d'`ATTACHMENT_MAX_BYTES`), `415` (multipart), `507` (stockage plein,
+  voir `UPLOAD_MAX_FILES` / `UPLOAD_MAX_TOTAL_BYTES`), `429` (rate limit).
+
+Le lien sert **une fois** : un dépôt refusé après la vérification du jeton (trop gros, stockage
+plein) le consomme aussi, il faut en redemander un. Les refus `415` et `413` sur un `Content-Length`
+annoncé, eux, sont rendus avant et ne le brûlent pas.
+
+**Ensuite**, dans l'heure :
+
+```jsonc
+{ "mode": "new", "to": ["alice@exemple.fr"], "subject": "Rapport", "text": "Ci-joint.",
+  "attachments": [{ "uploadId": "q3Vx0Zl1Hc4yN8sTt2Kp9w" }] }
+```
+
+Le fichier déposé est gardé **en mémoire** 1 h, puis purgé s'il n'a pas servi ; il est supprimé dès
+que le mail part ou que le brouillon est enregistré. Les dépôts **ne survivent pas à un
+redémarrage** du serveur. Voir [security.md](security.md#dépôt-de-fichiers).
 
 ---
 
@@ -710,9 +844,9 @@ Liste, crée, renomme ou supprime des dossiers IMAP. Remplace `list_folders` et 
 | `envelope` | boolean | `false` | `list` : enveloppe le bloc texte en `{ folders: [...] }` |
 
 **`list`** — à appeler quand on ne connaît pas les noms exacts des dossiers, notamment pour trouver
-l'archive et la corbeille via leur `specialUse`. Avec `includeStatus` (défaut), c'est **une
-commande `STATUS` par dossier**, soit une dizaine d'allers-retours sur un compte iCloud typique ;
-`includeStatus: false` donne un listing rapide, sans les deux compteurs.
+l'archive et la corbeille via leur `specialUse`. Avec `includeStatus` (défaut), les compteurs
+arrivent avec le `LIST` lui-même (`LIST-STATUS`, un seul aller-retour sur iCloud ; un `STATUS` par
+dossier sur un serveur qui ne le supporte pas) ; `includeStatus: false` s'en passe.
 
 ```jsonc
 [

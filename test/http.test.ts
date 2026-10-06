@@ -11,6 +11,8 @@ import { imapPool } from '../src/imap/pool.js';
 import { closeSmtp } from '../src/smtp/client.js';
 import { createDownloadLinkService, DOWNLOAD_LINK_TTL_MS } from '../src/download-links.js';
 import type { AttachmentContent } from '../src/imap/messages.js';
+import { createUploadStore } from '../src/uploads.js';
+import { AttachmentTooLargeError } from '../src/attachments.js';
 
 /**
  * Tests d'intégration de la couche HTTP : un vrai serveur Express sur un port
@@ -348,6 +350,15 @@ describe('GET /download/:token', () => {
           }
           return { index, filename: 'Facture été/../x.pdf', contentType: 'application/pdf', size: PDF.length, content: PDF };
         },
+        fetchAttachmentPart: async (folder, uid, part, maxBytes) => {
+          fetched.push(`part:${folder}:${uid}:${part}:${maxBytes}`);
+          if (uid === 413) {
+            throw new AttachmentTooLargeError(
+              `Pièce jointe (partie ${part}) interrompue, au-delà de la limite (ATTACHMENT_MAX_BYTES).`,
+            );
+          }
+          return { part, filename: 'Facture.pdf', contentType: 'application/pdf', size: PDF.length, content: PDF };
+        },
         fetchMessageSource: async (folder, uid) => {
           fetched.push(`message:${folder}:${uid}`);
           return Buffer.from('From: a@example.com\r\nSubject: test\r\n\r\ncorps\r\n');
@@ -384,6 +395,22 @@ describe('GET /download/:token', () => {
     assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
     assert.ok(Buffer.from(await response.arrayBuffer()).equals(PDF));
     assert.equal(fetched.at(-1), 'attachment:INBOX:12:0');
+  });
+
+  it('sert une pièce jointe désignée par son numéro de partie IMAP', async () => {
+    const token = links.issue({ kind: 'attachment', folder: 'Apple', uid: 371, part: '2' }).token;
+    const response = await fetch(`${url}/download/${token}`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-disposition') ?? '', /filename="Facture\.pdf"/);
+    assert.ok(Buffer.from(await response.arrayBuffer()).equals(PDF));
+    assert.equal(fetched.at(-1), 'part:Apple:371:2:64');
+  });
+
+  it('répond 413 quand la partie dépasse la limite', async () => {
+    const token = links.issue({ kind: 'attachment', folder: 'Apple', uid: 413, part: '2' }).token;
+    const response = await fetch(`${url}/download/${token}`);
+    assert.equal(response.status, 413);
+    assert.match(await response.text(), /partie 2.*ATTACHMENT_MAX_BYTES/);
   });
 
   it('sert un message entier en message/rfc822', async () => {
@@ -442,6 +469,187 @@ describe('GET /download/:token', () => {
       const statuses: number[] = [];
       for (let i = 0; i < 3; i += 1) {
         const response = await fetch(`${limited.url}/download/pas-un-jeton`);
+        statuses.push(response.status);
+        await response.body?.cancel();
+      }
+      assert.deepEqual(statuses, [404, 404, 429]);
+    } finally {
+      await stopServer(limited.instance, limited.srv);
+    }
+  });
+});
+
+describe('POST /upload/:token', () => {
+  let instance: HttpServer;
+  let srv: Server;
+  let url: string;
+  let now = 1_000_000;
+  const links = createDownloadLinkService({
+    secret: 'secret-de-test-0123456789abcdef-0123456789',
+    now: () => now,
+  });
+  const store = createUploadStore({ maxFiles: 3, maxTotalBytes: 100 });
+  let counter = 0;
+
+  before(async () => {
+    const started = await startServer({
+      rateLimitPerMinute: 10_000,
+      upload: { links, store, maxBytes: 64 },
+    });
+    instance = started.instance;
+    srv = started.srv;
+    url = started.url;
+  });
+
+  after(() => stopServer(instance, srv));
+
+  function issue(extra: { filename?: string; contentType?: string } = {}) {
+    counter += 1;
+    const uploadId = `upload-test-${String(counter).padStart(10, '0')}`;
+    return { uploadId, token: links.issue({ kind: 'upload', uploadId, ...extra }).token };
+  }
+
+  function post(token: string, body: RequestInit['body'], headers: Record<string, string> = {}, query = '') {
+    return fetch(`${url}/upload/${token}${query}`, { method: 'POST', body, headers });
+  }
+
+  async function expectGeneric404(response: Response) {
+    assert.equal(response.status, 404);
+    assert.equal(await response.text(), 'Not found');
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+  }
+
+  it('range le fichier sans bearer et répond 201', async () => {
+    const { uploadId, token } = issue();
+    const response = await post(token, 'contenu du fichier', {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'X-Filename': encodeURIComponent('Notes été.txt'),
+    });
+    assert.equal(response.status, 201);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+    const body = (await response.json()) as Record<string, unknown>;
+    assert.equal(body.uploadId, uploadId);
+    assert.equal(body.size, 18);
+    assert.equal(body.filename, 'Notes été.txt');
+    assert.equal(body.contentType, 'text/plain');
+    assert.equal(store.get(uploadId)?.content.toString(), 'contenu du fichier');
+    store.delete(uploadId);
+  });
+
+  it('préfère le nom et le type du jeton, et lit un corps JSON brut', async () => {
+    const { uploadId, token } = issue({ filename: 'data.json', contentType: 'application/json' });
+    const response = await post(token, '{"a":1}', {
+      'Content-Type': 'application/json',
+      'X-Filename': 'autre.bin',
+    });
+    assert.equal(response.status, 201);
+    const stored = store.get(uploadId);
+    assert.equal(stored?.filename, 'data.json');
+    assert.equal(stored?.contentType, 'application/json');
+    assert.equal(stored?.content.toString(), '{"a":1}');
+    store.delete(uploadId);
+  });
+
+  it('accepte ?filename= et assainit le nom', async () => {
+    const { uploadId, token } = issue();
+    const response = await post(token, 'x', {}, `?filename=${encodeURIComponent('../../a"b.pdf')}`);
+    assert.equal(response.status, 201);
+    assert.equal(store.get(uploadId)?.filename, 'a_b.pdf');
+    store.delete(uploadId);
+  });
+
+  it('refuse un fichier trop gros (413) sans le garder', async () => {
+    const { uploadId, token } = issue();
+    const response = await post(token, Buffer.alloc(65));
+    assert.equal(response.status, 413);
+    assert.match(await response.text(), /ATTACHMENT_MAX_BYTES/);
+    assert.equal(store.get(uploadId), undefined);
+  });
+
+  it('coupe un corps en flux sans Content-Length au-delà de la limite (413)', async () => {
+    const { uploadId, token } = issue();
+    const chunks = [Buffer.alloc(40), Buffer.alloc(40)];
+    const stream = new ReadableStream({
+      pull(controller) {
+        const next = chunks.shift();
+        if (next) controller.enqueue(next);
+        else controller.close();
+      },
+    });
+    const response = await fetch(`${url}/upload/${token}`, {
+      method: 'POST',
+      body: stream,
+      duplex: 'half',
+    } as RequestInit);
+    assert.equal(response.status, 413);
+    assert.equal(store.get(uploadId), undefined);
+  });
+
+  it('refuse le multipart (415) sans brûler le jeton', async () => {
+    const { token } = issue();
+    const form = new FormData();
+    form.append('file', new Blob(['x']), 'x.txt');
+    const response = await post(token, form);
+    assert.equal(response.status, 415);
+    await response.body?.cancel();
+    const retry = await post(token, 'x');
+    assert.equal(retry.status, 201);
+    store.delete(((await retry.json()) as { uploadId: string }).uploadId);
+  });
+
+  it('répond 404 générique à un jeton rejoué', async () => {
+    const { uploadId, token } = issue();
+    assert.equal((await post(token, 'x')).status, 201);
+    await expectGeneric404(await post(token, 'y'));
+    assert.equal(store.get(uploadId)?.content.toString(), 'x');
+    store.delete(uploadId);
+  });
+
+  it('répond 404 générique à un jeton expiré, falsifié ou de téléchargement', async () => {
+    const expired = issue().token;
+    now += DOWNLOAD_LINK_TTL_MS;
+    await expectGeneric404(await post(expired, 'x'));
+
+    const raw = Buffer.from(issue().token, 'base64url');
+    raw.writeUInt8(raw.readUInt8(raw.length - 1) ^ 0x01, raw.length - 1);
+    await expectGeneric404(await post(raw.toString('base64url'), 'x'));
+    await expectGeneric404(await post('pas-un-jeton', 'x'));
+
+    const download = links.issue({ kind: 'attachment', folder: 'INBOX', uid: 1, index: 0 }).token;
+    await expectGeneric404(await post(download, 'x'));
+    assert.deepEqual(store.stats(), { count: 0, bytes: 0 });
+  });
+
+  it('refuse au-delà des plafonds globaux (507)', async () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      const { uploadId, token } = issue();
+      assert.equal((await post(token, Buffer.alloc(30))).status, 201);
+      ids.push(uploadId);
+    }
+    const full = await post(issue().token, 'x');
+    assert.equal(full.status, 507);
+    assert.match(await full.text(), /UPLOAD_MAX_FILES/);
+
+    store.delete(ids[0] as string);
+    // Reste 40 octets sur 100 : un dépôt de 50 octets est coupé en flux.
+    const tooMuch = await post(issue().token, Buffer.alloc(50));
+    assert.equal(tooMuch.status, 507);
+    await tooMuch.body?.cancel();
+    for (const id of ids) store.delete(id);
+  });
+
+  it('est soumis au rate limit', async () => {
+    const limited = await startServer({ rateLimitPerMinute: 2, upload: { links, store } });
+    try {
+      const statuses: number[] = [];
+      for (let i = 0; i < 3; i += 1) {
+        const response = await fetch(`${limited.url}/upload/pas-un-jeton`, {
+          method: 'POST',
+          body: 'x',
+        });
         statuses.push(response.status);
         await response.body?.cancel();
       }

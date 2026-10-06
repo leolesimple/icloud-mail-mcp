@@ -37,14 +37,29 @@ Si vous utilisez le mauvais mot de passe, l'erreur au démarrage le dit explicit
 | `IMAP_HOST` | `imap.mail.me.com` | Serveur IMAP |
 | `IMAP_PORT` | `993` | Port IMAP (TLS implicite) |
 | `IMAP_POOL_SIZE` | `2` | Connexions IMAP maintenues ouvertes et réutilisées |
+| `IMAP_ACQUIRE_TIMEOUT_MS` | `60000` | Attente maximale d'une connexion libre du pool, en millisecondes |
 
 **`IMAP_POOL_SIZE` mérite un mot.** iCloud limite le nombre de connexions IMAP simultanées par
 compte et bloque temporairement les comptes trop bavards. Le pool ouvre au plus ce nombre de
 connexions et les recycle entre les appels d'outils ; les demandes supplémentaires attendent leur
 tour au lieu d'ouvrir une connexion de plus.
 
-`2` convient à un usage par un seul Claude. Monter à `3` ou `4` n'accélère que si plusieurs
-conversations tapent en parallèle, et augmente le risque de throttling. Ne pas monter plus haut.
+La recherche multi-dossiers (`find_messages` avec `folders`) fouille les dossiers en parallèle sur
+**toutes les connexions du pool sauf une**, laissée libre pour les autres appels :
+
+- `2` (défaut) : prudent vis-à-vis d'iCloud, mais une recherche `folders: "*"` reste séquentielle
+  (une connexion pour elle, une pour le reste) ;
+- `4` : recommandé dès qu'on cherche souvent sur tous les dossiers ou que plusieurs conversations
+  tapent en parallèle. La recherche utilise 3 connexions, la quatrième reste disponible ;
+- au-delà de `4`, le gain est faible et le risque de throttling iCloud augmente.
+
+**`IMAP_ACQUIRE_TIMEOUT_MS`** borne l'attente d'une connexion quand le pool est plein. Au-delà,
+l'appel échoue avec une erreur explicite (« Pool IMAP saturé », taille du pool, connexions occupées,
+appels en attente) au lieu de rester bloqué sans fin. Si cette erreur revient, des appels longs
+monopolisent le pool : augmenter `IMAP_POOL_SIZE` (jusqu'à `4`). Chaque mise en file est
+journalisée (`warn`, `imap pool full, call queued`), de même que toute attente de plus d'une
+seconde (`info`) ; `inbox_overview` avec `includeDiagnostics` montre l'état du pool (voir
+[outils](tools.md#inbox_overview)).
 
 ---
 
@@ -80,7 +95,7 @@ En `stdio`, stdout porte le canal JSON-RPC : le serveur bascule automatiquement 
 | `MCP_BEARER_TOKEN` | **requis** | Token attendu sur `/mcp`, en `Authorization: Bearer <token>` ou `X-Api-Key: <token>` (jeton brut, pour les connecteurs claude.ai). 16 caractères minimum. Toujours requis, même en `stdio` (où il ne sert pas). |
 | `RATE_LIMIT_PER_MINUTE` | `120` | Requêtes `/mcp` autorisées par IP et par minute (fenêtre glissante). Au-delà : `429`. `/health` n'est jamais limité. |
 | `SESSION_TTL_MS` | `1800000` | Inactivité (en ms) au-delà de laquelle une session MCP est évincée et son transport fermé. 30 min par défaut. |
-| `PUBLIC_BASE_URL` | `''` (vide) | URL publique HTTPS du serveur, sans slash final (ex. `https://mail-mcp.exemple.com`). Renseigne `icons`/`websiteUrl` dans les métadonnées `Implementation` du protocole MCP, pour les clients qui les affichent, et sert de base aux liens de téléchargement (`get_attachment`, `get_attachments`, `export_message`, `format: "url"`). Vide = ces champs ne sont pas envoyés et le format `url` est refusé. |
+| `PUBLIC_BASE_URL` | `''` (vide) | URL publique HTTPS du serveur, sans slash final (ex. `https://mail-mcp.exemple.com`). Renseigne `icons`/`websiteUrl` dans les métadonnées `Implementation` du protocole MCP, pour les clients qui les affichent, et sert de base aux liens de téléchargement (`get_attachment`, `get_attachments`, `export_message`, `format: "url"`) et de dépôt (`create_upload_link`). Vide = ces champs ne sont pas envoyés, le format `url` et `create_upload_link` sont refusés. |
 
 Générer le token avec :
 
@@ -194,12 +209,26 @@ Voir [`security.md`](security.md#confirmation-des-opérations-destructives).
 
 | Variable | Défaut | Description |
 |---|---|---|
-| `DOWNLOAD_URL_SECRET` | `''` (vide) | Secret HMAC des liens de téléchargement signés (`get_attachment`, `get_attachments`, `export_message`, `format: "url"`, servis par `GET /download/<jeton>`). Au moins 32 caractères, sinon le démarrage échoue. Vide ou absent : un secret aléatoire est tiré au démarrage. |
+| `DOWNLOAD_URL_SECRET` | `''` (vide) | Secret HMAC des liens de téléchargement signés (`get_attachment`, `get_attachments`, `export_message`, `format: "url"`, servis par `GET /download/<jeton>`) et des liens de dépôt (`create_upload_link`, `POST /upload/<jeton>`). Au moins 32 caractères, sinon le démarrage échoue. Vide ou absent : un secret aléatoire est tiré au démarrage. |
 
 Même logique que `CONFIRM_SECRET` : un lien dure 15 minutes, le perdre au redémarrage est sans
 gravité, d'où un secret optionnel. Générez-le avec `openssl rand -hex 32`, distinct de
 `MCP_BEARER_TOKEN` et de `CONFIRM_SECRET`. Il est expurgé des logs. Le format `url` exige aussi
 `PUBLIC_BASE_URL`. Voir [`security.md`](security.md#liens-de-téléchargement).
+
+---
+
+## Dépôts de fichiers
+
+| Variable | Défaut | Description |
+|---|---|---|
+| `UPLOAD_MAX_FILES` | `20` | Nombre maximal de fichiers déposés (`create_upload_link`, `POST /upload/<jeton>`) conservés à la fois. Au-delà, un dépôt est refusé (`507`). |
+| `UPLOAD_MAX_TOTAL_BYTES` | `52428800` | Octets cumulés maximaux des fichiers déposés (50 Mio). Le flux d'un dépôt est coupé dès que la place restante est franchie (`507`). |
+
+Chaque fichier reste en outre borné par `ATTACHMENT_MAX_BYTES`. Les dépôts sont gardés **en
+mémoire** 1 h (ou jusqu'à l'envoi du mail qui les attache) et **ne survivent pas à un
+redémarrage**. Ces deux plafonds bornent la RAM qu'ils peuvent occuper. Voir
+[`security.md`](security.md#dépôt-de-fichiers).
 
 ---
 
