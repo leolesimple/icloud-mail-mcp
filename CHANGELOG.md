@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/leolesimple/icloud-mail-mcp/compare/v0.2.1...v0.2.2) (2026-10-06)
+
+
+### Bug Fixes
+
+* **find_messages:** vérifie from, to et subject localement, la recherche FROM d'iCloud rate des messages ([#64](https://github.com/leolesimple/icloud-mail-mcp/issues/64)) ([00df15b](https://github.com/leolesimple/icloud-mail-mcp/commit/00df15b27eb70fcda2d6c8082dd78c54322cae2e))
+
 ## [0.2.1] - 2026-10-06
 
 Retour d'usage réel dans Claude Desktop : PDF illisibles, sessions perdues après
