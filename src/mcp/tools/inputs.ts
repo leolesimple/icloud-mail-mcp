@@ -61,13 +61,13 @@ const fromMessageInput = z
   .object({
     folder: z.string().min(1).default('INBOX').describe('Folder of the message holding it'),
     uid: uidInput.describe('IMAP UID of that message'),
-    index: z.coerce
-      .number()
-      .int()
-      .nonnegative()
-      .describe('Attachment index, as reported by read_message'),
+    index: attachmentIndexInput.optional(),
+    part: attachmentPartInput.optional(),
   })
-  .describe('Reuse an attachment of a message already in the mailbox, without downloading it');
+  .describe(
+    'Reuse an attachment of a message already in the mailbox, without downloading it; ' +
+      'designate it by index (read_message) or part (find_messages), exactly one',
+  );
 
 /**
  * Un élément de `attachments` : exactement une source parmi
@@ -108,5 +108,5 @@ export const attachmentsInput = z
   .optional()
   .describe(
     'Attachments (pièces jointes). Each item has exactly one source: contentBase64, ' +
-      'fromMessage { folder, uid, index } or url',
+      'fromMessage { folder, uid, index } or { folder, uid, part }, or url',
   );

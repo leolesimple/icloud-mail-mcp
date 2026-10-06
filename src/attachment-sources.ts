@@ -1,8 +1,9 @@
 import { posix } from 'node:path';
 import type { IncomingHttpHeaders } from 'node:http';
 import type { ComposeAttachment } from './smtp/compose.js';
-import { getMessageAttachments } from './imap/messages.js';
-import type { AttachmentContent } from './imap/messages.js';
+import { getAttachmentPart, getMessageAttachments } from './imap/messages.js';
+import type { AttachmentContent, AttachmentPartContent } from './imap/messages.js';
+import { locatorProblem } from './attachment-locator.js';
 import { AttachmentTooLargeError } from './attachments.js';
 import { fetchHttpsGuarded, UrlTooLargeError } from './ssrf.js';
 import type { GuardedFetchDeps } from './ssrf.js';
@@ -26,10 +27,12 @@ import type { GuardedFetchDeps } from './ssrf.js';
 export const ATTACHMENT_SOURCE_KEYS = ['contentBase64', 'fromMessage', 'url'] as const;
 export type AttachmentSourceKey = (typeof ATTACHMENT_SOURCE_KEYS)[number];
 
+/** `index` (position dans read_message) ou `part` (numéro de partie IMAP) : exactement un. */
 export interface FromMessageSource {
   folder?: string;
   uid: number;
-  index: number;
+  index?: number;
+  part?: string;
 }
 
 /** Élément `attachments` tel que validé par `attachmentsInput`. */
@@ -55,6 +58,13 @@ export interface AttachmentSourceDeps {
   maxBytes: number;
   /** Toutes les pièces jointes d'un message (défaut : `getMessageAttachments`). */
   fetchMessageAttachments?: (folder: string, uid: number) => Promise<AttachmentContent[]>;
+  /** Une seule partie d'un message (défaut : `getAttachmentPart`). */
+  fetchAttachmentPart?: (
+    folder: string,
+    uid: number,
+    part: string,
+    maxBytes: number,
+  ) => Promise<AttachmentPartContent>;
   /** Accès réseau de la source `url` (défaut : DNS et HTTPS réels). */
   fetch?: GuardedFetchDeps;
 }
@@ -77,6 +87,10 @@ export function attachmentSourceProblem(item: AttachmentSourceInput): string | u
   }
   if (sources[0] === 'contentBase64' && !item.filename) {
     return 'filename est requis avec contentBase64';
+  }
+  if (item.fromMessage !== undefined) {
+    const problem = locatorProblem(item.fromMessage);
+    if (problem) return `fromMessage : ${problem}`;
   }
   return undefined;
 }
@@ -193,8 +207,13 @@ async function resolveOne(
     };
   }
 
+  if (item.fromMessage?.part !== undefined) {
+    return resolveMessagePart(item, item.fromMessage.part, name, remaining, deps);
+  }
+
   if (item.fromMessage !== undefined) {
-    const { uid, index } = item.fromMessage;
+    const { uid } = item.fromMessage;
+    const index = item.fromMessage.index as number;
     const folder = item.fromMessage.folder ?? DEFAULT_FOLDER;
     let attachments: AttachmentContent[];
     try {
@@ -250,6 +269,45 @@ async function resolveOne(
     filename,
     contentType: item.contentType ?? headerValue(fetched.headers, 'content-type')?.trim(),
     content: fetched.content,
+  };
+}
+
+/**
+ * Source `fromMessage` par numéro de partie IMAP : seule cette partie est
+ * téléchargée, sous le budget restant (refus sur la taille annoncée, puis
+ * coupure du flux).
+ */
+async function resolveMessagePart(
+  item: AttachmentSourceInput,
+  part: string,
+  name: string,
+  remaining: number,
+  deps: AttachmentSourceDeps,
+): Promise<ComposeAttachment> {
+  const { uid } = item.fromMessage as FromMessageSource;
+  const folder = item.fromMessage?.folder ?? DEFAULT_FOLDER;
+  const fetchPart =
+    deps.fetchAttachmentPart ??
+    ((f: string, u: number, p: string, max: number) => getAttachmentPart(f, u, p, max));
+  let original: AttachmentPartContent;
+  try {
+    original = await fetchPart(folder, uid, part, Math.max(remaining, 0));
+  } catch (err) {
+    if (err instanceof AttachmentTooLargeError) {
+      throw new AttachmentTooLargeError(
+        `${name} : ${err.message} Budget restant : ${remaining} octets (cumul de toutes les ` +
+          'pièces jointes).',
+      );
+    }
+    throw new AttachmentSourceError(
+      `${name} : impossible de lire la partie ${part} du message UID ${uid} dans "${folder}" ` +
+        `(${(err as Error).message}).`,
+    );
+  }
+  return {
+    filename: item.filename ?? original.filename ?? `attachment-${part}`,
+    contentType: item.contentType ?? original.contentType,
+    content: original.content,
   };
 }
 

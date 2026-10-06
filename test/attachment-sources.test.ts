@@ -2,6 +2,7 @@ import './helpers/env.js';
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import type { ImapFlow } from 'imapflow';
 import {
   AttachmentSourceError,
   attachmentSourceProblem,
@@ -12,9 +13,11 @@ import {
 import type { AttachmentSourceDeps } from '../src/attachment-sources.js';
 import { AttachmentTooLargeError } from '../src/attachments.js';
 import type { AttachmentContent } from '../src/imap/messages.js';
+import { getAttachmentPart } from '../src/imap/messages.js';
 import type { PinnedRequest, PinnedResponse } from '../src/ssrf.js';
 import { attachmentInput } from '../src/mcp/tools/inputs.js';
 import { connectClient, firstText } from './helpers/mcp-client.js';
+import { FakeMail } from './helpers/fake-imap.js';
 
 /**
  * Sources de pièces jointes de compose_message. IMAP et réseau sont remplacés
@@ -217,6 +220,95 @@ describe('source fromMessage', () => {
       resolveAttachmentSources([{ fromMessage: { uid: 42, index: 5 } }], deps()),
       AttachmentSourceError,
       /attachments\[0\].*#5 introuvable.*2 pièce\(s\) jointe\(s\)/,
+    );
+  });
+});
+
+describe('source fromMessage par numéro de partie', () => {
+  /** Apple/371 : un PDF en partie 2 (BODYSTRUCTURE annonçant 400 octets base64). */
+  function partMailbox(pdf = Buffer.alloc(250, 3)) {
+    const mail = new FakeMail().addMailbox('Apple');
+    mail.addMessage('Apple', {
+      uid: 371,
+      bodyStructure: {
+        type: 'multipart/mixed',
+        childNodes: [
+          { part: '1', type: 'text/plain' },
+          {
+            part: '2',
+            type: 'application/pdf',
+            disposition: 'attachment',
+            dispositionParameters: { filename: 'Facture.pdf' },
+            encoding: 'base64',
+            size: 340,
+          },
+        ],
+      },
+      parts: { '1': Buffer.from('Merci'), '2': pdf },
+    });
+    const withMailboxOn = async <T>(folder: string, fn: (client: ImapFlow) => Promise<T>) => {
+      await mail.getMailboxLock(folder);
+      return fn(mail.asImapFlow());
+    };
+    const fetchAttachmentPart = (folder: string, uid: number, part: string, maxBytes: number) =>
+      getAttachmentPart(folder, uid, part, maxBytes, withMailboxOn);
+    return { mail, fetchAttachmentPart };
+  }
+
+  it('ne télécharge que la partie, nom et type tirés du BODYSTRUCTURE', async () => {
+    const { mail, fetchAttachmentPart } = partMailbox();
+    const mailbox = fakeMailbox();
+    const [att] = await resolveAttachmentSources(
+      [{ fromMessage: { folder: 'Apple', uid: 371, part: '2' } }],
+      deps({ fetchAttachmentPart, fetchMessageAttachments: mailbox.fetchMessageAttachments }),
+    );
+    assert.equal(att?.filename, 'Facture.pdf');
+    assert.equal(att?.contentType, 'application/pdf');
+    assert.equal(att?.content.length, 250);
+    assert.deepEqual(mailbox.fetches, []);
+    assert.deepEqual(mail.downloads, [{ uid: 371, part: '2', maxBytes: LIMIT + 1 }]);
+  });
+
+  it('partie inexistante ou multipart : erreur qui nomme l’élément', async () => {
+    const { fetchAttachmentPart } = partMailbox();
+    await rejectsWith(
+      resolveAttachmentSources(
+        [{ fromMessage: { folder: 'Apple', uid: 371, part: '7' } }],
+        deps({ fetchAttachmentPart }),
+      ),
+      AttachmentSourceError,
+      /attachments\[0\] \(fromMessage\).*partie 7 du message UID 371.*introuvable/,
+    );
+  });
+
+  it('refuse au-delà du budget restant, sans télécharger si la taille annoncée suffit', async () => {
+    const { mail, fetchAttachmentPart } = partMailbox();
+    await rejectsWith(
+      resolveAttachmentSources(
+        [
+          { filename: 'a.bin', contentBase64: Buffer.alloc(LIMIT - 100).toString('base64') },
+          { fromMessage: { folder: 'Apple', uid: 371, part: '2' } },
+        ],
+        deps({ fetchAttachmentPart }),
+      ),
+      AttachmentTooLargeError,
+      /attachments\[1\] \(fromMessage\).*partie 2.*Budget restant : 100 octets/,
+    );
+    assert.equal(mail.downloads.length, 0);
+  });
+
+  it('zod exige exactement un de index ou part, et une partie bien formée', () => {
+    assert.equal(attachmentInput.safeParse({ fromMessage: { uid: 1, part: '1.2' } }).success, true);
+    for (const fromMessage of [
+      { uid: 1 },
+      { uid: 1, index: 0, part: '2' },
+      { uid: 1, part: 'TEXT' },
+    ]) {
+      assert.equal(attachmentInput.safeParse({ fromMessage }).success, false);
+    }
+    assert.match(
+      attachmentSourceProblem({ fromMessage: { uid: 1, index: 0, part: '2' } }) ?? '',
+      /fromMessage : exactement un de index/,
     );
   });
 });

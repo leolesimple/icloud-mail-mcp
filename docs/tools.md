@@ -570,7 +570,7 @@ source ; zéro ou plusieurs sont refusées à la validation :
 | Source | Forme | Nom et type |
 |---|---|---|
 | `contentBase64` | le contenu en base64 | `filename` requis, `contentType` facultatif |
-| `fromMessage` | `{ folder?, uid, index }` : une pièce jointe d'un message de la boîte (`folder` vaut `INBOX` par défaut, `index` comme dans `read_message`) | repris de l'original |
+| `fromMessage` | `{ folder?, uid, index }` ou `{ folder?, uid, part }` : une pièce jointe d'un message de la boîte (`folder` vaut `INBOX` par défaut ; `index` comme dans `read_message`, ou `part` comme dans `find_messages`, exactement un des deux) | repris de l'original (`BODYSTRUCTURE` avec `part`) |
 | `url` | une URL `https://` publique, téléchargée par le serveur | `Content-Disposition`, sinon dernier segment du chemin ; type de la réponse |
 
 `filename` et `contentType`, s'ils sont fournis, **remplacent** toujours le nom et le type repris ou
@@ -579,6 +579,7 @@ déduits. Pour `url`, `filename` devient obligatoire si aucun nom ne peut être 
 ```jsonc
 "attachments": [
   { "fromMessage": { "folder": "INBOX", "uid": 42, "index": 0 } },   // facture reçue, renvoyée telle quelle
+  { "fromMessage": { "folder": "Apple", "uid": 371, "part": "2" } },  // part tiré de find_messages
   { "url": "https://exemple.fr/devis.pdf", "filename": "Devis.pdf" },
   { "filename": "note.txt", "contentBase64": "Qm9uam91cg==" }
 ]
@@ -587,7 +588,8 @@ déduits. Pour `url`, `filename` devient obligatoire si aucun nom ne peut être 
 Le base64 inline convient aux petits fichiers : un PDF de 430 Ko fait environ 570 000 caractères, que
 le client doit générer d'un bloc. Pour renvoyer une pièce jointe déjà reçue, `fromMessage` la reprend
 directement dans iCloud, sans qu'elle transite par le modèle ; plusieurs pièces jointes d'un même
-message ne le téléchargent qu'une fois. La source `url` passe par une garde anti-SSRF (`https`
+message désignées par `index` ne le téléchargent qu'une fois, et une pièce jointe désignée par `part`
+ne télécharge que sa partie (refusée d'emblée si sa taille annoncée dépasse ce qui reste du plafond). La source `url` passe par une garde anti-SSRF (`https`
 seulement, adresses privées ou locales refusées, 3 redirections au plus, 15 s) décrite dans
 [security.md](security.md#pièces-jointes-par-url-ssrf).
 
