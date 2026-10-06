@@ -1,6 +1,6 @@
 # Référence des outils
 
-Les dix outils exposés par le serveur MCP, organisés par intention (onze avec
+Les onze outils exposés par le serveur MCP, organisés par intention (douze avec
 `wait_for_new_message`, désactivé par défaut), plus ses [resources et prompts](#resources-et-prompts).
 Les descriptions transmises au client sont en anglais, avec les synonymes français entre parenthèses
 (« unread (non lus) », « draft (brouillon) »…) ; cette page en donne la version détaillée.
@@ -15,6 +15,7 @@ Les descriptions transmises au client sont en anglais, avec les synonymes franç
 | [`export_message`](#export_message) | Exporter un message brut (EML) | oui |
 | [`compose_message`](#compose_message) | Écrire, répondre, transférer, ou enregistrer en brouillon | non |
 | [`send_draft`](#send_draft) | Envoyer un brouillon existant | non |
+| [`create_upload_link`](#create_upload_link) | Déposer un fichier hors MCP pour l'attacher sans base64 | non |
 | [`organize_messages`](#organize_messages) | Déplacer, mettre à la corbeille, marquer | non |
 | [`manage_folders`](#manage_folders) | Lister, créer, renommer, supprimer des dossiers | non |
 
@@ -498,7 +499,7 @@ brouillon. Remplace `send_message`, `reply_message`, `forward_message`, `save_dr
 | `subject` | string | — | Requis pour `new` ; dérivé de l'original en réponse / transfert |
 | `text` | string | — | Corps en texte brut (ou note au-dessus d'un message transféré) |
 | `html` | string | — | Corps en HTML |
-| `attachments` | object[] | — | Pièces jointes, chacune avec **une** source : `contentBase64`, `fromMessage` ou `url` (voir plus bas) |
+| `attachments` | object[] | — | Pièces jointes, chacune avec **une** source : `contentBase64`, `fromMessage`, `url` ou `uploadId` (voir plus bas) |
 
 **Combinaisons acceptées**, et l'opération qu'elles déclenchent :
 
@@ -549,6 +550,7 @@ source ; zéro ou plusieurs sont refusées à la validation :
 | `contentBase64` | le contenu en base64 | `filename` requis, `contentType` facultatif |
 | `fromMessage` | `{ folder?, uid, index }` : une pièce jointe d'un message de la boîte (`folder` vaut `INBOX` par défaut, `index` comme dans `read_message`) | repris de l'original |
 | `url` | une URL `https://` publique, téléchargée par le serveur | `Content-Disposition`, sinon dernier segment du chemin ; type de la réponse |
+| `uploadId` | l'identifiant d'un fichier déposé par [`create_upload_link`](#create_upload_link) | repris du dépôt (`filename` requis si le dépôt n'en a pas) |
 
 `filename` et `contentType`, s'ils sont fournis, **remplacent** toujours le nom et le type repris ou
 déduits. Pour `url`, `filename` devient obligatoire si aucun nom ne peut être déduit.
@@ -557,6 +559,7 @@ déduits. Pour `url`, `filename` devient obligatoire si aucun nom ne peut être 
 "attachments": [
   { "fromMessage": { "folder": "INBOX", "uid": 42, "index": 0 } },   // facture reçue, renvoyée telle quelle
   { "url": "https://exemple.fr/devis.pdf", "filename": "Devis.pdf" },
+  { "uploadId": "q3Vx0Zl1Hc4yN8sTt2Kp9w" },                            // fichier déposé par create_upload_link
   { "filename": "note.txt", "contentBase64": "Qm9uam91cg==" }
 ]
 ```
@@ -566,7 +569,14 @@ le client doit générer d'un bloc. Pour renvoyer une pièce jointe déjà reçu
 directement dans iCloud, sans qu'elle transite par le modèle ; plusieurs pièces jointes d'un même
 message ne le téléchargent qu'une fois. La source `url` passe par une garde anti-SSRF (`https`
 seulement, adresses privées ou locales refusées, 3 redirections au plus, 15 s) décrite dans
-[security.md](security.md#pièces-jointes-par-url-ssrf).
+[security.md](security.md#pièces-jointes-par-url-ssrf). Pour un fichier **local** volumineux,
+`uploadId` évite le base64 : le client le dépose d'abord par HTTP (voir
+[`create_upload_link`](#create_upload_link)).
+
+Un dépôt `uploadId` est **consommé** (supprimé) une fois le mail envoyé ou le brouillon enregistré
+(`DRAFTS_ONLY` compris), et seulement alors : un échec le laisse réutilisable. Un `uploadId`
+inconnu, expiré ou déjà consommé fait échouer l'appel (`attachments[0] (uploadId) : dépôt … inconnu,
+expiré ou déjà utilisé`).
 
 Le **cumul** de toutes les sources est plafonné à `ATTACHMENT_MAX_BYTES` (5 Mo par défaut) ; une URL
 ne reçoit que ce qui reste et son téléchargement est coupé dès le dépassement. Toutes les sources
@@ -633,6 +643,69 @@ copié ni supprimé).
 
 Pour **lister** les brouillons : `find_messages` sur le dossier Drafts. Pour en **supprimer** un :
 `organize_messages` avec `action: "trash"` sur ce même dossier.
+
+---
+
+### `create_upload_link`
+
+Émet un lien de **dépôt** signé, pour joindre à un mail un fichier que le client a sur disque sans
+le faire passer en base64 par le modèle. Le client envoie le fichier **hors du protocole MCP**, par
+un simple `POST`, puis `compose_message` l'attache par son `uploadId`.
+
+| Paramètre | Type | Défaut | Description |
+|---|---|---|---|
+| `filename` | string | — | Nom de la pièce jointe (sinon pris de la requête de dépôt) |
+| `contentType` | string | — | Type MIME (sinon pris du `Content-Type` du dépôt) |
+
+```jsonc
+{
+  "uploadUrl": "https://mail-mcp.exemple.fr/upload/eyJ2Ijox…",
+  "uploadId": "q3Vx0Zl1Hc4yN8sTt2Kp9w",
+  "expiresAt": "2026-10-06T14:15:00.000Z",   // le lien vaut 15 minutes, pour un seul dépôt
+  "maxBytes": 5242880,                       // ATTACHMENT_MAX_BYTES
+  "method": "POST"
+}
+```
+
+Exige `PUBLIC_BASE_URL` : sans elle, l'outil renvoie une erreur explicite.
+
+**Le dépôt.** `POST <uploadUrl>`, **sans bearer** (le jeton de l'URL porte l'autorisation), avec le
+fichier en **corps brut** — pas de `multipart/form-data` (refusé en `415`) :
+
+```bash
+curl --data-binary @rapport.pdf \
+  -H "Content-Type: application/pdf" \
+  -H "X-Filename: $(printf %s 'Rapport été.pdf' | jq -sRr @uri)" \
+  "$UPLOAD_URL"
+# 201 {"uploadId":"q3Vx…","size":431207,"filename":"Rapport été.pdf","contentType":"application/pdf",
+#      "expiresAt":"2026-10-06T15:02:11.000Z"}
+```
+
+- **Nom** : celui fixé dans `create_upload_link`, sinon l'en-tête `X-Filename` (UTF-8 encodé en
+  pourcentage), sinon le paramètre `?filename=`. Il est assaini (chemin retiré, caractères de
+  contrôle et réservés remplacés). Sans nom, il faudra passer `filename` à `compose_message`.
+- **Type** : celui fixé dans `create_upload_link`, sinon le `Content-Type` réduit à son essence
+  (`text/plain; charset=utf-8` → `text/plain`), sinon `application/octet-stream`.
+  `application/x-www-form-urlencoded`, que `curl --data-binary` pose par défaut, est ignoré :
+  préciser `-H "Content-Type: …"`.
+- **Réponses** : `201` (dépôt rangé), `404` générique (jeton illisible, falsifié, expiré, déjà
+  utilisé), `413` (au-delà d'`ATTACHMENT_MAX_BYTES`), `415` (multipart), `507` (stockage plein,
+  voir `UPLOAD_MAX_FILES` / `UPLOAD_MAX_TOTAL_BYTES`), `429` (rate limit).
+
+Le lien sert **une fois** : un dépôt refusé après la vérification du jeton (trop gros, stockage
+plein) le consomme aussi, il faut en redemander un. Les refus `415` et `413` sur un `Content-Length`
+annoncé, eux, sont rendus avant et ne le brûlent pas.
+
+**Ensuite**, dans l'heure :
+
+```jsonc
+{ "mode": "new", "to": ["alice@exemple.fr"], "subject": "Rapport", "text": "Ci-joint.",
+  "attachments": [{ "uploadId": "q3Vx0Zl1Hc4yN8sTt2Kp9w" }] }
+```
+
+Le fichier déposé est gardé **en mémoire** 1 h, puis purgé s'il n'a pas servi ; il est supprimé dès
+que le mail part ou que le brouillon est enregistré. Les dépôts **ne survivent pas à un
+redémarrage** du serveur. Voir [security.md](security.md#dépôt-de-fichiers).
 
 ---
 

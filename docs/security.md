@@ -168,6 +168,53 @@ qu'un aperçu de lien ne consomme pas le jeton.
 
 ---
 
+## Dépôt de fichiers
+
+`create_upload_link` émet un lien `<PUBLIC_BASE_URL>/upload/<jeton>` par lequel un client dépose un
+fichier, en `POST` brut, pour l'attacher ensuite à un mail (`attachments[].uploadId`) sans le faire
+transiter en base64 par le modèle ([`src/uploads.ts`](../src/uploads.ts)).
+
+**Menace.** `/upload` est la seconde route **sans bearer** : comme `/download`, elle est appelée
+hors du protocole MCP. Elle n'expose aucun contenu de la boîte, mais elle **écrit en mémoire** :
+sans borne, n'importe qui pourrait saturer la RAM du serveur, et un lien intercepté permettrait de
+substituer un fichier à celui que l'utilisateur comptait envoyer.
+
+**Le jeton.** Même mécanique que les [liens de téléchargement](#liens-de-téléchargement) (même
+module, même secret `DOWNLOAD_URL_SECRET`, HMAC-SHA256 vérifié en temps constant, 15 minutes,
+usage unique), avec une cible `{ kind: "upload", uploadId, filename?, contentType? }`. La route
+n'accepte **que** cette cible : un lien de téléchargement présenté à `/upload`, ou l'inverse, est
+refusé **sans être consommé**. L'`uploadId` (16 octets aléatoires) est tiré à l'émission et signé :
+un dépôt ne peut viser que l'identifiant prévu, et une fois.
+
+**Réponse.** Tout refus de jeton répond le même `404 Not found`, sans détail ; le motif ne va qu'aux
+logs, le jeton jamais. Mêmes en-têtes durcis que `/download` (`no-store`, `nosniff`,
+`no-referrer`, CSP `default-src 'none'; sandbox`). La route passe par le rate limit de `/mcp`.
+
+**Les plafonds.**
+
+- **par fichier** : `ATTACHMENT_MAX_BYTES`. Le corps est lu **en flux**, jamais par le parseur
+  JSON d'Express, et la lecture s'arrête au premier morceau qui dépasse (`413`) ; un
+  `Content-Length` trop grand est refusé avant même la vérification du jeton ;
+- **global** : `UPLOAD_MAX_FILES` dépôts conservés à la fois (20 par défaut) et
+  `UPLOAD_MAX_TOTAL_BYTES` octets cumulés (50 Mio par défaut). Le flux est coupé dès que la place
+  restante est franchie (`507`). La mémoire retenue par les dépôts ne dépasse donc jamais ce
+  plafond, quel que soit le nombre de liens émis.
+
+**Durée de vie.** Un dépôt vit **1 heure** après son arrivée, ou jusqu'à ce que `compose_message`
+le consomme (mail envoyé ou brouillon enregistré ; un échec le laisse en place). Les dépôts expirés
+sont purgés au balayage périodique du serveur et à chaque accès. Le stockage est **en mémoire
+seulement** : rien n'est écrit sur disque, et tout est perdu au redémarrage.
+
+**Limites.**
+
+- Le lien **est** l'autorisation pendant 15 minutes : qui l'intercepte avant le client peut y
+  déposer un autre fichier. Le client voit alors le sien refusé (`404`) et doit recréer un lien.
+- Le contenu déposé n'est pas analysé (ni antivirus, ni contrôle du type) : il part tel quel en
+  pièce jointe, comme un `contentBase64`.
+- Un `uploadId` ne donne accès qu'au fichier déposé, par `compose_message`, donc derrière le bearer.
+
+---
+
 ## Pièces jointes par URL (SSRF)
 
 `compose_message` accepte une pièce jointe désignée par `url` : le **serveur** télécharge le fichier
@@ -275,6 +322,7 @@ Deux garde-fous à connaître :
 |---|---|---|
 | `POST/GET/DELETE /mcp` | oui | Tout, avec un token valide. Rate-limité par IP (`429` au-delà). |
 | `GET /download/<jeton>` | **non** (jeton signé) | Le fichier désigné par le jeton, une fois, pendant 15 min ; `404` générique sinon. Rate-limité par IP. Voir [Liens de téléchargement](#liens-de-téléchargement). |
+| `POST /upload/<jeton>` | **non** (jeton signé) | Rien : accepte un dépôt, une fois, pendant 15 min, dans la limite des plafonds ; `404` générique sinon. Rate-limité par IP. Voir [Dépôt de fichiers](#dépôt-de-fichiers). |
 | `GET /health` | **non** | `{"status":"ok","version":"<x.y.z>"}` — statut et version du serveur, rien d'autre (aucune configuration, aucun secret). Jamais rate-limité. |
 
 Aucune autre route n'est déclarée : tout le reste renvoie le 404 par défaut d'Express.
