@@ -215,7 +215,25 @@ function headerField(message: FakeStoredMessage, key: string): string | undefine
   }
 }
 
-function matches(message: FakeStoredMessage, query: SearchQuery): boolean {
+/**
+ * Adresses que SEARCH FROM ne trouve pas en sous-chaîne, comme le SEARCH
+ * d'iCloud : seule l'adresse complète les retrouve.
+ */
+type FromBlindSpots = ReadonlySet<string>;
+
+function fromMatches(message: FakeStoredMessage, needle: string, blind: FromBlindSpots): boolean {
+  return message.from.some((addr) => {
+    const address = addr.address?.toLowerCase();
+    if (address && blind.has(address)) return address === needle.toLowerCase();
+    return includesCI(addr.address, needle) || includesCI(addr.name, needle);
+  });
+}
+
+function matches(
+  message: FakeStoredMessage,
+  query: SearchQuery,
+  blind: FromBlindSpots = new Set(),
+): boolean {
   if (query.uid !== undefined && !inSequence(message.uid, query.uid)) return false;
   if (query.seen !== undefined && message.flags.has('\\Seen') !== query.seen) return false;
   if (query.flagged !== undefined && message.flags.has('\\Flagged') !== query.flagged) return false;
@@ -224,7 +242,7 @@ function matches(message: FakeStoredMessage, query: SearchQuery): boolean {
   if (query.since !== undefined && dayNumber(message.date) < dayNumber(query.since)) return false;
   if (query.before !== undefined && dayNumber(message.date) >= dayNumber(query.before)) return false;
   if (query.subject !== undefined && !includesCI(message.subject, query.subject)) return false;
-  if (query.from !== undefined && !addressMatches(message.from, query.from)) return false;
+  if (query.from !== undefined && !fromMatches(message, query.from, blind)) return false;
   if (query.to !== undefined && !addressMatches(message.to, query.to)) return false;
   if (query.cc !== undefined && !addressMatches(message.cc, query.cc)) return false;
   if (query.body !== undefined && !includesCI(message.body, query.body)) return false;
@@ -244,8 +262,8 @@ function matches(message: FakeStoredMessage, query: SearchQuery): boolean {
       }
     }
   }
-  if (query.not && matches(message, query.not)) return false;
-  if (query.or && !query.or.some((branch) => matches(message, branch))) return false;
+  if (query.not && matches(message, query.not, blind)) return false;
+  if (query.or && !query.or.some((branch) => matches(message, branch, blind))) return false;
   return true;
 }
 
@@ -265,6 +283,12 @@ export class FakeMail extends EventEmitter {
   readonly counters = { move: 0, delete: 0, flagAdd: 0, flagRemove: 0, status: 0, append: 0, search: 0 };
   /** Taille de chaque FETCH de BODYSTRUCTURE (filtre pièces jointes). */
   readonly bodyStructureFetches: number[] = [];
+  /** Requêtes SEARCH reçues, dans l'ordre. */
+  readonly searches: SearchQuery[] = [];
+  /** Requêtes FETCH reçues (`fetchAll`) et nombre d'UID demandés. */
+  readonly fetches: { size: number; query: FetchQuery }[] = [];
+  /** Adresses (en minuscules) que SEARCH FROM ne trouve qu'en entier, comme iCloud. */
+  readonly fromBlindSpots = new Set<string>();
 
   // --- Mise en place des tests --------------------------------------------
 
@@ -373,14 +397,16 @@ export class FakeMail extends EventEmitter {
 
   async search(query: SearchQuery): Promise<number[]> {
     this.counters.search += 1;
+    this.searches.push(query);
     return this.current()
-      .filter((message) => matches(message, query))
+      .filter((message) => matches(message, query, this.fromBlindSpots))
       .map((message) => message.uid);
   }
 
   async fetchAll(range: SearchRange, query: FetchQuery): Promise<unknown[]> {
     const uids = this.resolve(range);
     if (query.bodyStructure) this.bodyStructureFetches.push(uids.length);
+    this.fetches.push({ size: uids.length, query });
     return this.current()
       .filter((message) => uids.includes(message.uid))
       .sort((a, b) => a.uid - b.uid)
