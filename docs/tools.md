@@ -141,8 +141,9 @@ Liste ou recherche des messages, **du plus récent au plus ancien**. Remplace `l
 `search_messages`.
 
 - **Sans critère**, c'est un listing du dossier.
-- **Avec au moins un critère**, c'est une recherche IMAP `SEARCH` native, filtrée côté serveur :
-  chercher les non lus d'un dossier de 50 000 messages reste rapide.
+- **Avec au moins un critère**, c'est une recherche : IMAP `SEARCH` natif pour les dates,
+  `unreadOnly`, `flagged`, `body` et `text` (chercher les non lus d'un dossier de 50 000 messages
+  reste rapide), vérification par le serveur MCP pour `subject`, `from` et `to` (voir plus bas).
 
 Les critères de premier niveau sont **combinés en ET**.
 
@@ -151,10 +152,10 @@ Les critères de premier niveau sont **combinés en ET**.
 | `folder` | string | `INBOX` | Dossier à lister ou à fouiller (ignoré si `folders` est fourni) |
 | `folders` | string[] \| `"*"` | — | Recherche sur plusieurs dossiers ; `"*"` = tous sauf corbeille et indésirables ; **exige un critère** |
 | `includeTrash` | boolean | `false` | Avec `folders: "*"`, fouille aussi la corbeille (`\Trash`) et les indésirables (`\Junk`) |
-| `subject` | string | — | Sous-chaîne dans le sujet |
+| `subject` | string | — | Sous-chaîne dans le sujet (décodé) |
 | `body` | string | — | Sous-chaîne dans le corps |
-| `from` | string | — | Sous-chaîne dans l'expéditeur |
-| `to` | string | — | Sous-chaîne dans le destinataire |
+| `from` | string | — | Sous-chaîne dans le nom affiché ou l'adresse de l'expéditeur |
+| `to` | string | — | Sous-chaîne dans le nom affiché ou l'adresse d'un destinataire du champ `To` |
 | `text` | string | — | Sous-chaîne dans les en-têtes **ou** le corps |
 | `since` | string ISO 8601 | — | Messages reçus à partir de cette date (incluse) |
 | `before` | string ISO 8601 | — | Messages reçus avant cette date (exclue) |
@@ -172,6 +173,31 @@ Les critères de premier niveau sont **combinés en ET**.
 `since` et `before` acceptent une date seule (`2026-07-01`) ou un instant complet
 (`2026-07-01T08:00:00Z`). `folder` et `beforeUid` ne sont pas des critères : seuls, ils donnent un
 listing.
+
+**`subject`, `from`, `to` vérifiés par le serveur MCP** — le `SEARCH` d'iCloud n'applique pas
+`FROM` en sous-chaîne comme le veut la RFC 3501 : dans un dossier de 429 messages Apple,
+`FROM "apple.com"` en renvoie 348 et rate des expéditeurs `…@email.apple.com` (factures comprises)
+que l'adresse complète retrouve. Ces trois critères ne sont donc **jamais** envoyés à IMAP `SEARCH`,
+à aucun niveau (`not` et branches `or` compris) : le serveur MCP les vérifie sur l'`ENVELOPE` des
+candidats, en sous-chaîne sans casse, sur le sujet décodé et sur le nom affiché **et** l'adresse de
+chaque expéditeur (`from`) ou destinataire du champ `To` (`to`, même sémantique que `SEARCH TO` :
+ni `Cc` ni `Bcc`). `SEARCH` garde les dates, `unreadOnly`, `flagged`, `body`, `text` et le curseur ;
+s'il ne reste aucun de ces critères, la recherche part de `SEARCH ALL` (borné par `beforeUid`).
+L'`ENVELOPE` est lue par lots de 100, du plus récent au plus ancien, jusqu'à ce qu'une page soit
+pleine (plus un message, pour un `nextCursor` exact) ; avec un filtre pièces jointes, la même
+commande lit aussi le `BODYSTRUCTURE`. Pour `not` et `or` :
+
+- un `not`, ou un `or` dont **toutes** les branches ne contiennent que `body`/`text`, reste dans le
+  `SEARCH` (`NOT`, `OR`) ;
+- sinon il est évalué localement, d'un bloc ; la partie `body`/`text` d'un `not` ou d'une branche
+  **mixte** (`{ from: "alice", body: "devis" }`) devient un `SEARCH` dédié, dont le résultat sert de
+  test d'appartenance : `not: { from: "boutique", body: "promo" }` n'écarte que les messages qui
+  remplissent les deux conditions ;
+- un `or` d'une seule branche (non vide) vaut un critère ET.
+
+Un critère `from`/`to`/`subject` sans autre critère `SEARCH` lit l'`ENVELOPE` de tout le dossier
+jusqu'à remplir la page : rapide quand les correspondances sont fréquentes, plus long pour un
+expéditeur rare dans un gros dossier (l'associer alors à `since`…).
 
 **Pièces jointes** (`hasAttachment`, `attachmentType`) — IMAP `SEARCH` ne sait pas filtrer sur les
 pièces jointes : le serveur lit le `BODYSTRUCTURE` des messages retenus par les autres critères, par
