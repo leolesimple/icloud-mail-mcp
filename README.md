@@ -14,10 +14,11 @@ iCloud.
 Claude  ──HTTPS+Bearer──▶  Cloudflare Tunnel  ──▶  icloud-mail-mcp  ──IMAP/SMTP+TLS──▶  iCloud
 ```
 
-> **Licence — à lire avant de cloner.** Ce projet **n'est pas open source**. Vous pouvez le
-> télécharger, l'installer et l'utiliser librement, y compris dans votre entreprise. L'usage
-> commercial et les versions modifiées ne sont pas autorisés sans accord écrit.
-> Voir [LICENSE](LICENSE).
+> **Licence — à lire avant de cloner.** Ce projet **n'est pas open source**. Il est sous
+> [PolyForm Strict 1.0.0](https://polyformproject.org/licenses/strict/1.0.0) : usage non commercial
+> uniquement (personnel, recherche, associations, établissements publics). Les usages
+> commerciaux, y compris en entreprise, la modification et la redistribution ne sont pas
+> autorisés sans accord écrit. Voir [LICENSE](LICENSE).
 
 ---
 
@@ -246,11 +247,11 @@ Détail complet dans [`docs/security.md`](docs/security.md).
 
 ## Licence
 
-Copyright © 2026 Léo Lesimple. Tous droits réservés.
-
-Usage personnel et interne autorisé et gratuit. Usage commercial et œuvres dérivées interdits sans
-accord écrit préalable. Voir [LICENSE](LICENSE) pour le texte qui fait foi.
+Copyright © 2026 Léo Lesimple. Distribué sous [PolyForm Strict 1.0.0](LICENSE)
+(`PolyForm-Strict-1.0.0`) : l'usage non commercial est autorisé (personnel, recherche, loisirs,
+organismes à but non lucratif, éducatifs ou publics). La distribution, les modifications et les
+œuvres dérivées ne le sont pas. Pour tout usage commercial ou hors de ce cadre, ouvrez une issue
+pour en discuter. Le texte de [LICENSE](LICENSE) fait foi.
 
 Ce n'est **pas** une licence open source au sens de l'OSI : GitHub permet techniquement de forker
-un dépôt public, mais publier ou utiliser une version modifiée de ce code n'est pas autorisé par
-cette licence. Pour un usage sortant de ce cadre, ouvrez une issue pour en discuter.
+un dépôt public, mais cela ne vaut pas autorisation de modifier ou de redistribuer ce code.
