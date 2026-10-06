@@ -48,6 +48,9 @@ const envSchema = z.object({
   ALLOWED_RECIPIENTS: z.string().default(''),
   // Nombre maximal d'envois par jour glissant. 0 = illimité.
   MAX_SENDS_PER_DAY: z.coerce.number().int().nonnegative().default(0),
+  // Fichier où persister le quota d'envoi entre deux redémarrages.
+  // Vide = compteur en mémoire seule, remis à zéro au redémarrage.
+  QUOTA_STATE_PATH: z.string().trim().default(''),
   // Force tous les envois à passer par un brouillon (aucun mail n'est émis).
   DRAFTS_ONLY: envBool(false),
   // Lève tous les garde-fous d'envoi. À n'utiliser qu'en connaissance de cause.
@@ -60,6 +63,15 @@ const envSchema = z.object({
   CONFIRM_SECRET: z.preprocess(
     (v) => (v === '' ? undefined : v),
     z.string().min(32, 'CONFIRM_SECRET doit faire au moins 32 caractères').optional(),
+  ),
+
+  // --- Liens de téléchargement (get_attachment format "url") ---------------
+  // Secret HMAC des liens signés servis par GET /download/:token. Optionnel :
+  // absent ou vide, un secret aléatoire est tiré au démarrage (les liens, valables
+  // 15 min, ne survivent pas à un redémarrage). Même logique que CONFIRM_SECRET.
+  DOWNLOAD_URL_SECRET: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.string().min(32, 'DOWNLOAD_URL_SECRET doit faire au moins 32 caractères').optional(),
   ),
 
   // --- Protocole MCP / sessions (lots C, E) -------------------------------
@@ -86,9 +98,11 @@ const envSchema = z.object({
   LEGACY_TOOLS: envBool(false),
 
   // URL publique HTTPS du serveur (ex. https://mail-mcp.exemple.com), sans
-  // slash final. Optionnelle : sert uniquement à renseigner `icons`/`websiteUrl`
-  // dans les métadonnées `Implementation` du protocole MCP (favicon affiché par
-  // les clients qui les lisent). Absente = ces champs ne sont pas envoyés.
+  // slash final. Optionnelle : renseigne `icons`/`websiteUrl` dans les
+  // métadonnées `Implementation` du protocole MCP (favicon affiché par les
+  // clients qui les lisent) et sert de base aux liens de téléchargement
+  // (get_attachment format "url"). Absente = ces champs ne sont pas envoyés
+  // et le format "url" est refusé.
   PUBLIC_BASE_URL: z
     .string()
     .default('')

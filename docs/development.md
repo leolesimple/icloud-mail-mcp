@@ -163,9 +163,11 @@ les notes vivent dans les GitHub Releases.
 Le calcul du bump dépend des commits en [Conventional Commits](https://www.conventionalcommits.org/fr/) :
 
 - `fix: …` → patch
-- `feat: …` → minor
-- pied `BREAKING CHANGE: …` → **minor** tant que le projet est en 0.x (règle `releaseRules` de
-  `.releaserc.json`, à retirer pour passer en 1.0.0)
+- `feat: …` → **patch** tant que le projet est en 0.x (règle `releaseRules`)
+- pied `BREAKING CHANGE: …` → **minor** tant que le projet est en 0.x (règle `releaseRules`)
+
+En 0.x, tout est décalé d'un cran : la mineure joue le rôle de la majeure, le patch celui de la
+mineure. Les deux règles `releaseRules` de `.releaserc.json` sont à retirer pour passer en 1.0.0.
 - `chore:`, `docs:`, `refactor:`, `test:`, `ci:`, … → pas de release
 
 [`commitlint.yml`](../.github/workflows/commitlint.yml) vérifie ce format sur chaque commit d'une
