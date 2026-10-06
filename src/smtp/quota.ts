@@ -156,6 +156,27 @@ export class SendQuota {
     return this.count() >= this.limit;
   }
 
+  /** Atomically reserve capacity before the first asynchronous SMTP operation.
+   * Persist immediately: a crash or an uncertain SMTP result must not free it. */
+  reserve(bypass = false): { release(): void } {
+    if (!bypass && this.wouldExceed())
+      throw new Error(`Quota d’envoi atteint (${this.limit}/24 h).`);
+    const timestamp = this.clock.now();
+    this.prune(timestamp);
+    this.sends.push(timestamp);
+    this.store.save(this.sends);
+    let active = true;
+    return {
+      release: () => {
+        if (!active) return;
+        active = false;
+        const index = this.sends.lastIndexOf(timestamp);
+        if (index >= 0) this.sends.splice(index, 1);
+        this.store.save(this.sends);
+      },
+    };
+  }
+
   /** Comptabilise un envoi réussi. */
   record(): void {
     const now = this.clock.now();

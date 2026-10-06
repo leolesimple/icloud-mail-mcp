@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { getMessage, getMessageSource } from '../../../imap/messages.js';
+import { getMessage, getMessageHeaders } from '../../../imap/messages.js';
 import { extractRawHeaders, prepareMessageBody } from '../../message-content.js';
 import { getMessageResultSchema } from '../../schemas.js';
 import { jsonResult } from '../../result.js';
@@ -50,7 +50,7 @@ export function registerGetMessageTool(server: McpServer): void {
       });
 
       const rawHeaders = includeRawHeaders
-        ? extractRawHeaders(await getMessageSource(folder, uid))
+        ? extractRawHeaders(await getMessageHeaders(folder, uid))
         : undefined;
 
       return jsonResult(

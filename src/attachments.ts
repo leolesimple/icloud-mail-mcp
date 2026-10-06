@@ -20,6 +20,27 @@ export interface InboundAttachment {
   contentBase64: string;
 }
 
+/** Decoded byte count without creating an intermediate string or Buffer. */
+export function decodedBase64Size(value: string): number {
+  let digits = 0;
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code > 127) throw new Error('Contenu base64 invalide : caractères non ASCII.');
+    if (code === 61) break;
+    if (
+      (code >= 65 && code <= 90) ||
+      (code >= 97 && code <= 122) ||
+      (code >= 48 && code <= 57) ||
+      code === 43 ||
+      code === 47 ||
+      code === 45 ||
+      code === 95
+    )
+      digits++;
+  }
+  return Math.floor((digits * 3) / 4);
+}
+
 /**
  * Décode une liste de pièces jointes base64 en `ComposeAttachment`. Refuse si le
  * cumul dépasse `maxBytes` — jamais de troncature silencieuse.
@@ -32,18 +53,23 @@ export function decodeInboundAttachments(
     return [];
   }
 
-  const decoded: ComposeAttachment[] = items.map((item) => ({
-    filename: item.filename,
-    contentType: item.contentType,
-    content: Buffer.from(item.contentBase64, 'base64'),
-  }));
-
-  const total = decoded.reduce((sum, attachment) => sum + attachment.content.length, 0);
+  // Preflight all inputs before allocating decoded buffers. Node accepts
+  // whitespace and the URL-safe alphabet; padding ends the encoded payload.
+  const total = items.reduce((sum, item) => sum + decodedBase64Size(item.contentBase64), 0);
   if (total > maxBytes) {
     throw new AttachmentTooLargeError(
       `Pièces jointes trop volumineuses : ${total} octets au total, ` +
         `au-delà de la limite de ${maxBytes} octets (ATTACHMENT_MAX_BYTES).`,
     );
+  }
+  const decoded: ComposeAttachment[] = [];
+  let actual = 0;
+  for (const item of items) {
+    const content = Buffer.from(item.contentBase64, 'base64');
+    actual += content.length;
+    if (actual > maxBytes)
+      throw new AttachmentTooLargeError('Limite ATTACHMENT_MAX_BYTES dépassée.');
+    decoded.push({ filename: item.filename, contentType: item.contentType, content });
   }
 
   return decoded;

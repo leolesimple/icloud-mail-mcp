@@ -51,7 +51,22 @@ function setup(options: { publicBaseUrl?: string; failSend?: boolean } = {}) {
   return { links, store, sent, drafts, open };
 }
 
-const NEW_MAIL = { to: ['alice@example.com'], subject: 'Rapport', text: 'Ci-joint.' };
+const NEW_MAIL = {
+  deliver: 'send',
+  to: ['alice@example.com'],
+  subject: 'Rapport',
+  text: 'Ci-joint.',
+};
+
+async function confirmedCall(
+  client: Client,
+  request: { name: string; arguments: Record<string, unknown> },
+) {
+  const first = await client.callTool(request);
+  const token = (first.structuredContent as Record<string, unknown> | undefined)?.confirmToken;
+  if (typeof token !== 'string') return first;
+  return client.callTool({ ...request, arguments: { ...request.arguments, confirmToken: token } });
+}
 
 describe('create_upload_link', () => {
   it('renvoie un lien de dépôt signé pour la cible upload', async () => {
@@ -99,6 +114,38 @@ describe('create_upload_link', () => {
 });
 
 describe('compose_message : source uploadId', () => {
+  it('first send request performs no write; confirmation binds attachment bytes', async () => {
+    const { store, sent, drafts, open } = setup();
+    store.put({ uploadId: 'u1', filename: 'a.txt', content: Buffer.from('first') });
+    const client = await open();
+    const input = { ...NEW_MAIL, attachments: [{ uploadId: 'u1' }] };
+    const first = await client.callTool({ name: 'compose_message', arguments: input });
+    assert.equal(sent.length, 0);
+    assert.equal(drafts.length, 0);
+    assert.ok(store.get('u1'));
+    const token = (first.structuredContent as Record<string, unknown>).confirmToken;
+    assert.equal(typeof token, 'string');
+    store.delete('u1');
+    store.put({ uploadId: 'u1', filename: 'a.txt', content: Buffer.from('changed') });
+    const second = await client.callTool({
+      name: 'compose_message',
+      arguments: { ...input, confirmToken: token },
+    });
+    assert.equal(second.isError, true);
+    assert.equal(sent.length, 0);
+    assert.ok(store.get('u1'));
+  });
+
+  it('omitting deliver stores a draft', async () => {
+    const { sent, drafts, open } = setup();
+    const client = await open();
+    const input = { to: NEW_MAIL.to, subject: NEW_MAIL.subject, text: NEW_MAIL.text };
+    const result = await client.callTool({ name: 'compose_message', arguments: input });
+    assert.equal(result.isError, undefined);
+    assert.equal(sent.length, 0);
+    assert.equal(drafts.length, 1);
+  });
+
   it('attache le dépôt et le consomme après l’envoi', async () => {
     const { store, sent, open } = setup();
     store.put({
@@ -108,7 +155,7 @@ describe('compose_message : source uploadId', () => {
       content: Buffer.from('%PDF'),
     });
     const client = await open();
-    const result = await client.callTool({
+    const result = await confirmedCall(client, {
       name: 'compose_message',
       arguments: { ...NEW_MAIL, attachments: [{ uploadId: 'u1' }] },
     });
@@ -124,7 +171,7 @@ describe('compose_message : source uploadId', () => {
     const { store, sent, open } = setup();
     store.put({ uploadId: 'u1', filename: 'a.bin', content: Buffer.from('x') });
     const client = await open();
-    await client.callTool({
+    await confirmedCall(client, {
       name: 'compose_message',
       arguments: {
         ...NEW_MAIL,
@@ -139,7 +186,7 @@ describe('compose_message : source uploadId', () => {
     const { store, drafts, open } = setup();
     store.put({ uploadId: 'u1', filename: 'a.txt', content: Buffer.from('x') });
     const client = await open();
-    const result = await client.callTool({
+    const result = await confirmedCall(client, {
       name: 'compose_message',
       arguments: { ...NEW_MAIL, deliver: 'draft', attachments: [{ uploadId: 'u1' }] },
     });
@@ -152,7 +199,7 @@ describe('compose_message : source uploadId', () => {
     const { store, open } = setup({ failSend: true });
     store.put({ uploadId: 'u1', filename: 'a.txt', content: Buffer.from('x') });
     const client = await open();
-    const result = await client.callTool({
+    const result = await confirmedCall(client, {
       name: 'compose_message',
       arguments: { ...NEW_MAIL, attachments: [{ uploadId: 'u1' }] },
     });
@@ -164,7 +211,7 @@ describe('compose_message : source uploadId', () => {
     const { store, sent, open } = setup();
     store.put({ uploadId: 'u1', filename: 'a.txt', content: Buffer.from('x') });
     const client = await open();
-    const result = await client.callTool({
+    const result = await confirmedCall(client, {
       name: 'compose_message',
       arguments: { ...NEW_MAIL, attachments: [{ uploadId: 'u1' }, { uploadId: 'absent' }] },
     });
@@ -176,7 +223,7 @@ describe('compose_message : source uploadId', () => {
 
   it('refuse deux sources sur un même élément', async () => {
     const client = await setup().open();
-    const result = await client.callTool({
+    const result = await confirmedCall(client, {
       name: 'compose_message',
       arguments: { ...NEW_MAIL, attachments: [{ uploadId: 'u1', url: 'https://x.example/a' }] },
     });

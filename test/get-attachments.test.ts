@@ -156,7 +156,7 @@ describe('collectAttachments — regroupement par message', () => {
     assert.deepEqual(calls, ['INBOX/12', 'Archive/12']);
   });
 
-  it('getMessageAttachments ne fait qu’un FETCH et garde les positions de read_message', async () => {
+  it('getMessageAttachments lit les parties sans télécharger la source complète', async () => {
     const source = Buffer.from(
       [
         'From: alice@example.com',
@@ -185,7 +185,29 @@ describe('collectAttachments — regroupement par message', () => {
       ].join('\r\n'),
     );
     const mail = new FakeMail().addMailbox('INBOX');
-    mail.addMessage('INBOX', { uid: 12, source });
+    mail.addMessage('INBOX', {
+      uid: 12,
+      source,
+      bodyStructure: {
+        type: 'multipart/mixed',
+        childNodes: [
+          { part: '1', type: 'text/plain' },
+          {
+            part: '2',
+            type: 'application/pdf',
+            disposition: 'attachment',
+            dispositionParameters: { filename: 'facture.pdf' },
+          },
+          {
+            part: '3',
+            type: 'text/plain',
+            disposition: 'attachment',
+            dispositionParameters: { filename: 'notes.txt' },
+          },
+        ],
+      },
+      parts: { '2': PDF, '3': Buffer.from('bonjour') },
+    });
     let fetches = 0;
     const fetchOne = mail.fetchOne.bind(mail);
     mail.fetchOne = (...args: Parameters<typeof fetchOne>) => {
@@ -202,7 +224,11 @@ describe('collectAttachments — regroupement par message', () => {
       fetchMessageAttachments: (folder, uid) => getMessageAttachments(folder, uid, withMailboxOn),
     });
 
-    assert.equal(fetches, 1);
+    assert.equal(fetches, 3);
+    assert.deepEqual(
+      mail.downloads.map((d) => d.part),
+      ['2', '3'],
+    );
     const [notes, facture] = batch.items;
     assert.ok(notes!.ok && 'contentBase64' in notes!);
     assert.equal(notes.filename, 'notes.txt');
@@ -368,7 +394,7 @@ describe('collectAttachments — téléchargements en parallèle', () => {
       options({ format: 'text_base64', fetchAttachmentPart, concurrency: 2 }),
     );
 
-    assert.equal(peak, 2, 'jamais plus de 2 téléchargements à la fois');
+    assert.equal(peak, 1, 'traitement progressif sans télécharger les futurs éléments');
     assert.equal(calls.length, 7, 'la partie demandée deux fois n’est téléchargée qu’une fois');
     assert.deepEqual(
       batch.items.map((r) => [r.uid, r.ok]),
@@ -385,5 +411,25 @@ describe('collectAttachments — téléchargements en parallèle', () => {
     );
     const last = batch.items.at(-1)!;
     assert.ok(!last.ok && /introuvable/.test(last.error));
+  });
+});
+
+describe('batch memory budget', () => {
+  it('does not download future items after the inline budget is consumed', async () => {
+    let downloads = 0;
+    const batch = await collectAttachments(
+      Array.from({ length: 25 }, (_, i) => ({ folder: 'INBOX', uid: i + 1, part: '2' })),
+      options({
+        maxBytes: 10,
+        inlineMaxBytes: 10,
+        fetchAttachmentPart: async () => {
+          downloads++;
+          return { part: '2', contentType: 'application/pdf', size: 10, content: Buffer.alloc(10) };
+        },
+      }),
+    );
+    assert.equal(downloads, 1);
+    assert.equal(batch.items.filter((item) => item.ok).length, 1);
+    assert.equal(batch.items.length, 25);
   });
 });

@@ -1,10 +1,10 @@
 import { posix } from 'node:path';
 import type { IncomingHttpHeaders } from 'node:http';
 import type { ComposeAttachment } from './smtp/compose.js';
-import { getAttachmentPart, getMessageAttachments } from './imap/messages.js';
+import { getAttachment, getAttachmentPart, getMessageAttachments } from './imap/messages.js';
 import type { AttachmentContent, AttachmentPartContent } from './imap/messages.js';
 import { locatorProblem } from './attachment-locator.js';
-import { AttachmentTooLargeError } from './attachments.js';
+import { AttachmentTooLargeError, decodedBase64Size } from './attachments.js';
 import { fetchHttpsGuarded, UrlTooLargeError } from './ssrf.js';
 import type { GuardedFetchDeps } from './ssrf.js';
 import { uploadStore } from './uploads.js';
@@ -209,6 +209,11 @@ async function resolveOne(
   deps: AttachmentSourceDeps,
 ): Promise<ComposeAttachment> {
   if (item.contentBase64 !== undefined) {
+    const decodedSize = decodedBase64Size(item.contentBase64);
+    if (decodedSize > remaining)
+      throw new AttachmentTooLargeError(
+        `${name} : contenu base64 au-delà des ${remaining} octets disponibles.`,
+      );
     return {
       filename: item.filename as string,
       contentType: item.contentType,
@@ -251,6 +256,14 @@ async function resolveOne(
     const { uid } = item.fromMessage;
     const index = item.fromMessage.index as number;
     const folder = item.fromMessage.folder ?? DEFAULT_FOLDER;
+    if (!deps.fetchMessageAttachments) {
+      const original = await getAttachment(folder, uid, index, remaining);
+      return {
+        filename: item.filename ?? original.filename ?? `attachment-${index}`,
+        contentType: item.contentType ?? original.contentType,
+        content: original.content,
+      };
+    }
     let attachments: AttachmentContent[];
     try {
       attachments = await loadMessage(folder, uid);

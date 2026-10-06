@@ -6,17 +6,26 @@
       "@semantic-release/commit-analyzer",
       {
         "releaseRules": [
-          { "breaking": true, "release": "minor" },
-          { "type": "feat", "release": "patch" }
+          {
+            "breaking": true,
+            "release": "minor"
+          },
+          {
+            "type": "feat",
+            "release": "patch"
+          }
         ]
       }
     ],
     "@semantic-release/release-notes-generator",
     [
       "@semantic-release/changelog",
-      { "changelogFile": "CHANGELOG.md", "changelogTitle": "# Changelog" }
+      {
+        "changelogFile": "CHANGELOG.md",
+        "changelogTitle": "# Changelog"
+      }
     ],
-    ["@semantic-release/npm", { "npmPublish": false }],
+    ["./vendor/release-version/index.js", {}],
     [
       "@semantic-release/git",
       {

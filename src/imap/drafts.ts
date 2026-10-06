@@ -4,7 +4,8 @@ import type { ImapFlow } from 'imapflow';
 import { imapPool } from './pool.js';
 import { classifyImapError } from './errors.js';
 import { findSpecialFolder } from './special-folders.js';
-import { getMessage } from './messages.js';
+import { getMessage, downloadMessageOn } from './messages.js';
+import { config } from '../config.js';
 import { buildReplyHeaders } from './threading.js';
 import { sendMail } from '../smtp/client.js';
 import type { SendResult } from '../smtp/client.js';
@@ -12,11 +13,18 @@ import { composeRaw } from '../smtp/compose.js';
 import type { ComposeAttachment } from '../smtp/compose.js';
 import { SmtpAuthError, SmtpMessageError, SmtpNetworkError } from '../smtp/errors.js';
 import { checkSendAllowed } from '../smtp/guards.js';
-import { sendQuota } from '../smtp/quota.js';
+import { logger } from '../logger.js';
+const log = logger.child({ module: 'drafts' });
+const activeDrafts = new Set<string>();
+const DELIVERY_STARTED = '$McpDeliveryStarted';
 
 /** Les erreurs SMTP portent déjà un message utilisateur : ne pas les reclasser en erreur IMAP. */
 function rethrowClassified(err: unknown): never {
-  if (err instanceof SmtpAuthError || err instanceof SmtpNetworkError || err instanceof SmtpMessageError) {
+  if (
+    err instanceof SmtpAuthError ||
+    err instanceof SmtpNetworkError ||
+    err instanceof SmtpMessageError
+  ) {
     throw err;
   }
   throw classifyImapError(err);
@@ -69,10 +77,13 @@ async function composeDraft(input: DraftInput): Promise<ComposedDraft> {
     );
   }
   if (!subject) {
-    throw new Error('Sujet requis, sauf en réponse à un message existant (replyFolder + replyUid).');
+    throw new Error(
+      'Sujet requis, sauf en réponse à un message existant (replyFolder + replyUid).',
+    );
   }
 
   const raw = await composeRaw({
+    keepBcc: true,
     to,
     cc: input.cc,
     bcc: input.bcc,
@@ -118,8 +129,9 @@ export async function updateDraftOn(
   draftsPath: string,
   uid: number,
   input: DraftInput,
+  composedRaw?: Buffer,
 ): Promise<UpdateDraftResult> {
-  const { raw } = await composeDraft(input);
+  const raw = composedRaw ?? (await composeDraft(input)).raw;
 
   const appended = await client.append(draftsPath, raw, ['\\Draft']);
   const lock = await client.getMailboxLock(draftsPath);
@@ -133,10 +145,11 @@ export async function updateDraftOn(
 }
 
 export async function updateDraft(uid: number, input: DraftInput): Promise<UpdateDraftResult> {
+  const { raw } = await composeDraft(input);
   try {
     return await imapPool.withConnection(async (client) => {
       const draftsPath = (await findSpecialFolder(client, '\\Drafts')) ?? 'Drafts';
-      return updateDraftOn(client, draftsPath, uid, input);
+      return updateDraftOn(client, draftsPath, uid, input, raw);
     });
   } catch (err) {
     throw classifyImapError(err);
@@ -181,76 +194,129 @@ export async function sendDraftOn(
   sentPath: string | undefined,
   uid: number,
 ): Promise<SendDraftResult> {
-  const readLock = await client.getMailboxLock(draftsPath, { readOnly: true });
-  let raw: Buffer;
+  const key = `${draftsPath}:${uid}`;
+  if (activeDrafts.has(key))
+    throw new SmtpMessageError('Brouillon déjà envoyé ou en cours d’envoi. Ne pas le renvoyer.');
+  activeDrafts.add(key);
   try {
-    const fetched = await client.fetchOne(uid, { uid: true, source: true }, { uid: true });
-    if (!fetched || !fetched.source) {
-      throw new Error(`Brouillon UID ${uid} introuvable dans "${draftsPath}"`);
+    const readLock = await client.getMailboxLock(draftsPath, { readOnly: true });
+    let raw: Buffer;
+    try {
+      const fetched = await client.fetchOne(
+        uid,
+        { uid: true, size: true, flags: true },
+        { uid: true },
+      );
+      if (!fetched) {
+        throw new Error(`Brouillon UID ${uid} introuvable dans "${draftsPath}"`);
+      }
+      if (fetched.flags?.has(DELIVERY_STARTED))
+        throw new SmtpMessageError(
+          'Brouillon déjà envoyé ou résultat d’envoi incertain : vérifier les Envoyés avant toute nouvelle tentative.',
+        );
+      raw = await downloadMessageOn(
+        client,
+        draftsPath,
+        uid,
+        config.MAX_MESSAGE_BYTES,
+        fetched.size,
+      );
+    } finally {
+      readLock.release();
     }
-    raw = fetched.source;
+    const parsed = await simpleParser(raw);
+
+    const addresses = (value: (typeof parsed)['to']): string[] => {
+      if (!value) return [];
+      const list = Array.isArray(value) ? value : [value];
+      return list.flatMap((entry) =>
+        entry.value.map((v) => v.address).filter((a): a is string => Boolean(a)),
+      );
+    };
+
+    const to = addresses(parsed.to);
+    if (to.length === 0) {
+      throw new Error(`Le brouillon UID ${uid} n'a pas de destinataire : impossible de l'envoyer.`);
+    }
+
+    const cc = addresses(parsed.cc);
+    const bcc = addresses(parsed.bcc);
+
+    // Mêmes garde-fous que send_message / reply_message. En DRAFTS_ONLY le
+    // brouillon est déjà dans Drafts : on le laisse intact, sans doublon.
+    const decision = checkSendAllowed({ to, cc, bcc });
+    if (decision.action === 'deny') {
+      throw new SmtpMessageError(decision.reason);
+    }
+    if (decision.action === 'draft') {
+      return { copiedToSent: false, draftDeleted: false, reason: 'DRAFTS_ONLY' };
+    }
+
+    // Persist an intent marker before SMTP. A crash or uncertain SMTP result
+    // leaves it set, preventing an unsafe resend after process restart.
+    const intentLock = await client.getMailboxLock(draftsPath);
+    try {
+      await client.messageFlagsAdd(uid, [DELIVERY_STARTED], { uid: true });
+    } finally {
+      intentLock.release();
+    }
+    let send: SendResult;
+    try {
+      send = await sendMail(
+        {
+          to,
+          cc,
+          bcc,
+          subject: parsed.subject ?? '',
+          text: parsed.text,
+          html: parsed.html || undefined,
+          inReplyTo: parsed.inReplyTo,
+          references: Array.isArray(parsed.references)
+            ? parsed.references
+            : parsed.references
+              ? [parsed.references]
+              : undefined,
+          attachments: draftAttachments(parsed),
+        },
+        async (sentRaw) => {
+          if (!sentPath) return false;
+          await client.append(sentPath, sentRaw, ['\\Seen']);
+          return true;
+        },
+      );
+    } catch (err) {
+      // Only an explicit rejection proves that the draft was not delivered.
+      if (
+        err instanceof SmtpAuthError ||
+        (err instanceof SmtpMessageError &&
+          (!err.cause || Number((err.cause as { responseCode?: number }).responseCode) >= 400))
+      ) {
+        const lock = await client.getMailboxLock(draftsPath);
+        try {
+          await client.messageFlagsRemove(uid, [DELIVERY_STARTED], { uid: true });
+        } finally {
+          lock.release();
+        }
+      }
+      throw err;
+    }
+    if (!send.savedToSent) return { send, copiedToSent: false, draftDeleted: false };
+    let draftDeleted = false;
+    try {
+      const lock = await client.getMailboxLock(draftsPath);
+      try {
+        await client.messageDelete(uid, { uid: true });
+        draftDeleted = true;
+      } finally {
+        lock.release();
+      }
+    } catch {
+      log.warn({ uid }, 'message sent, but draft cleanup failed; do not resend');
+    }
+    return { send, copiedToSent: send.savedToSent ?? false, draftDeleted };
   } finally {
-    readLock.release();
+    activeDrafts.delete(key);
   }
-  const parsed = await simpleParser(raw);
-
-  const addresses = (value: (typeof parsed)['to']): string[] => {
-    if (!value) return [];
-    const list = Array.isArray(value) ? value : [value];
-    return list.flatMap((entry) => entry.value.map((v) => v.address).filter((a): a is string => Boolean(a)));
-  };
-
-  const to = addresses(parsed.to);
-  if (to.length === 0) {
-    throw new Error(`Le brouillon UID ${uid} n'a pas de destinataire : impossible de l'envoyer.`);
-  }
-
-  const cc = addresses(parsed.cc);
-  const bcc = addresses(parsed.bcc);
-
-  // Mêmes garde-fous que send_message / reply_message. En DRAFTS_ONLY le
-  // brouillon est déjà dans Drafts : on le laisse intact, sans doublon.
-  const decision = checkSendAllowed({ to, cc, bcc });
-  if (decision.action === 'deny') {
-    throw new SmtpMessageError(decision.reason);
-  }
-  if (decision.action === 'draft') {
-    return { copiedToSent: false, draftDeleted: false, reason: 'DRAFTS_ONLY' };
-  }
-
-  const send = await sendMail({
-    to,
-    cc,
-    bcc,
-    subject: parsed.subject ?? '',
-    text: parsed.text,
-    html: parsed.html || undefined,
-    inReplyTo: parsed.inReplyTo,
-    references: Array.isArray(parsed.references)
-      ? parsed.references
-      : parsed.references
-        ? [parsed.references]
-        : undefined,
-    attachments: draftAttachments(parsed),
-  });
-
-  sendQuota.record();
-
-  let copiedToSent = false;
-  if (sentPath) {
-    // iCloud ne classe pas les envois SMTP externes : on recopie nous-mêmes.
-    await client.append(sentPath, raw, ['\\Seen']);
-    copiedToSent = true;
-  }
-
-  const lock = await client.getMailboxLock(draftsPath);
-  try {
-    await client.messageDelete(uid, { uid: true });
-  } finally {
-    lock.release();
-  }
-
-  return { send, copiedToSent, draftDeleted: true };
 }
 
 export async function sendDraft(uid: number): Promise<SendDraftResult> {

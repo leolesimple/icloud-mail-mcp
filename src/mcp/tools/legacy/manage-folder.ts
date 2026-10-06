@@ -1,3 +1,4 @@
+import { confirmToolAction } from '../../confirm-flow.js';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { manageFolder } from '../../../imap/folders.js';
@@ -16,17 +17,25 @@ export function registerManageFolderTool(server: McpServer): void {
         'Trash, Drafts, Archive, Junk) is refused: deleting an IMAP folder is irreversible and takes its ' +
         'contents with it. "newPath" is required for rename.',
       inputSchema: {
+        confirmToken: z.string().optional().describe('Token from the first confirmation request'),
         action: z.enum(['create', 'rename', 'delete']),
         path: z.string().min(1).describe('Folder path to act on'),
         newPath: z.string().min(1).optional().describe('Target path (required for rename)'),
       },
     },
-    async ({ action, path, newPath }) => {
+    async (input) => {
+      const { action, path, newPath } = input;
+
       if (action === 'rename' && !newPath) {
         return errorResult('Le renommage exige un chemin cible ("newPath").');
       }
-      log.info({ action, path, newPath }, 'managing folder');
-      return jsonResult(await manageFolder(action, path, newPath));
+      const execute = async () => {
+        log.info({ action, path, newPath }, 'managing folder');
+        return jsonResult(await manageFolder(action, path, newPath));
+      };
+      return input.action === 'delete'
+        ? confirmToolAction(server.server, 'manage_folder', input, execute)
+        : execute();
     },
   );
 }

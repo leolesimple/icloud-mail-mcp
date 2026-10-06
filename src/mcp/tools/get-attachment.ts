@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { getAttachment, getAttachmentPart } from '../../imap/messages.js';
+import { getAttachment, getAttachmentPart, getAttachmentMetadata } from '../../imap/messages.js';
 import { assertReadableSize, AttachmentTooLargeError } from '../../attachments.js';
 import { config } from '../../config.js';
 import { errorResult } from '../result.js';
@@ -50,9 +50,11 @@ export function registerGetAttachmentTool(server: McpServer): void {
       try {
         // Par partie, la limite s'applique pendant le téléchargement.
         attachment =
-          locator.part !== undefined
-            ? await getAttachmentPart(folder, uid, locator.part, config.ATTACHMENT_MAX_BYTES)
-            : await getAttachment(folder, uid, locator.index);
+          format === 'url'
+            ? await getAttachmentMetadata(folder, uid, locator)
+            : locator.part !== undefined
+              ? await getAttachmentPart(folder, uid, locator.part, config.ATTACHMENT_MAX_BYTES)
+              : await getAttachment(folder, uid, locator.index, config.ATTACHMENT_MAX_BYTES);
         assertReadableSize(attachment.size, config.ATTACHMENT_MAX_BYTES);
       } catch (err) {
         if (err instanceof AttachmentTooLargeError) {
@@ -65,7 +67,9 @@ export function registerGetAttachmentTool(server: McpServer): void {
         {
           filename: attachment.filename ?? `attachment-${locator.part ?? locator.index}`,
           contentType: attachment.contentType,
-          content: attachment.content,
+          ...('content' in attachment
+            ? { content: attachment.content }
+            : { size: attachment.size }),
         },
         {
           format,

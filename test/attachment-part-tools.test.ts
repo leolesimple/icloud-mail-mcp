@@ -100,7 +100,7 @@ describe('collectAttachments par part', () => {
         ...fetchers,
       },
     );
-    assert.deepEqual(calls, ['Apple/371/2/1000', 'Apple/371/9/1000', 'Apple/371/3/1000']);
+    assert.deepEqual(calls, ['Apple/371/2/1000', 'Apple/371/9/984', 'Apple/371/3/984']);
     assert.deepEqual(
       batch.items.map((item) => [item.part, item.index, item.ok]),
       [

@@ -24,6 +24,7 @@ import type {
 import { classifyImapError } from './errors.js';
 import { folderConcurrency, mapWithConcurrency } from './concurrency.js';
 import { AttachmentTooLargeError } from '../attachments.js';
+import { config } from '../config.js';
 
 export interface MessageAddress {
   name?: string;
@@ -329,20 +330,58 @@ export function isInlineAttachment(
   return att.related === true && att.contentDisposition?.toLowerCase() !== 'attachment';
 }
 
+/** Includes unnamed inline images as mailparser did, preserving public indices. */
+function messageAttachmentParts(structure: MessageStructureObject | undefined): AttachmentPart[] {
+  if (!structure) return [];
+  const result: AttachmentPart[] = [];
+  const visit = (node: MessageStructureObject): void => {
+    if (
+      !isMultipartNode(node) &&
+      (node.disposition?.toLowerCase() === 'attachment' ||
+        node.dispositionParameters?.filename ||
+        node.parameters?.name ||
+        (!node.type.toLowerCase().startsWith('text/') && node.id))
+    ) {
+      result.push({
+        part: node.part ?? '1',
+        filename: node.dispositionParameters?.filename || node.parameters?.name,
+        contentType: node.type.toLowerCase(),
+        size: node.size,
+        inline: isInlinePart(node.disposition, node.id),
+      });
+      return;
+    }
+    for (const child of node.childNodes ?? []) visit(child);
+  };
+  visit(structure);
+  return result;
+}
+
 export async function getMessage(folder: string, uid: number): Promise<FullMessage> {
   return withMailbox(
     folder,
     async (client) => {
       const fetched = await client.fetchOne(
         uid,
-        { uid: true, envelope: true, flags: true, size: true, source: true },
+        { uid: true, envelope: true, flags: true, size: true, bodyStructure: true },
         { uid: true },
       );
       if (!fetched) {
         throw new Error(`Message UID ${uid} introuvable dans "${folder}"`);
       }
 
-      const parsed = fetched.source ? await simpleParser(fetched.source) : undefined;
+      const source = await downloadMessageOn(
+        client,
+        folder,
+        uid,
+        config.MAX_MESSAGE_BYTES,
+        fetched.size,
+      );
+      const parsed = await simpleParser(source, {
+        skipImageLinks: true,
+        skipTextToHtml: true,
+        maxHtmlLengthToParse: config.MAX_MESSAGE_BYTES,
+      });
 
       return {
         ...toSummary(fetched),
@@ -351,13 +390,12 @@ export async function getMessage(folder: string, uid: number): Promise<FullMessa
         references: toReferencesList(parsed?.references),
         text: parsed?.text,
         html: parsed?.html ?? false,
-        attachments: (parsed?.attachments ?? []).map((att, index) => ({
+        attachments: messageAttachmentParts(fetched.bodyStructure).map((att, index) => ({
           index,
           filename: att.filename,
           contentType: att.contentType,
-          size: att.size,
-          contentId: att.cid,
-          inline: isInlineAttachment(att),
+          size: att.size ?? 0,
+          inline: att.inline,
         })),
       };
     },
@@ -370,25 +408,106 @@ export async function getMessage(folder: string, uid: number): Promise<FullMessa
  * sans le recomposer (cycle de vie des brouillons) et à joindre l'original en
  * `message/rfc822` pour `forward_message`.
  */
-export async function getMessageSource(folder: string, uid: number): Promise<Buffer> {
+/** Capped download of the complete RFC 5322 source. Metadata is advisory;
+ * the stream cap remains authoritative when the server reports an incorrect size. */
+export async function downloadMessageOn(
+  client: ImapFlow,
+  folder: string,
+  uid: number,
+  maxBytes: number,
+  announced?: number,
+): Promise<Buffer> {
+  if (announced !== undefined && announced > maxBytes) {
+    throw new AttachmentTooLargeError(
+      `Message de ${announced} octets, limite ${maxBytes} octets (MAX_MESSAGE_BYTES).`,
+    );
+  }
+  const download = await client.download(String(uid), undefined, {
+    uid: true,
+    maxBytes: maxBytes + 1,
+  });
+  if (!download.content) throw new Error(`Message UID ${uid} introuvable dans "${folder}"`);
+  const source = await readCapped(download.content, maxBytes);
+  if (!source)
+    throw new AttachmentTooLargeError(`Message au-delà de ${maxBytes} octets (MAX_MESSAGE_BYTES).`);
+  return source;
+}
+
+export async function getMessageMetadata(folder: string, uid: number): Promise<{ size: number }> {
   return withMailbox(
     folder,
     async (client) => {
-      const fetched = await client.fetchOne(uid, { uid: true, source: true }, { uid: true });
-      if (!fetched || !fetched.source) {
+      const fetched = await client.fetchOne(uid, { uid: true, size: true }, { uid: true });
+      if (!fetched || fetched.size === undefined)
         throw new Error(`Message UID ${uid} introuvable dans "${folder}"`);
-      }
-      return fetched.source;
+      return { size: fetched.size };
     },
     { readOnly: true },
   );
 }
 
-/**
- * Toutes les pièces jointes d'un message, en un seul téléchargement et un seul
- * parsing : `get_attachments` regroupe ses éléments par message pour ne pas
- * re-télécharger la source à chaque index. Positions identiques à `getMessage`.
- */
+export async function getMessageSource(
+  folder: string,
+  uid: number,
+  maxBytes = config.MAX_MESSAGE_BYTES,
+): Promise<Buffer> {
+  return withMailbox(
+    folder,
+    async (client) => {
+      const fetched = await client.fetchOne(uid, { uid: true, size: true }, { uid: true });
+      if (!fetched) throw new Error(`Message UID ${uid} introuvable dans "${folder}"`);
+      return downloadMessageOn(client, folder, uid, maxBytes, fetched.size);
+    },
+    { readOnly: true },
+  );
+}
+
+/** Headers alone: never fetch the body merely to inspect headers. */
+export async function getMessageHeaders(folder: string, uid: number): Promise<Buffer> {
+  return withMailbox(
+    folder,
+    async (client) => {
+      const download = await client.download(String(uid), 'HEADER', {
+        uid: true,
+        maxBytes: config.MAX_MESSAGE_BYTES + 1,
+      });
+      if (!download.content) throw new Error(`Message UID ${uid} introuvable dans "${folder}"`);
+      const headers = await readCapped(download.content, config.MAX_MESSAGE_BYTES);
+      if (!headers) throw new AttachmentTooLargeError('En-têtes trop volumineux.');
+      return headers;
+    },
+    { readOnly: true },
+  );
+}
+
+/** Stable index order shared by read_message and attachment downloads. Size is
+ * encoded BODYSTRUCTURE size (conservative estimate); actual bytes are capped on read. */
+export async function getAttachmentMetadata(
+  folder: string,
+  uid: number,
+  locator: { index?: number; part?: string },
+): Promise<{ filename?: string; contentType: string; size: number; part: string }> {
+  return withMailbox(
+    folder,
+    async (client) => {
+      const fetched = await client.fetchOne(uid, { uid: true, bodyStructure: true }, { uid: true });
+      if (!fetched) throw new Error(`Message UID ${uid} introuvable dans "${folder}"`);
+      const parts = messageAttachmentParts(fetched.bodyStructure);
+      const part = locator.part !== undefined ? locator.part : parts[locator.index ?? -1]?.part;
+      const node = part ? findStructurePart(fetched.bodyStructure, part) : undefined;
+      if (!node || isMultipartNode(node))
+        throw new Error(`Pièce jointe introuvable pour le message UID ${uid}`);
+      return {
+        part: part!,
+        filename: node.dispositionParameters?.filename || node.parameters?.name,
+        contentType: node.type.toLowerCase(),
+        size: node.size ?? 0,
+      };
+    },
+    { readOnly: true },
+  );
+}
+
 export async function getMessageAttachments(
   folder: string,
   uid: number,
@@ -397,57 +516,30 @@ export async function getMessageAttachments(
   return withMailboxFn(
     folder,
     async (client) => {
-      const fetched = await client.fetchOne(uid, { uid: true, source: true }, { uid: true });
-      if (!fetched || !fetched.source) {
-        throw new Error(`Message UID ${uid} introuvable dans "${folder}"`);
+      const fetched = await client.fetchOne(uid, { uid: true, bodyStructure: true }, { uid: true });
+      if (!fetched) throw new Error(`Message UID ${uid} introuvable dans "${folder}"`);
+      const result: AttachmentContent[] = [];
+      let remaining = config.ATTACHMENT_MAX_BYTES;
+      for (const [index, part] of messageAttachmentParts(fetched.bodyStructure).entries()) {
+        const downloaded = await downloadPartOn(client, folder, uid, part.part, remaining);
+        if (!downloaded.ok) throw new AttachmentTooLargeError(downloaded.tooLarge);
+        remaining -= downloaded.value.size;
+        result.push({ ...downloaded.value, index });
       }
-
-      const parsed = await simpleParser(fetched.source);
-      return parsed.attachments.map((attachment, index) => ({
-        index,
-        filename: attachment.filename,
-        contentType: attachment.contentType,
-        size: attachment.content.length,
-        content: attachment.content,
-      }));
+      return result;
     },
     { readOnly: true },
   );
 }
 
-/** Contenu binaire d'une pièce jointe, ciblée par son `index` (voir `getMessage`). */
 export async function getAttachment(
   folder: string,
   uid: number,
   index: number,
+  maxBytes = config.ATTACHMENT_MAX_BYTES,
 ): Promise<AttachmentContent> {
-  return withMailbox(
-    folder,
-    async (client) => {
-      const fetched = await client.fetchOne(uid, { uid: true, source: true }, { uid: true });
-      if (!fetched || !fetched.source) {
-        throw new Error(`Message UID ${uid} introuvable dans "${folder}"`);
-      }
-
-      const parsed = await simpleParser(fetched.source);
-      const attachment = parsed.attachments[index];
-      if (!attachment) {
-        throw new Error(
-          `Pièce jointe #${index} introuvable pour le message UID ${uid} ` +
-            `(${parsed.attachments.length} pièce(s) jointe(s))`,
-        );
-      }
-
-      return {
-        index,
-        filename: attachment.filename,
-        contentType: attachment.contentType,
-        size: attachment.content.length,
-        content: attachment.content,
-      };
-    },
-    { readOnly: true },
-  );
+  const metadata = await getAttachmentMetadata(folder, uid, { index });
+  return { ...(await getAttachmentPart(folder, uid, metadata.part, maxBytes)), index };
 }
 
 /**

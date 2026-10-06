@@ -11,7 +11,11 @@ export interface MoveResult {
   newUid?: number;
 }
 
-export async function moveMessage(folder: string, uid: number, destination: string): Promise<MoveResult> {
+export async function moveMessage(
+  folder: string,
+  uid: number,
+  destination: string,
+): Promise<MoveResult> {
   return withMailbox(folder, async (client) => {
     const result = await client.messageMove(uid, destination, { uid: true });
     if (!result) {
@@ -48,6 +52,7 @@ export async function deleteMessage(folder: string, uid: number): Promise<Delete
   try {
     return await imapPool.withConnection(async (client) => {
       const trashPath = await findSpecialFolder(client, '\\Trash');
+      if (!trashPath) throw new Error('Aucun dossier Corbeille identifié : suppression refusée.');
 
       if (trashPath && trashPath !== folder) {
         return withLock(client, folder, async () => {
@@ -73,14 +78,7 @@ export async function deleteMessage(folder: string, uid: number): Promise<Delete
 }
 
 export type FlagAction =
-  | 'read'
-  | 'unread'
-  | 'flagged'
-  | 'unflagged'
-  | 'answered'
-  | 'unanswered'
-  | 'junk'
-  | 'not_junk';
+  'read' | 'unread' | 'flagged' | 'unflagged' | 'answered' | 'unanswered' | 'junk' | 'not_junk';
 
 export interface FlagResult {
   uid: number;
@@ -116,8 +114,19 @@ export async function flagMessage(
   keywords: string[] = [],
 ): Promise<FlagResult> {
   return withMailbox(folder, async (client) => {
+    if (
+      keywords.some(
+        (keyword) =>
+          !/^[^\\\s(){}%*"]+$/.test(keyword) ||
+          Array.from(keyword).some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127),
+      )
+    ) {
+      throw new Error('Les keywords doivent être des mots-clés IMAP valides, sans flags système.');
+    }
     const toAdd = [
-      ...actions.map((action) => FLAG_ADDITIONS[action]).filter((flag): flag is string => Boolean(flag)),
+      ...actions
+        .map((action) => FLAG_ADDITIONS[action])
+        .filter((flag): flag is string => Boolean(flag)),
       ...keywords,
     ];
     const toRemove = actions
@@ -205,7 +214,9 @@ export async function moveMessages(
   uids: number[],
   destination: string,
 ): Promise<{ from: string; to: string; results: BulkItemResult[] }> {
-  const results = await withMailbox(folder, (client) => moveMessagesOn(client, folder, uids, destination));
+  const results = await withMailbox(folder, (client) =>
+    moveMessagesOn(client, folder, uids, destination),
+  );
   return { from: folder, to: destination, results };
 }
 
@@ -215,6 +226,7 @@ export async function deleteMessagesOn(
   uids: number[],
 ): Promise<{ action: DeleteAction; destination?: string; results: BulkItemResult[] }> {
   const trashPath = await findSpecialFolder(client, '\\Trash');
+  if (!trashPath) throw new Error('Aucun dossier Corbeille identifié : suppression refusée.');
 
   return withLock(client, folder, async () => {
     const { actionable, results } = await partitionUids(client, folder, uids);
@@ -223,7 +235,11 @@ export async function deleteMessagesOn(
       if (actionable.length > 0) {
         await client.messageMove(actionable, trashPath, { uid: true });
       }
-      return { action: 'moved_to_trash' as const, destination: trashPath, results: markOk(results, actionable) };
+      return {
+        action: 'moved_to_trash' as const,
+        destination: trashPath,
+        results: markOk(results, actionable),
+      };
     }
 
     if (actionable.length > 0) {
@@ -236,9 +252,16 @@ export async function deleteMessagesOn(
 export async function deleteMessages(
   folder: string,
   uids: number[],
-): Promise<{ folder: string; action: DeleteAction; destination?: string; results: BulkItemResult[] }> {
+): Promise<{
+  folder: string;
+  action: DeleteAction;
+  destination?: string;
+  results: BulkItemResult[];
+}> {
   try {
-    const outcome = await imapPool.withConnection((client) => deleteMessagesOn(client, folder, uids));
+    const outcome = await imapPool.withConnection((client) =>
+      deleteMessagesOn(client, folder, uids),
+    );
     return { folder, ...outcome };
   } catch (err) {
     throw classifyImapError(err);
@@ -252,11 +275,24 @@ export async function flagMessagesOn(
   actions: FlagAction[],
   keywords: string[] = [],
 ): Promise<BulkItemResult[]> {
+  if (
+    keywords.some(
+      (keyword) =>
+        !/^[^\\\s(){}%*"]+$/.test(keyword) ||
+        Array.from(keyword).some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127),
+    )
+  ) {
+    throw new Error('Les keywords doivent être des mots-clés IMAP valides, sans flags système.');
+  }
   const toAdd = [
-    ...actions.map((action) => FLAG_ADDITIONS[action]).filter((flag): flag is string => Boolean(flag)),
+    ...actions
+      .map((action) => FLAG_ADDITIONS[action])
+      .filter((flag): flag is string => Boolean(flag)),
     ...keywords,
   ];
-  const toRemove = actions.map((action) => FLAG_REMOVALS[action]).filter((flag): flag is string => Boolean(flag));
+  const toRemove = actions
+    .map((action) => FLAG_REMOVALS[action])
+    .filter((flag): flag is string => Boolean(flag));
 
   const { actionable, results } = await partitionUids(client, folder, uids);
   if (actionable.length > 0) {
@@ -281,6 +317,13 @@ export async function flagMessages(
   keywords?: string[];
   results: BulkItemResult[];
 }> {
-  const results = await withMailbox(folder, (client) => flagMessagesOn(client, folder, uids, actions, keywords));
-  return { folder, applied: actions, keywords: keywords.length > 0 ? keywords : undefined, results };
+  const results = await withMailbox(folder, (client) =>
+    flagMessagesOn(client, folder, uids, actions, keywords),
+  );
+  return {
+    folder,
+    applied: actions,
+    keywords: keywords.length > 0 ? keywords : undefined,
+    results,
+  };
 }
