@@ -22,6 +22,7 @@ import type {
   SearchCriteria,
 } from './search-query.js';
 import { classifyImapError } from './errors.js';
+import { folderConcurrency, mapWithConcurrency } from './concurrency.js';
 import { AttachmentTooLargeError } from '../attachments.js';
 
 export interface MessageAddress {
@@ -166,7 +167,7 @@ function pageOf(messages: FoundMessageSummary[], hasMore: boolean): MessagePage 
 }
 
 /** Nombre de candidats lus par commande FETCH lors d'un filtrage local. */
-export const CANDIDATE_FETCH_BATCH = 100;
+export const CANDIDATE_FETCH_BATCH = 250;
 
 /**
  * Filtrage local des candidats du SEARCH : critères `subject`/`from`/`to` sur
@@ -272,10 +273,12 @@ type WithMailbox = <T>(
 ) => Promise<T>;
 
 /**
- * Recherche sur plusieurs dossiers, un dossier à la fois (IMAP ne sait pas
- * chercher globalement). Résultats fusionnés, chacun étiqueté par son dossier,
- * triés du plus récent au plus ancien, tronqués à `limit`. Pas de curseur : la
- * pagination n'a de sens que dossier par dossier.
+ * Recherche sur plusieurs dossiers (IMAP ne sait pas chercher globalement),
+ * fouillés en parallèle sur au plus `concurrency` connexions du pool (par
+ * défaut toutes sauf une, voir `folderConcurrency`). Résultats fusionnés dans
+ * l'ordre des dossiers, chacun étiqueté par son dossier, triés du plus récent
+ * au plus ancien, tronqués à `limit`. Pas de curseur : la pagination n'a de
+ * sens que dossier par dossier.
  *
  * Un dossier en échec (ex. nom inexistant) est écarté et reporté dans
  * `errors` plutôt que de faire échouer tout le lot : sur N dossiers demandés,
@@ -287,27 +290,29 @@ export async function searchMessagesAcross(
   folders: string[],
   options: SearchMessagesOptions,
   withMailboxFn: WithMailbox = withMailbox,
+  concurrency: number = folderConcurrency(),
 ): Promise<{ messages: TaggedMessageSummary[]; errors?: FolderSearchError[] }> {
-  const merged: TaggedMessageSummary[] = [];
-  const errors: FolderSearchError[] = [];
-  for (const folder of folders) {
-    try {
-      const page = await withMailboxFn(
-        folder,
-        (client) => fetchPage(client, options, options.limit),
-        {
-          readOnly: true,
-        },
-      );
-      for (const message of page.messages) {
-        merged.push({ ...message, folder });
+  const results = await mapWithConcurrency(
+    folders,
+    concurrency,
+    async (folder): Promise<TaggedMessageSummary[] | FolderSearchError> => {
+      try {
+        const page = await withMailboxFn(
+          folder,
+          (client) => fetchPage(client, options, options.limit),
+          { readOnly: true },
+        );
+        return page.messages.map((message) => ({ ...message, folder }));
+      } catch (err) {
+        const classified = classifyImapError(err);
+        if (classified.name !== 'ImapCommandError') throw classified;
+        return { folder, error: classified.message };
       }
-    } catch (err) {
-      const classified = classifyImapError(err);
-      if (classified.name !== 'ImapCommandError') throw classified;
-      errors.push({ folder, error: classified.message });
-    }
-  }
+    },
+  );
+  // Fusion dans l'ordre des dossiers : le tri (stable) départage les ex aequo comme avant.
+  const merged = results.flatMap((result) => (Array.isArray(result) ? result : []));
+  const errors = results.filter((result): result is FolderSearchError => !Array.isArray(result));
   merged.sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''));
   return { messages: merged.slice(0, options.limit), ...(errors.length > 0 ? { errors } : {}) };
 }

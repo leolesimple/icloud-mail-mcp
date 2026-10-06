@@ -283,7 +283,17 @@ export class FakeMail extends EventEmitter {
   readonly mailboxes = new Map<string, FakeMailboxState>();
   selected: string | null = null;
   nextUid = 1000;
-  readonly counters = { move: 0, delete: 0, flagAdd: 0, flagRemove: 0, status: 0, append: 0, search: 0 };
+  readonly counters = {
+    move: 0,
+    delete: 0,
+    flagAdd: 0,
+    flagRemove: 0,
+    status: 0,
+    /** LIST avec statuts en ligne (LIST-STATUS) : un seul aller-retour pour tous les dossiers. */
+    listStatus: 0,
+    append: 0,
+    search: 0,
+  };
   /** Taille de chaque FETCH de BODYSTRUCTURE (filtre pièces jointes). */
   readonly bodyStructureFetches: number[] = [];
   /** Requêtes SEARCH reçues, dans l'ordre. */
@@ -356,7 +366,37 @@ export class FakeMail extends EventEmitter {
     return { path, release: () => {} };
   }
 
-  async list(): Promise<unknown[]> {
+  /**
+   * Le serveur annonce-t-il LIST-STATUS (RFC 5819) ? Oui par défaut, comme iCloud.
+   * Sinon `list({ statusQuery })` retombe, comme imapflow, sur un `status()` par
+   * dossier sélectionnable, une erreur devenant `{ error }`.
+   */
+  supportsListStatus = true;
+
+  async list(options?: {
+    statusQuery?: { messages?: boolean; unseen?: boolean };
+  }): Promise<unknown[]> {
+    const entries = this.listEntries();
+    const query = options?.statusQuery;
+    if (!query) return entries;
+    if (this.supportsListStatus) this.counters.listStatus += 1;
+    for (const entry of entries) {
+      // imapflow ne demande jamais le STATUS d'un \\Noselect ; le serveur, lui, n'en renvoie pas.
+      if (this.require(entry.path).noSelect) continue;
+      if (this.supportsListStatus) {
+        (entry as { status?: unknown }).status = this.statusOf(entry.path, query);
+        continue;
+      }
+      try {
+        (entry as { status?: unknown }).status = await this.status(entry.path, query);
+      } catch (error) {
+        (entry as { status?: unknown }).status = { error };
+      }
+    }
+    return entries;
+  }
+
+  private listEntries() {
     return [...this.mailboxes.entries()].map(([path, mailbox]) => ({
       path,
       pathAsListed: path,
@@ -375,6 +415,11 @@ export class FakeMail extends EventEmitter {
     this.counters.status += 1;
     const mailbox = this.require(path);
     if (mailbox.noSelect) throw new Error(`STATUS not allowed on "${path}"`);
+    return this.statusOf(path, query);
+  }
+
+  private statusOf(path: string, query: { messages?: boolean; unseen?: boolean }) {
+    const mailbox = this.require(path);
     return {
       path,
       messages: query.messages ? mailbox.messages.length : undefined,

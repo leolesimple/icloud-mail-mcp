@@ -286,7 +286,14 @@ export const whoamiReportSchema = schemaFor<WhoamiReport>()(
       bearerTokenConfigured: z.boolean(),
     }),
     guardrails: guardrailsSchema,
-    imapPool: z.object({ open: z.number(), inUse: z.number(), max: z.number() }),
+    imapPool: z.object({
+      open: z.number(),
+      inUse: z.number(),
+      max: z.number(),
+      waiting: z.number(),
+      maxRecentWaitMs: z.number(),
+      acquireTimeouts: z.number(),
+    }),
     probe: z
       .object({
         attempted: z.literal(true),

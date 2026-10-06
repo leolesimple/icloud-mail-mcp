@@ -256,5 +256,6 @@ ni agent résident sur l'hôte. Mise en place et modèle de menace : [`deploy/RE
 | `network <nom> declared as external, but could not be found` | Le réseau n'existe pas : `docker network create "<nom>"`, ou `TUNNEL_NETWORK` ne correspond pas au réseau du `cloudflared`. |
 | `required variable TUNNEL_NETWORK is missing` | `TUNNEL_NETWORK` absent de `.env`. |
 | Erreurs IMAP intermittentes | Throttling iCloud. Baisser `IMAP_POOL_SIZE`, ou espacer les appels. |
+| « Pool IMAP saturé » | Des appels longs occupent toutes les connexions plus de `IMAP_ACQUIRE_TIMEOUT_MS`. Monter `IMAP_POOL_SIZE` à `4` ; l'état du pool est dans `inbox_overview` avec `includeDiagnostics`. |
 | Le tunnel ne se connecte pas (modèle autonome) | `TUNNEL_TOKEN` invalide ou tunnel supprimé côté Cloudflare. |
 | En stdio, le client MCP n'obtient jamais de réponse | Quelque chose écrit sur stdout du processus (wrapper qui fait `2>&1`, `console.log` ajouté, autre lib bavarde). stdout est réservé au JSON-RPC. |

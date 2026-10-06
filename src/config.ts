@@ -30,6 +30,9 @@ const envSchema = z.object({
   IMAP_HOST: z.string().min(1).default('imap.mail.me.com'),
   IMAP_PORT: z.coerce.number().int().positive().default(993),
   IMAP_POOL_SIZE: z.coerce.number().int().positive().default(2),
+  // Attente maximale d'une connexion IMAP libre, en millisecondes. Au-delà,
+  // l'appel échoue avec une erreur explicite au lieu de rester bloqué en file.
+  IMAP_ACQUIRE_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
   SMTP_HOST: z.string().min(1).default('smtp.mail.me.com'),
   SMTP_PORT: z.coerce.number().int().positive().default(587),
   SMTP_POOL_SIZE: z.coerce.number().int().positive().default(2),
