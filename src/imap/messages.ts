@@ -167,7 +167,7 @@ function pageOf(messages: FoundMessageSummary[], hasMore: boolean): MessagePage 
 }
 
 /** Nombre de candidats lus par commande FETCH lors d'un filtrage local. */
-export const CANDIDATE_FETCH_BATCH = 100;
+export const CANDIDATE_FETCH_BATCH = 250;
 
 /**
  * Filtrage local des candidats du SEARCH : critères `subject`/`from`/`to` sur

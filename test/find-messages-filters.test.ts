@@ -3,7 +3,12 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ImapFlow, MessageStructureObject } from 'imapflow';
 import { simpleParser } from 'mailparser';
-import { fetchPage, isInlineAttachment, searchMessagesAcross } from '../src/imap/messages.js';
+import {
+  CANDIDATE_FETCH_BATCH,
+  fetchPage,
+  isInlineAttachment,
+  searchMessagesAcross,
+} from '../src/imap/messages.js';
 import { listFoldersOn, searchableFolderPaths } from '../src/imap/folders.js';
 import {
   attachmentFilterOf,
@@ -117,7 +122,8 @@ describe('fetchPage avec filtre pièces jointes', () => {
   function bigFolder(): { mail: FakeMail; withPdf: number[] } {
     const mail = new FakeMail().addMailbox('INBOX');
     const withPdf: number[] = [];
-    for (let uid = 1; uid <= 250; uid += 1) {
+    // Deux lots et demi de candidats.
+    for (let uid = 1; uid <= CANDIDATE_FETCH_BATCH * 2.5; uid += 1) {
       const pdf = uid % 3 === 0;
       if (pdf) withPdf.push(uid);
       mail.addMessage('INBOX', {
@@ -157,13 +163,15 @@ describe('fetchPage avec filtre pièces jointes', () => {
 
   it('lit le BODYSTRUCTURE par lots et s’arrête dès qu’une page est pleine', async () => {
     const { mail } = bigFolder();
+    const batch = CANDIDATE_FETCH_BATCH;
     await fetchPage(mail.asImapFlow(), { hasAttachment: true }, 10);
     // 11 correspondances (10 + 1 pour savoir s'il reste une page) tiennent dans le premier lot.
-    assert.deepEqual(mail.bodyStructureFetches, [100]);
+    assert.deepEqual(mail.bodyStructureFetches, [batch]);
 
     mail.bodyStructureFetches.length = 0;
-    await fetchPage(mail.asImapFlow(), { hasAttachment: true }, 50);
-    assert.deepEqual(mail.bodyStructureFetches, [100, 100]);
+    // Un message sur trois correspond : batch / 2 + 1 correspondances débordent sur un second lot.
+    await fetchPage(mail.asImapFlow(), { hasAttachment: true }, batch / 2);
+    assert.deepEqual(mail.bodyStructureFetches, [batch, batch]);
   });
 
   it('se combine avec les critères IMAP SEARCH', async () => {
