@@ -55,10 +55,13 @@ export function registerFindMessagesTool(server: McpServer): void {
       description:
         'Lists or searches email messages (courriels) in a mail folder (dossier), newest first. Without any ' +
         'criterion it lists the folder (INBOX / boîte de réception by default); with at least one criterion ' +
-        'it runs a native IMAP SEARCH. Criteria are combined with AND: text (subject/body/from/to/text), ' +
+        'it searches it. Criteria are combined with AND: text (subject/body/from/to/text), ' +
         'date range (since/before), unreadOnly (non lus), flagged (starred / suivis), negation (not), ' +
-        'alternation (or). Returns { messages, nextCursor? }: pass nextCursor as beforeUid to get the next ' +
-        'page. folders[] searches several folders at once, and folders: "*" searches every folder except ' +
+        'alternation (or). subject, from and to (also inside not and or) are case-insensitive substrings ' +
+        'checked by this server on each message envelope (decoded subject; display name or address of ' +
+        'the From / To recipients), because iCloud IMAP SEARCH misses some partial matches; body, text, ' +
+        'dates and flags use native IMAP SEARCH. Returns { messages, nextCursor? }: pass nextCursor as ' +
+        'beforeUid to get the next page. folders[] searches several folders at once, and folders: "*" searches every folder except ' +
         'Trash and Junk (set includeTrash to include them); a criterion is then required, each message is ' +
         'tagged with its "folder", no cursor is returned, and a failing folder is reported in "errors". ' +
         'hasAttachment / attachmentType (MIME type like "application/pdf", or prefix like "image/") filter ' +
@@ -87,7 +90,7 @@ export function registerFindMessagesTool(server: McpServer): void {
         subject: z.string().optional(),
         body: z.string().optional(),
         from: z.string().optional().describe('Sender address or name (partial match)'),
-        to: z.string().optional(),
+        to: z.string().optional().describe('To recipient address or name (partial match)'),
         text: z.string().optional().describe('Matches anywhere in headers or body'),
         since: isoDate
           .optional()

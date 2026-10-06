@@ -27,7 +27,8 @@ export function registerSearchMessagesTool(server: McpServer): void {
     {
       title: 'Search messages',
       description:
-        'Searches messages with the native IMAP SEARCH command. Criteria are combined with AND. Supports ' +
+        'Searches messages (IMAP SEARCH; subject/from/to checked on the envelope, as in find_messages). ' +
+        'Criteria are combined with AND. Supports ' +
         'text (subject/body/from/to/text), date range (since/before), unreadOnly, flagged, negation (not), ' +
         'alternation (or), pagination (beforeUid → nextCursor), and multi-folder search (folders[]). ' +
         'At least one real criterion is required. Returns { messages, nextCursor? }; with folders[], each ' +
