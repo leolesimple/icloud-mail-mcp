@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { BULK_UID_LIMIT } from '../../imap/mutations.js';
 import { attachmentSourceProblem } from '../../attachment-sources.js';
+import { locatorProblem, PART_PATTERN } from '../../attachment-locator.js';
 
 /**
  * Fragments de schémas d'entrée partagés par les outils.
@@ -29,6 +30,31 @@ export const textCriteriaInput = z
     text: z.string().optional().describe('Matches anywhere in headers or body'),
   })
   .describe('A set of text criteria');
+
+/** Position d'une pièce jointe dans `read_message`. */
+export const attachmentIndexInput = z.coerce
+  .number()
+  .int()
+  .nonnegative()
+  .describe('Attachment index, as reported by read_message (give index or part, not both)');
+
+/** Numéro de partie IMAP d'une pièce jointe, tel que le renvoie `find_messages`. */
+export const attachmentPartInput = z
+  .string()
+  .regex(PART_PATTERN, 'part est un numéro de partie IMAP, ex. "2" ou "1.3"')
+  .describe(
+    'IMAP part number of the attachment, as reported by find_messages, e.g. "2" or "1.3": ' +
+      'downloads only that part (give index or part, not both)',
+  );
+
+/** Refus zod d'une désignation sans, ou avec à la fois, `index` et `part`. */
+export function refineLocator(
+  value: { index?: unknown; part?: unknown },
+  ctx: z.RefinementCtx,
+): void {
+  const problem = locatorProblem(value);
+  if (problem) ctx.addIssue({ code: 'custom', message: problem });
+}
 
 /** Pièce jointe d'un message existant, reprise côté serveur. */
 const fromMessageInput = z

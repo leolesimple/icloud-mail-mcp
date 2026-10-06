@@ -342,14 +342,30 @@ est un résumé d'enveloppe identique à ceux de `find_messages`, augmenté de `
 
 ### `get_attachment`
 
-Contenu binaire d'**une** pièce jointe, ciblée par l'`index` renvoyé par `read_message`.
+Contenu binaire d'**une** pièce jointe, ciblée par l'`index` renvoyé par `read_message` **ou** par
+le numéro de partie IMAP `part` renvoyé par `find_messages`.
 
 | Paramètre | Type | Défaut | Description |
 |---|---|---|---|
 | `folder` | string | `INBOX` | Dossier contenant le message |
 | `uid` | number | *(requis)* | UID IMAP du message |
-| `index` | number | *(requis)* | Index de la pièce jointe (tel que renvoyé par `read_message`) |
+| `index` | number | — | Index de la pièce jointe (tel que renvoyé par `read_message`) |
+| `part` | string | — | Numéro de partie IMAP (`"2"`, `"1.3"`), tel que renvoyé par `find_messages` |
 | `format` | `auto` \| `text_base64` \| `url` | `auto` | Forme du retour, voir ci-dessous |
+
+**Exactement un** de `index` ou `part` est requis (aucun, ou les deux : refusé à la validation ;
+`part` doit avoir la forme `^\d+(\.\d+)*$`). Les deux ne sont **pas** interchangeables : `index` est
+une position dans la liste de mailparser, `part` un numéro dans le `BODYSTRUCTURE`.
+
+- **Par `index`**, le message entier est téléchargé puis parsé.
+- **Par `part`**, seule cette partie est téléchargée (le serveur décode le base64 ou le
+  quoted-printable) : c'est le chemin direct depuis un résultat de `find_messages`, sans
+  `read_message`. Le serveur vérifie d'abord dans le `BODYSTRUCTURE` que la partie existe et n'est
+  pas un conteneur `multipart/*` (refus explicite, avec la liste des parties de pièces jointes) ;
+  `filename` et `contentType` en sont tirés. La limite de taille s'applique **avant** le
+  téléchargement, sur la taille annoncée, puis **pendant**, en coupant le flux. Réserve : une partie
+  `text/*` sans disposition `attachment` est convertie en UTF-8 par imapflow, ses octets peuvent donc
+  différer de ceux obtenus par `index`.
 
 Le retour dépend de `format` :
 
@@ -377,7 +393,8 @@ Aucun format ne renvoie de bloc `resource` : Claude Desktop les refuse pour les 
 
 Au-delà de `ATTACHMENT_MAX_BYTES` (5 Mo par défaut), l'outil **refuse** en indiquant la taille
 réelle et la limite : jamais de troncature silencieuse d'un binaire. La limite vaut aussi pour le
-format `url`, au moment de l'émission du lien comme à son téléchargement.
+format `url`, au moment de l'émission du lien comme à son téléchargement. Un lien émis pour une
+`part` ne télécharge, lui aussi, que cette partie.
 
 ---
 
@@ -387,22 +404,23 @@ Plusieurs pièces jointes en **un seul appel**, éventuellement de messages et d
 
 | Paramètre | Type | Défaut | Description |
 |---|---|---|---|
-| `items` | `{ folder, uid, index }[]` | *(requis)* | 1 à 25 pièces jointes ; `folder` vaut `INBOX` par défaut, `index` comme pour `get_attachment` |
+| `items` | `{ folder, uid, index }[]` ou `{ folder, uid, part }[]` | *(requis)* | 1 à 25 pièces jointes ; `folder` vaut `INBOX` par défaut, `index` ou `part` (exactement un par élément) comme pour `get_attachment` |
 | `format` | `auto` \| `text_base64` \| `url` | `auto` | Même paramètre que [`get_attachment`](#get_attachment) |
 
-Les éléments sont regroupés par message (`folder`, `uid`) : chaque message n'est téléchargé et
-parsé **qu'une fois**, quel que soit le nombre d'index demandés.
+Les éléments par `index` sont regroupés par message (`folder`, `uid`) : chaque message n'est
+téléchargé et parsé **qu'une fois**, quel que soit le nombre d'index demandés. Un élément par `part`
+ne télécharge que sa partie ; les deux formes peuvent se mélanger dans un même appel.
 
 Le premier bloc est un `text` contenant le récapitulatif JSON `{ succeeded, failed, items }`, avec
 un résultat par élément, **dans l'ordre de la demande** :
 
-- succès : `{ folder, uid, index, ok: true, filename, contentType, size, … }` complété selon le
+- succès : `{ folder, uid, index | part, ok: true, filename, contentType, size, … }` complété selon le
   format : `contentBase64` (`text_base64`, et `auto` hors images), `url` + `expiresAt` (`url`), ou
   `imageBlock: true` pour une image en `auto` ;
-- échec : `{ folder, uid, index, ok: false, error }`.
+- échec : `{ folder, uid, index | part, ok: false, error }`.
 
 En `auto`, chaque image suit le récapitulatif : une ligne `text` qui la situe
-(`items[0] : photo.png (folder "INBOX", uid 4512, index 1)`), puis son bloc `image`
+(`items[0] : photo.png (folder "INBOX", uid 4512, index 1)`, ou `part 2`), puis son bloc `image`
 (`data` + `mimeType`, comme `get_attachment`).
 
 ```json
@@ -431,10 +449,10 @@ En `auto`, chaque image suit le récapitulatif : une ligne `text` qui la situe
 }
 ```
 
-**Échecs partiels.** Un élément en échec — message ou index introuvable, pièce jointe au-delà de
-`ATTACHMENT_MAX_BYTES`, limite cumulée dépassée — porte son `error` sans faire échouer le lot. Seule
-une erreur d'authentification ou réseau IMAP, qui touche la connexion entière, fait échouer l'appel
-(même logique que `find_messages` sur plusieurs dossiers).
+**Échecs partiels.** Un élément en échec — message, index ou partie introuvable, partie multipart,
+pièce jointe au-delà de `ATTACHMENT_MAX_BYTES`, limite cumulée dépassée — porte son `error` sans
+faire échouer le lot. Seule une erreur d'authentification ou réseau IMAP, qui touche la connexion
+entière, fait échouer l'appel (même logique que `find_messages` sur plusieurs dossiers).
 
 **Limites de taille.**
 
