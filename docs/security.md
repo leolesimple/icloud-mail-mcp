@@ -168,6 +168,48 @@ qu'un aperçu de lien ne consomme pas le jeton.
 
 ---
 
+## Pièces jointes par URL (SSRF)
+
+`compose_message` accepte une pièce jointe désignée par `url` : le **serveur** télécharge le fichier
+([`src/ssrf.ts`](../src/ssrf.ts)) avant de l'attacher.
+
+**Menace.** Le serveur tourne à côté d'autres services : réseau Docker, LAN de l'hôte, métadonnées
+d'un hébergeur (`169.254.169.254`). Une URL choisie par le modèle, ou soufflée par un email piégé
+(injection de prompt), pourrait lui faire interroger une adresse interne et en renvoyer la réponse
+comme pièce jointe à un destinataire externe : c'est une SSRF, avec exfiltration par mail.
+
+**Les protections**, appliquées à chaque saut :
+
+- **`https://` uniquement**, sans identifiants dans l'URL ;
+- **résolution DNS unique, toutes adresses vérifiées** : une seule adresse interne suffit à refuser.
+  Sont refusées les plages privées (`10/8`, `172.16/12`, `192.168/16`), loopback (`127/8`, `::1`),
+  link-local (`169.254/16`, `fe80::/10`), CGNAT (`100.64/10`), multicast (`224/4`, `ff00::/8`),
+  `0/8`, les plages réservées ou de documentation, les ULA IPv6 (`fc00::/7`), et tout IPv6 hors
+  unicast global. Les IPv6 qui portent une IPv4 (mappées `::ffff:a.b.c.d`, compatibles, NAT64
+  `64:ff9b::/96`, 6to4 `2002::/16`) sont jugées sur l'IPv4 qu'elles contiennent ; Teredo est refusé.
+  Les formes exotiques d'IP littérales (`0x7f000001`, `2130706433`) sont normalisées par le parseur
+  d'URL avant le contrôle ;
+- **connexion à l'adresse vérifiée**, sans seconde résolution : la requête reçoit un `lookup` qui
+  renvoie l'IP contrôlée, tandis que le nom d'hôte reste utilisé pour SNI, la vérification du
+  certificat et l'en-tête `Host`. Un DNS rebinding (réponse publique au contrôle, interne à la
+  connexion) n'a donc pas de prise ;
+- **redirections re-vérifiées** (schéma, résolution, adresses) à chaque saut, **3 au plus** ;
+- **délai global de 15 s**, redirections comprises ;
+- **taille plafonnée** au reste de `ATTACHMENT_MAX_BYTES` : refus immédiat sur un `Content-Length`
+  trop grand, et flux coupé dès que le plafond est franchi, sans lire la suite.
+
+Les messages d'erreur citent l'URL **sans** sa query ni son fragment (un jeton d'accès n'a rien à y
+faire). Une erreur fait échouer tout l'appel : rien n'est envoyé ni enregistré.
+
+**Limites.**
+
+- Le serveur sort vers Internet avec sa propre IP : un site public peut voir ses requêtes, et une
+  URL publique reste exfiltrable vers un destinataire. Les garde-fous d'envoi (`ALLOWED_RECIPIENTS`,
+  confirmation par l'utilisateur) restent la protection contre l'envoi lui-même.
+- Un proxy sortant n'est pas géré : un réseau qui l'impose doit autoriser l'accès direct en 443.
+
+---
+
 ## Ce qui reste à votre charge
 
 ### Le bearer token

@@ -2,7 +2,8 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { sendForward, sendNewMessage, sendReply } from '../../smtp/send.js';
 import { saveDraft, updateDraft } from '../../imap/drafts.js';
-import { AttachmentTooLargeError, decodeInboundAttachments } from '../../attachments.js';
+import { AttachmentTooLargeError } from '../../attachments.js';
+import { AttachmentSourceError, resolveAttachmentSources } from '../../attachment-sources.js';
 import { config } from '../../config.js';
 import { COMPOSE_DELIVERIES, COMPOSE_MODES, planCompose } from '../compose-plan.js';
 import { jsonResult, errorResult } from '../result.js';
@@ -28,7 +29,12 @@ export function registerComposeMessageTool(server: McpServer): void {
         'deliver "send" (default) sends through iCloud SMTP and keeps a copy in Sent; deliver "draft" saves ' +
         'to the Drafts folder without sending (new or reply only), and with draftUid replaces that existing ' +
         'draft. Sending is subject to the server guardrails: with DRAFTS_ONLY the message is saved as a draft ' +
-        'instead (sent: false). Always confirm recipients and content with the user before sending.',
+        'instead (sent: false). Attachments: each item has exactly one source — contentBase64 (small ' +
+        'files only), fromMessage { folder, uid, index } to reuse an attachment of a message already in ' +
+        'the mailbox (filename and contentType kept unless overridden; preferred for large files), or url ' +
+        '(a public https:// URL the server downloads; private or local addresses are refused). The ' +
+        'total is capped at ATTACHMENT_MAX_BYTES; if any source fails, nothing is sent or saved. ' +
+        'Always confirm recipients and content with the user before sending.',
       inputSchema: {
         mode: z.enum(COMPOSE_MODES).default('new').describe('new, reply, reply_all or forward'),
         deliver: z
@@ -90,10 +96,10 @@ export function registerComposeMessageTool(server: McpServer): void {
       const uid = input.uid as number;
 
       try {
-        const attachments = decodeInboundAttachments(
-          input.attachments,
-          config.ATTACHMENT_MAX_BYTES,
-        );
+        // Toutes les sources sont résolues avant d'envoyer ou d'écrire quoi que ce soit.
+        const attachments = await resolveAttachmentSources(input.attachments, {
+          maxBytes: config.ATTACHMENT_MAX_BYTES,
+        });
         log.info(
           { operation: plan.operation, mode, folder: input.folder, uid: input.uid, draftUid },
           'composing',
@@ -160,7 +166,7 @@ export function registerComposeMessageTool(server: McpServer): void {
           }
         }
       } catch (err) {
-        if (err instanceof AttachmentTooLargeError) {
+        if (err instanceof AttachmentTooLargeError || err instanceof AttachmentSourceError) {
           return errorResult(err.message);
         }
         throw err;
