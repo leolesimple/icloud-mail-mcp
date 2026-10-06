@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.3](https://github.com/leolesimple/icloud-mail-mcp/compare/v0.2.2...v0.2.3) (2026-10-06)
+
+
+### Features
+
+* v0.2.3 — pièces jointes sans base64, accès par partie IMAP, pool IMAP plus robuste et plus rapide ([#65](https://github.com/leolesimple/icloud-mail-mcp/issues/65)) ([101e5f5](https://github.com/leolesimple/icloud-mail-mcp/commit/101e5f527941232eaebc645fce43d02d0037ba6a))
+
 ## [0.2.2](https://github.com/leolesimple/icloud-mail-mcp/compare/v0.2.1...v0.2.2) (2026-10-06)
 
 
