@@ -498,7 +498,7 @@ brouillon. Remplace `send_message`, `reply_message`, `forward_message`, `save_dr
 | `subject` | string | — | Requis pour `new` ; dérivé de l'original en réponse / transfert |
 | `text` | string | — | Corps en texte brut (ou note au-dessus d'un message transféré) |
 | `html` | string | — | Corps en HTML |
-| `attachments` | object[] | — | Pièces jointes : `{ filename, contentType?, contentBase64 }` |
+| `attachments` | object[] | — | Pièces jointes, chacune avec **une** source : `contentBase64`, `fromMessage` ou `url` (voir plus bas) |
 
 **Combinaisons acceptées**, et l'opération qu'elles déclenchent :
 
@@ -541,9 +541,39 @@ threading : envoyé plus tard depuis Mail.app, il atterrira dans le bon fil.
 **Transfert.** Le message d'origine est joint **verbatim** en `message/rfc822` (en-têtes et pièces
 jointes préservés), et non recopié en texte. Le sujet est préfixé `Fwd: ` de façon idempotente.
 
-**Pièces jointes.** Le contenu de chaque pièce jointe est fourni en **base64** dans
-`contentBase64`. Le cumul est refusé au-delà de `ATTACHMENT_MAX_BYTES` (5 Mo par défaut). Les
-pièces jointes sont acceptées aussi au remplacement d'un brouillon (`draftUid`).
+**Pièces jointes.** Chaque élément de `attachments` désigne son contenu par **exactement une**
+source ; zéro ou plusieurs sont refusées à la validation :
+
+| Source | Forme | Nom et type |
+|---|---|---|
+| `contentBase64` | le contenu en base64 | `filename` requis, `contentType` facultatif |
+| `fromMessage` | `{ folder?, uid, index }` : une pièce jointe d'un message de la boîte (`folder` vaut `INBOX` par défaut, `index` comme dans `read_message`) | repris de l'original |
+| `url` | une URL `https://` publique, téléchargée par le serveur | `Content-Disposition`, sinon dernier segment du chemin ; type de la réponse |
+
+`filename` et `contentType`, s'ils sont fournis, **remplacent** toujours le nom et le type repris ou
+déduits. Pour `url`, `filename` devient obligatoire si aucun nom ne peut être déduit.
+
+```jsonc
+"attachments": [
+  { "fromMessage": { "folder": "INBOX", "uid": 42, "index": 0 } },   // facture reçue, renvoyée telle quelle
+  { "url": "https://exemple.fr/devis.pdf", "filename": "Devis.pdf" },
+  { "filename": "note.txt", "contentBase64": "Qm9uam91cg==" }
+]
+```
+
+Le base64 inline convient aux petits fichiers : un PDF de 430 Ko fait environ 570 000 caractères, que
+le client doit générer d'un bloc. Pour renvoyer une pièce jointe déjà reçue, `fromMessage` la reprend
+directement dans iCloud, sans qu'elle transite par le modèle ; plusieurs pièces jointes d'un même
+message ne le téléchargent qu'une fois. La source `url` passe par une garde anti-SSRF (`https`
+seulement, adresses privées ou locales refusées, 3 redirections au plus, 15 s) décrite dans
+[security.md](security.md#pièces-jointes-par-url-ssrf).
+
+Le **cumul** de toutes les sources est plafonné à `ATTACHMENT_MAX_BYTES` (5 Mo par défaut) ; une URL
+ne reçoit que ce qui reste et son téléchargement est coupé dès le dépassement. Toutes les sources
+sont résolues **avant** l'envoi ou l'écriture du brouillon : si l'une échoue (message ou pièce jointe
+introuvable, URL refusée, injoignable ou trop grosse), l'appel échoue avec un message qui nomme
+l'élément (`attachments[1] (url) : …`), et rien n'est envoyé ni enregistré. Les pièces jointes sont
+acceptées aussi au remplacement d'un brouillon (`draftUid`).
 
 **Brouillons.** `deliver: "draft"` n'utilise que l'IMAP (`APPEND` dans le dossier `\Drafts`) : il
 n'est **jamais bloqué par `ENABLE_SENDING`**. Avec `draftUid`, la nouvelle version est **d'abord**
