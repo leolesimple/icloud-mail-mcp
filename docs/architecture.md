@@ -89,6 +89,13 @@ Le pool maintient au plus `IMAP_POOL_SIZE` connexions, ouvertes à la demande pu
 
 - **`acquire()`** renvoie une connexion libre, en ouvre une si le pool n'est pas plein, sinon met
   la demande en file d'attente. Les demandes en attente sont servies dans l'ordre d'arrivée.
+- Une demande en file **n'attend pas indéfiniment** : au-delà de `IMAP_ACQUIRE_TIMEOUT_MS` (60 s
+  par défaut), elle est retirée de la file et rejetée avec une `ImapPoolTimeoutError` qui dit quoi
+  faire (pool plein, taille, appels en attente, piste `IMAP_POOL_SIZE`). Un waiter n'est servi ou
+  expiré que s'il est encore dans la file, et il en sort avant d'être réglé : une connexion libérée
+  juste après l'échéance va au suivant, jamais à deux demandes, et n'est jamais perdue.
+  `ImapPoolTimeoutError` hérite d'`ImapNetworkError` : comme une panne réseau, elle est propagée
+  telle quelle et jamais rangée dans les `errors` par dossier.
 - **`release()`** rend la connexion et sert immédiatement le premier waiter. Si la connexion est
   devenue inutilisable entre-temps, elle est retirée du pool au lieu d'être recyclée.
 - **`withConnection(fn)`** encadre les deux et **libère même si `fn` lève** — c'est la seule forme
@@ -103,6 +110,21 @@ Le pool maintient au plus `IMAP_POOL_SIZE` connexions, ouvertes à la demande pu
 Un compteur `reserved` empêche deux demandes concurrentes de dépasser la taille max pendant
 l'ouverture d'une connexion — le point de synchronisation le plus facile à rater dans un pool
 asynchrone, et il est décrémenté même si la connexion échoue.
+
+**Observabilité.** Une demande mise en file est journalisée en `warn` (taille de la file,
+connexions occupées), son attente en `info` quand elle dépasse une seconde. `stats()` expose
+`open`, `inUse`, `max`, `waiting` (file d'attente), `maxRecentWaitMs` (plus longue attente des
+15 dernières minutes) et `acquireTimeouts`, repris dans `imapPool` des diagnostics
+d'`inbox_overview`.
+
+**Opérations multi-dossiers.** `searchMessagesAcross` (`find_messages` avec `folders`) répartit
+les dossiers sur au plus `IMAP_POOL_SIZE - 1` connexions (`folderConcurrency`, minimum 1) via
+[`concurrency.ts`](../src/imap/concurrency.ts) : une connexion reste toujours libre pour les autres
+appels. Les résultats sont fusionnés dans l'ordre des dossiers, pas dans l'ordre d'achèvement, si
+bien que tri, troncature et `errors` sont identiques au parcours séquentiel. Les compteurs par
+dossier d'`inbox_overview` et `manage_folders` ne prennent qu'une connexion : un seul `LIST` avec
+statuts en ligne (`LIST-STATUS`, RFC 5819, annoncé par iCloud), imapflow retombant sur un `STATUS`
+par dossier si le serveur ne le supporte pas.
 
 ### `withMailbox`
 
@@ -125,7 +147,7 @@ Chaque couche les traduit en trois familles, ce qui suffit à savoir quoi faire 
 | Famille | IMAP | SMTP | Ce que ça veut dire |
 |---|---|---|---|
 | Authentification | `ImapAuthError` | `SmtpAuthError` | Identifiants faux — action humaine requise, ne pas retenter |
-| Réseau | `ImapNetworkError` | `SmtpNetworkError` | Transitoire — un retry a du sens |
+| Réseau | `ImapNetworkError` (dont `ImapPoolTimeoutError`, pool saturé) | `SmtpNetworkError` | Transitoire — un retry a du sens |
 | Commande / message | `ImapCommandError` | `SmtpMessageError` | La requête est en cause (dossier inexistant, destinataire refusé) |
 
 `classifyImapError` reconnaît l'échec d'authentification via la propriété `authenticationFailed`

@@ -102,8 +102,8 @@ l'appeler **en premier** pour toute demande qui touche aux mails. Remplace `whoa
 }
 ```
 
-Coût : trois opérations IMAP (deux `SEARCH` + `FETCH` sur l'INBOX, un `LIST` + un `STATUS` par
-dossier), lancées en parallèle sur le pool.
+Coût : trois opérations IMAP (deux `SEARCH` + `FETCH` sur l'INBOX, un `LIST` avec les compteurs
+de tous les dossiers en ligne, via `LIST-STATUS`), lancées en parallèle sur le pool.
 
 Avec `includeDiagnostics: true`, `diagnostics` porte le rapport qu'exposait `whoami` avec
 `probe: true` :
@@ -118,7 +118,12 @@ Avec `includeDiagnostics: true`, `diagnostics` porte le rapport qu'exposait `who
   },
   "credentials": { "appPasswordConfigured": true, "bearerTokenConfigured": true },
   "guardrails": { /* identique à ci-dessus */ },
-  "imapPool": { "open": 1, "inUse": 0, "max": 2 },
+  // waiting : appels en file ; maxRecentWaitMs : plus longue attente sur 15 min ;
+  // acquireTimeouts : appels abandonnés après IMAP_ACQUIRE_TIMEOUT_MS depuis le démarrage
+  "imapPool": {
+    "open": 1, "inUse": 0, "max": 2,
+    "waiting": 0, "maxRecentWaitMs": 0, "acquireTimeouts": 0
+  },
   "probe": { "attempted": true, "ok": true, "folderCount": 12 }
 }
 ```
@@ -255,7 +260,8 @@ aux suppressions. `nextCursor` est absent dès qu'il ne reste plus rien.
 
 **Recherche multi-dossiers** (`folders`) — chaque message porte en plus son `folder` d'origine ;
 les résultats sont fusionnés, triés par date et tronqués à `limit`. Pas de `nextCursor` dans ce
-mode. Un dossier en échec (nom inexistant…) est écarté et reporté dans `errors` au lieu de faire
+mode. Les dossiers sont fouillés en parallèle sur toutes les connexions du pool sauf une
+(`IMAP_POOL_SIZE - 1`, voir [configuration](configuration.md#connexion-imap)). Un dossier en échec (nom inexistant…) est écarté et reporté dans `errors` au lieu de faire
 échouer toute la recherche ; une erreur d'authentification ou de réseau, elle, est propagée.
 
 `folders: "*"` fouille tous les dossiers sélectionnables (les conteneurs `\Noselect` sont
@@ -838,9 +844,9 @@ Liste, crée, renomme ou supprime des dossiers IMAP. Remplace `list_folders` et 
 | `envelope` | boolean | `false` | `list` : enveloppe le bloc texte en `{ folders: [...] }` |
 
 **`list`** — à appeler quand on ne connaît pas les noms exacts des dossiers, notamment pour trouver
-l'archive et la corbeille via leur `specialUse`. Avec `includeStatus` (défaut), c'est **une
-commande `STATUS` par dossier**, soit une dizaine d'allers-retours sur un compte iCloud typique ;
-`includeStatus: false` donne un listing rapide, sans les deux compteurs.
+l'archive et la corbeille via leur `specialUse`. Avec `includeStatus` (défaut), les compteurs
+arrivent avec le `LIST` lui-même (`LIST-STATUS`, un seul aller-retour sur iCloud ; un `STATUS` par
+dossier sur un serveur qui ne le supporte pas) ; `includeStatus: false` s'en passe.
 
 ```jsonc
 [
