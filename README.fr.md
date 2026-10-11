@@ -14,12 +14,6 @@ Il s'auto-héberge en Docker, derrière un Cloudflare Tunnel et un bearer token.
 Claude  ──HTTPS+Bearer──▶  Cloudflare Tunnel  ──▶  icloud-mail-mcp  ──IMAP/SMTP+TLS──▶  iCloud
 ```
 
-> **Licence, à lire avant de cloner.** Ce projet **n'est pas open source**. Il est sous
-> [PolyForm Strict 1.0.0](https://polyformproject.org/licenses/strict/1.0.0) : usage non commercial
-> uniquement (personnel, recherche, associations, établissements publics). Les usages
-> commerciaux, y compris en entreprise, la modification et la redistribution ne sont pas
-> autorisés sans accord écrit. Voir [LICENSE](LICENSE).
-
 ---
 
 ## Sommaire
@@ -240,13 +234,11 @@ Détail complet dans [`docs/security.md`](docs/security.md).
 
 ---
 
+## Contribuer
+
+Les contributions sont bienvenues : ouvrez d'abord une issue, puis une pull request qui la
+référence. Voir [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
 ## Licence
 
-Copyright © 2026 Léo Lesimple. Distribué sous [PolyForm Strict 1.0.0](LICENSE)
-(`PolyForm-Strict-1.0.0`) : l'usage non commercial est autorisé (personnel, recherche, loisirs,
-organismes à but non lucratif, éducatifs ou publics). La distribution, les modifications et les
-œuvres dérivées ne le sont pas. Pour tout usage commercial ou hors de ce cadre, ouvrez une issue
-pour en discuter. Le texte de [LICENSE](LICENSE) fait foi.
-
-Ce n'est **pas** une licence open source au sens de l'OSI : GitHub permet techniquement de forker
-un dépôt public, mais cela ne vaut pas autorisation de modifier ou de redistribuer ce code.
+[MIT](LICENSE) © 2026 Léo Lesimple

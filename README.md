@@ -4,7 +4,7 @@ English | [Français](README.fr.md)
 
 [![CI](https://github.com/leolesimple/icloud-mail-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/leolesimple/icloud-mail-mcp/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/leolesimple/icloud-mail-mcp)](https://github.com/leolesimple/icloud-mail-mcp/releases)
-[![License: PolyForm Strict](https://img.shields.io/badge/license-PolyForm%20Strict%201.0.0-blue)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A524.15-339933)](package.json)
 
 An [MCP](https://modelcontextprotocol.io) server that exposes an **iCloud Mail** account (IMAP/SMTP)
@@ -17,11 +17,6 @@ traffic, and iCloud hosts the mailbox. The MCP instance itself stays under your 
 ```
 Claude  --HTTPS+Bearer-->  Cloudflare Tunnel  -->  icloud-mail-mcp  --IMAP/SMTP+TLS-->  iCloud
 ```
-
-> **License: read before cloning.** This project is **source-available, not open source**. It is
-> released under [PolyForm Strict 1.0.0](https://polyformproject.org/licenses/strict/1.0.0):
-> non-commercial use only (personal, research, charities, public institutions). Commercial use,
-> modification and redistribution require written permission. See [LICENSE](LICENSE).
 
 ## Features
 
@@ -170,14 +165,9 @@ The detailed docs are written in French.
 
 ## Contributing
 
-Issues and feedback are welcome. Because of the license, code contributions are not accepted; see
+Contributions are welcome. Open an issue first, then a pull request that references it. See
 [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## License
 
-Copyright © 2026 Léo Lesimple. Distributed under [PolyForm Strict 1.0.0](LICENSE): non-commercial use
-is allowed; distribution, modification and derivative works are not. For anything commercial or
-outside that scope, open an issue to discuss it. The text of [LICENSE](LICENSE) prevails.
-
-This is **not** an OSI-approved open source license. GitHub allows forking a public repository
-technically, but that is not permission to modify or redistribute this code.
+[MIT](LICENSE) © 2026 Léo Lesimple

@@ -12,7 +12,7 @@ Please report vulnerabilities privately through **Security → Report a vulnerab
 Include the affected version or commit, a minimal reproduction using synthetic messages, the expected
 and observed behavior, and the impact. Never include tokens, app passwords or real mailbox content.
 
-No response time is guaranteed. Use of the code remains subject to the [license](LICENSE).
+No response time is guaranteed.
 
 ## Recommendations for users
 

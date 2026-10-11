@@ -171,5 +171,4 @@ inscriptible. Ces mesures ne remplacent pas les permissions et mises à jour de 
 ## Signalement de vulnérabilités
 
 Voir [SECURITY.md](../SECURITY.md). Ne publier ni exploit complet avec credentials ni contenu réel
-de boîte mail dans une issue publique. La licence existante reste une licence de code consultable,
-pas une licence open source.
+de boîte mail dans une issue publique.

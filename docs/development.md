@@ -1,8 +1,6 @@
 # Développement
 
-> Rappel : la [licence](../LICENSE) n'autorise pas la distribution de versions modifiées. Cette page
-> décrit comment le projet est construit et testé, utile pour le lire, l'auditer avant de lui
-> confier sa boîte mail, ou préparer une contribution à proposer en amont.
+> Cette page décrit comment le projet est construit et testé. Voir aussi [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ---
 
