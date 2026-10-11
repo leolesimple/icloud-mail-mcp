@@ -1,17 +1,20 @@
-# Security policy
+# Security Policy
 
-Security fixes target the current maintained release. Use a dedicated Apple app password and
-start with SMTP sending disabled. Keep credentials and actual mailbox content out of reports.
+## Supported versions
+
+Security fixes target the latest release.
 
 ## Reporting a vulnerability
 
-Use **Security → Report a vulnerability** on the GitHub repository when private vulnerability
-reporting is enabled. Include the affected version/commit, a minimal reproduction using synthetic
-messages, expected and observed behavior, and impact. Never include tokens or app passwords.
+Please report vulnerabilities privately through **Security → Report a vulnerability** on the
+[GitHub repository](https://github.com/leolesimple/icloud-mail-mcp/security/advisories/new).
 
-If this private reporting entry point is unavailable, open an issue requesting a private reporting
-channel, without exploit details or sensitive data. The maintainer must enable and verify a
-private reporting route before presenting the public repository as ready for vulnerability reports.
+Include the affected version or commit, a minimal reproduction using synthetic messages, the expected
+and observed behavior, and the impact. Never include tokens, app passwords or real mailbox content.
 
-No response-time or support commitment is promised. Publication and contributions remain subject
-to the repository's existing [license](LICENSE).
+No response time is guaranteed. Use of the code remains subject to the [license](LICENSE).
+
+## Recommendations for users
+
+Use a dedicated Apple app password and keep `ENABLE_SENDING=false` until you have checked how the
+server behaves. See [docs/security.md](docs/security.md) (in French) for the threat model.

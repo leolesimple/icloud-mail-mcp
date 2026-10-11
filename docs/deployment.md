@@ -1,7 +1,7 @@
 # Déploiement
 
 Le serveur ne publie **aucun port sur l'hôte**. Il est joint via un `cloudflared` qui établit une
-connexion _sortante_ vers Cloudflare et fait redescendre le trafic HTTPS par ce tunnel — rien à
+connexion _sortante_ vers Cloudflare et fait redescendre le trafic HTTPS par ce tunnel, rien à
 ouvrir sur la box, pas d'IP fixe, certificat TLS géré par Cloudflare.
 
 ```
@@ -35,7 +35,7 @@ réseau, **Public Hostname → Add a public hostname** :
 
 - _Subdomain_ / _Domain_ : à votre convenance
 - _Service_ : **HTTP** → `icloud-mail-mcp:3000` (le **nom du conteneur**, résolu sur le réseau
-  partagé — pas `localhost`)
+  partagé, pas `localhost`)
 
 Pour le modèle autonome, récupérer aussi le **token** du tunnel (environnement _Docker_).
 
@@ -43,7 +43,7 @@ Pour le modèle autonome, récupérer aussi le **token** du tunnel (environnemen
 
 ## 2. Préparer l'hôte
 
-Deux fichiers suffisent, dans un dossier vide — pas besoin de cloner le dépôt :
+Deux fichiers suffisent, dans un dossier vide, pas besoin de cloner le dépôt :
 
 ```bash
 mkdir icloud-mail-mcp && cd icloud-mail-mcp
@@ -60,7 +60,7 @@ ICLOUD_EMAIL=vous@icloud.com
 ICLOUD_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
 MCP_BEARER_TOKEN=<openssl rand -hex 32>
 TUNNEL_NETWORK=tunnel-net              # le réseau de l'étape 1
-ICLOUD_MAIL_MCP_VERSION=0.1.2          # version à déployer ("latest" pour suivre le dernier tag)
+ICLOUD_MAIL_MCP_VERSION=0.2.3          # version à déployer ("latest" pour suivre le dernier tag)
 ENABLE_SENDING=false                   # à laisser à false pour la première mise en service
 # TUNNEL_TOKEN=...                     # modèle autonome uniquement
 ```
@@ -98,7 +98,7 @@ curl https://icloud-mail-mcp.exemple.com/health
 # {"status":"ok","version":"0.1.2"}
 ```
 
-Le `/health` répond sans token — c'est voulu, le healthcheck Docker en a besoin. Il ne révèle que le
+Le `/health` répond sans token, c'est voulu, le healthcheck Docker en a besoin. Il ne révèle que le
 statut et la version du serveur (utile pour vérifier quelle image tourne après un déploiement),
 jamais de configuration ni de secret.
 
@@ -135,7 +135,7 @@ curl http://localhost:3000/health
 
 | Valeur  | Usage                                                                                                    |
 | ------- | -------------------------------------------------------------------------------------------------------- |
-| `http`  | Serveur HTTP streamable — le déploiement de référence ci-dessus (Docker + tunnel).                       |
+| `http`  | Serveur HTTP streamable, le déploiement de référence ci-dessus (Docker + tunnel).                        |
 | `stdio` | Serveur JSON-RPC sur stdin/stdout, lancé directement par un client MCP local. Pas de port, pas de token. |
 | `both`  | Les deux en parallèle.                                                                                   |
 
@@ -151,7 +151,7 @@ fonctionne à l'identique dans les trois modes.
 
 ## Brancher un client MCP
 
-### Claude Code — HTTP (déploiement distant)
+### Claude Code: HTTP (déploiement distant)
 
 ```bash
 claude mcp add --transport http icloud-mail-mcp https://icloud-mail-mcp.exemple.com/mcp \
@@ -161,7 +161,7 @@ claude mcp add --transport http icloud-mail-mcp https://icloud-mail-mcp.exemple.
 Vérifier avec `/mcp` dans une session Claude Code : le serveur doit apparaître connecté avec ses
 outils.
 
-### Claude Code — stdio (exécution locale)
+### Claude Code: stdio (exécution locale)
 
 Pour lancer le serveur en local, sans HTTP ni tunnel :
 
@@ -175,7 +175,7 @@ claude mcp add icloud-mail-mcp -- \
 
 (ou `npx tsx src/index.ts` en développement). Le client démarre le processus lui-même ; `PORT`
 n'est pas utilisé et le `MCP_BEARER_TOKEN` ne sert pas à authentifier (aucune couche HTTP), mais la
-validation de configuration l'exige toujours — n'importe quelle valeur d'au moins 16 caractères
+validation de configuration l'exige toujours, n'importe quelle valeur d'au moins 16 caractères
 convient.
 
 ### Claude Desktop
@@ -209,7 +209,7 @@ npx @modelcontextprotocol/inspector
 # Header    : Authorization: Bearer <votre token>
 ```
 
-L'Inspector permet d'appeler chaque outil à la main et de voir les réponses brutes — le moyen le plus
+L'Inspector permet d'appeler chaque outil à la main et de voir les réponses brutes, le moyen le plus
 rapide de distinguer un problème de serveur d'un problème de modèle.
 
 ---
@@ -249,7 +249,7 @@ ni agent résident sur l'hôte. Mise en place et modèle de menace : [`deploy/RE
 
 | Symptôme                                                     | Piste                                                                                                                                                                                  |
 | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Configuration invalide` au démarrage                        | Une variable manque ou est mal formée — le message liste précisément lesquelles.                                                                                                       |
+| `Configuration invalide` au démarrage                        | Une variable manque ou est mal formée, le message liste précisément lesquelles.                                                                                                        |
 | `Authentification iCloud IMAP refusée`                       | Mot de passe principal utilisé à la place d'un mot de passe d'application, ou mot de passe révoqué.                                                                                    |
 | `401` sur `/mcp`, `/health` OK                               | Token absent ou différent de `MCP_BEARER_TOKEN`. Vérifier le préfixe `Bearer ` et l'absence d'espace parasite.                                                                         |
 | `502` Cloudflare                                             | Le conteneur `icloud-mail-mcp` est arrêté, hors du réseau `TUNNEL_NETWORK`, ou le hostname public pointe vers le mauvais nom/port de service.                                          |

@@ -1,0 +1,252 @@
+# icloud-mail-mcp
+
+🇬🇧 [Read in English](README.md) · 🇫🇷 Français
+
+[![CI](https://github.com/leolesimple/icloud-mail-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/leolesimple/icloud-mail-mcp/actions/workflows/ci.yml)
+
+Serveur [MCP](https://modelcontextprotocol.io) qui expose un compte **iCloud Mail** (IMAP/SMTP) sous
+forme d'outils utilisables par Claude : lire, chercher, trier, répondre et archiver des mails depuis
+une conversation.
+
+Il s'auto-héberge en Docker, derrière un Cloudflare Tunnel et un bearer token. Pour le moment, c'est la seule méthode d'exposition documentée ([#70](https://github.com/leolesimple/icloud-mail-mcp/issues/70)). Les données renvoyées sont visibles par le client IA et son fournisseur ; Cloudflare relaie le trafic HTTPS et iCloud héberge la boîte.
+
+```
+Claude  ──HTTPS+Bearer──▶  Cloudflare Tunnel  ──▶  icloud-mail-mcp  ──IMAP/SMTP+TLS──▶  iCloud
+```
+
+> **Licence, à lire avant de cloner.** Ce projet **n'est pas open source**. Il est sous
+> [PolyForm Strict 1.0.0](https://polyformproject.org/licenses/strict/1.0.0) : usage non commercial
+> uniquement (personnel, recherche, associations, établissements publics). Les usages
+> commerciaux, y compris en entreprise, la modification et la redistribution ne sont pas
+> autorisés sans accord écrit. Voir [LICENSE](LICENSE).
+
+---
+
+## Sommaire
+
+- [Ce que ça fait](#ce-que-ça-fait)
+- [Prérequis](#prérequis)
+- [Démarrage rapide](#démarrage-rapide)
+- [Déploiement (Docker / GHCR)](#déploiement-docker--ghcr)
+- [Brancher Claude dessus](#brancher-claude-dessus)
+- [Sécurité](#sécurité)
+- [Limitations connues](#limitations-connues)
+- [Documentation](#documentation)
+
+---
+
+## Ce que ça fait
+
+Dix outils MCP, documentés dans [`docs/tools.md`](docs/tools.md) :
+
+| Outil               | Ce qu'il fait                                                                                                                                                            |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `inbox_overview`    | À appeler en premier : compte, non lus et derniers mails de l'INBOX, compteurs par dossier, garde-fous actifs                                                            |
+| `find_messages`     | Liste un dossier ou y cherche côté serveur IMAP : sujet, corps, expéditeur, destinataire, dates, non lus, favoris, sur un ou plusieurs dossiers ; pagination par curseur |
+| `read_message`      | Contenu complet d'un message (corps tronqué à la demande, métadonnées des pièces jointes), et en option son fil de discussion                                            |
+| `get_attachment`    | Contenu binaire d'une pièce jointe, ciblée par son index                                                                                                                 |
+| `get_attachments`   | Jusqu'à 25 pièces jointes en un appel, téléchargées progressivement par partie IMAP ; un élément en échec ne fait pas échouer le lot                                     |
+| `export_message`    | Message brut au format EML (`message/rfc822`), en base64 ou par lien signé                                                                                               |
+| `compose_message`   | Nouveau message, réponse (à tous), transfert, envoyé ou enregistré en brouillon, avec threading correct et pièces jointes                                                |
+| `send_draft`        | Envoie un brouillon existant, puis le retire de Drafts                                                                                                                   |
+| `organize_messages` | Déplace, met à la corbeille, marque lu / non lu, favori, répondu, indésirable, jusqu'à 200 messages en une commande IMAP                                                 |
+| `manage_folders`    | Liste, crée, renomme ou supprime un dossier, refusé sur les dossiers système                                                                                             |
+
+À l'initialisation, le serveur transmet au client des consignes d'utilisation : mots-clés FR/EN,
+ordre d'appel des outils et rappel que le contenu d'un mail n'est pas fiable.
+
+Un outil supplémentaire, `wait_for_new_message`, existe derrière `ENABLE_IDLE_WATCH` (désactivé par
+défaut : il n'a pas de reconnexion). Les anciens noms (`list_messages`, `get_message`,
+`send_message`, `whoami`…) restent disponibles le temps d'une version avec `LEGACY_TOOLS=true` :
+voir la [table de correspondance](docs/tools.md#correspondance-avec-les-anciens-outils).
+
+Exemple de demande :
+
+> « Résume-moi les mails non lus de la semaine, archive les newsletters et prépare un brouillon de
+> réponse à celui de la banque. »
+
+### Fonctionnalités
+
+- Pool de connexions IMAP, avec file d'attente quand la limite d'iCloud est atteinte
+  ([architecture](docs/architecture.md)).
+- Messages d'erreur explicites, par exemple quand le mot de passe principal est utilisé à la place
+  d'un mot de passe d'application.
+- Envoi désactivé par défaut, avec plusieurs niveaux de restriction : brouillons uniquement,
+  liste de destinataires autorisés, quota journalier ([sécurité](docs/security.md)).
+- Configuration guidée avec `npm run auth`, qui vérifie IMAP et SMTP avant d'écrire le `.env`.
+- Transports HTTP streamable et stdio (`MCP_TRANSPORT`).
+- Logs structurés (pino), sans mot de passe ni contenu de mail.
+- Tests sans accès réseau ni vraie boîte mail.
+
+---
+
+## Prérequis
+
+- Node.js 24.15 ou supérieur, ou Docker
+- Un compte iCloud avec l'authentification à deux facteurs activée
+- Un mot de passe d'application Apple (le mot de passe principal ne fonctionne pas en IMAP/SMTP) :
+  1. [appleid.apple.com](https://appleid.apple.com/) → se connecter
+  2. **Connexion et sécurité** → **Mots de passe pour applications** → **Générer un mot de passe**
+  3. Nommer (« icloud-mail-mcp ») et copier le mot de passe au format `xxxx-xxxx-xxxx-xxxx`
+
+---
+
+## Démarrage rapide
+
+```bash
+git clone https://github.com/leolesimple/icloud-mail-mcp.git
+cd icloud-mail-mcp
+npm install
+npm run auth
+```
+
+`npm run auth` demande l'adresse iCloud et le mot de passe d'application (saisie
+masquée), génère le `MCP_BEARER_TOKEN`, **vérifie les connexions IMAP
+et SMTP**, puis écrit `.env` en `chmod 600`, rien n'est écrit si une vérification
+échoue, et un `.env` existant est sauvegardé en `.env.bak` avant tout écrasement.
+Le fichier généré démarre avec `ENABLE_SENDING=false`.
+
+```bash
+npm run auth:check     # rejoue la vérification IMAP + SMTP sur le .env existant, sans rien écrire
+```
+
+Puis démarrer :
+
+```bash
+npm run dev            # http://localhost:3000/mcp
+```
+
+Le endpoint MCP est `POST|GET|DELETE /mcp`, protégé par le `MCP_BEARER_TOKEN`
+(`Authorization: Bearer <token>` ou `X-Api-Key: <token>`). `GET /health` reste ouvert
+(healthcheck Docker).
+
+Pour l'inspecter à la main :
+
+```bash
+npx @modelcontextprotocol/inspector
+# Transport : Streamable HTTP
+# URL       : http://localhost:3000/mcp
+# Header    : Authorization: Bearer <votre token>
+```
+
+---
+
+## Déploiement (Docker / GHCR)
+
+Le serveur est publié en image Docker sur GHCR à chaque version
+(`ghcr.io/leolesimple/icloud-mail-mcp`, `linux/amd64`). **Aucun build ni clone
+nécessaire sur l'hôte** : deux fichiers suffisent dans un dossier vide.
+
+```bash
+mkdir icloud-mail-mcp && cd icloud-mail-mcp
+base=https://raw.githubusercontent.com/leolesimple/icloud-mail-mcp/main
+
+curl -O  $base/docker-compose.yml
+curl -O  $base/docker-compose.tunnel.yml   # seulement si aucun cloudflared n'existe déjà
+curl -o .env $base/.env.example            # puis renseigner (voir ci-dessous)
+
+docker compose up -d                       # tire l'image et démarre
+docker compose ps                          # "healthy"/"running"
+curl https://<votre-hostname>/health       # {"status":"ok","version":"…"}
+```
+
+`.env`: au minimum :
+
+```bash
+ICLOUD_EMAIL=vous@icloud.com
+ICLOUD_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
+MCP_BEARER_TOKEN=<openssl rand -hex 32>
+TUNNEL_NETWORK=<réseau Docker partagé avec cloudflared>   # requis
+ICLOUD_MAIL_MCP_VERSION=latest                            # ou une version précise, ex. 0.2.3
+```
+
+Le trafic passe par un **Cloudflare Tunnel** : `docker-compose.yml` rattache le
+serveur au réseau Docker `TUNNEL_NETWORK` sur lequel tourne `cloudflared` (géré
+par une autre stack), qui pointe un hostname public vers `http://icloud-mail-mcp:3000`.
+Aucun port n'est publié sur l'hôte. Pas de tunnel existant → ajouter
+`docker-compose.tunnel.yml`, qui embarque un `cloudflared` dédié (`TUNNEL_TOKEN`
+dans `.env`).
+
+**Mise à jour** : bumper `ICLOUD_MAIL_MCP_VERSION`, puis
+`docker compose pull && docker compose up -d`.
+
+Détail complet (création du tunnel, hostname public, dépannage, transport stdio) :
+[`docs/deployment.md`](docs/deployment.md).
+
+---
+
+## Brancher Claude dessus
+
+**Claude Code** :
+
+```bash
+claude mcp add --transport http icloud-mail-mcp https://icloud-mail-mcp.exemple.com/mcp \
+  --header "Authorization: Bearer <votre token>"
+```
+
+**Claude Desktop** : dans `claude_desktop_config.json`, un serveur `"type": "http"` avec
+`"headers": { "Authorization": "Bearer <token>" }`.
+
+**claude.ai (web / mobile)** : _Paramètres → Connecteurs → Ajouter un connecteur personnalisé_,
+URL `https://icloud-mail-mcp.exemple.com/mcp`. Le formulaire interdit l'en-tête `Authorization` :
+choisir **`x-api-key`** avec le **token brut** (le serveur accepte les deux formes).
+
+Détails et dépannage dans [`docs/deployment.md`](docs/deployment.md#brancher-un-client-mcp).
+
+---
+
+## Sécurité
+
+Ce serveur peut lire, déplacer, supprimer et envoyer des mails. Les points à ne pas rater :
+
+- **N'exposez jamais le endpoint sans le bearer token.** Le token est comparé en temps constant
+  (`timingSafeEqual`), utilisez `openssl rand -hex 32`.
+- **`.env` ne doit jamais être committé.** Il est dans `.gitignore` ; vérifiez-le avant tout
+  `git add -A` sur un fork.
+- **Le mot de passe d'application Apple donne accès à toute la boîte mail.** Il se révoque en un
+  clic sur appleid.apple.com si le serveur est compromis.
+- **L'envoi est désactivé par défaut (`ENABLE_SENDING=false`).** Activez-le une fois le comportement de Claude validé
+  sur votre boîte.
+- **Le healthcheck `/health` n'est pas authentifié**: il ne révèle que le statut et la version
+  du serveur (`{"status":"ok","version":"…"}`), aucune configuration ni secret.
+
+Détail complet dans [`docs/security.md`](docs/security.md).
+
+---
+
+## Limitations connues
+
+- **Pièces jointes plafonnées à `ATTACHMENT_MAX_BYTES` (5 Mo par défaut).** `get_attachment`
+  récupère le binaire d'une pièce jointe et `compose_message` permet d'en joindre, mais au-delà de cette limite (cumul compris) l'outil refuse
+  explicitement plutôt que de tronquer.
+- **Source MIME plafonnée à `MAX_MESSAGE_BYTES` (25 Mio par défaut).** Les lectures sont coupées pendant le téléchargement, y compris si le serveur annonce une taille incorrecte. Le corps des resources est également tronqué.
+- **Confirmation serveur avant envoi, corbeille et suppression de dossier.** Sans elicitation MCP, le jeton exige un second appel mais ne prouve pas un accord humain. `compose_message` prépare un brouillon par défaut.
+- **Testé uniquement avec iCloud.** Le code est du IMAP/SMTP standard et les hôtes sont
+  configurables, mais rien d'autre n'est testé.
+
+---
+
+## Documentation
+
+| Document                                         | Contenu                                                              |
+| ------------------------------------------------ | -------------------------------------------------------------------- |
+| [`docs/tools.md`](docs/tools.md)                 | Référence des outils : paramètres, retours, exemples                 |
+| [`docs/configuration.md`](docs/configuration.md) | Toutes les variables d'environnement                                 |
+| [`docs/deployment.md`](docs/deployment.md)       | Docker, Cloudflare Tunnel, branchement des clients MCP               |
+| [`docs/architecture.md`](docs/architecture.md)   | Découpage en couches, pool IMAP, gestion des erreurs et des sessions |
+| [`docs/security.md`](docs/security.md)           | Modèle de menace et bonnes pratiques                                 |
+| [`docs/development.md`](docs/development.md)     | Structure du code, tests, conventions                                |
+| [`CHANGELOG.md`](CHANGELOG.md)                   | Historique des versions et procédure de release                      |
+
+---
+
+## Licence
+
+Copyright © 2026 Léo Lesimple. Distribué sous [PolyForm Strict 1.0.0](LICENSE)
+(`PolyForm-Strict-1.0.0`) : l'usage non commercial est autorisé (personnel, recherche, loisirs,
+organismes à but non lucratif, éducatifs ou publics). La distribution, les modifications et les
+œuvres dérivées ne le sont pas. Pour tout usage commercial ou hors de ce cadre, ouvrez une issue
+pour en discuter. Le texte de [LICENSE](LICENSE) fait foi.
+
+Ce n'est **pas** une licence open source au sens de l'OSI : GitHub permet techniquement de forker
+un dépôt public, mais cela ne vaut pas autorisation de modifier ou de redistribuer ce code.

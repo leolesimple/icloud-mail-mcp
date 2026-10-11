@@ -28,7 +28,7 @@ appeler une fonction métier, sérialiser le résultat.
 
 ---
 
-## Couche HTTP — [`src/http/`](../src/http/)
+## Couche HTTP: [`src/http/`](../src/http/)
 
 Un serveur Express avec trois routes :
 
@@ -42,7 +42,7 @@ Un serveur Express avec trois routes :
 ### Authentification
 
 [`auth.ts`](../src/http/auth.ts) compare le token avec `timingSafeEqual`, après vérification de
-l'égalité des longueurs — `timingSafeEqual` lève une exception sur des tampons de tailles
+l'égalité des longueurs, `timingSafeEqual` lève une exception sur des tampons de tailles
 différentes, ce qui est en soi une fuite d'information à éviter. Un échec renvoie une erreur au
 format JSON-RPC (code `-32001`), et non une page d'erreur HTML, pour rester exploitable par un
 client MCP.
@@ -79,7 +79,7 @@ Cette limite reste active avec `UNRESTRICTED=true`. L’IP vient de la socket, o
 
 ---
 
-## Pool de connexions IMAP — [`src/imap/pool.ts`](../src/imap/pool.ts)
+## Pool de connexions IMAP: [`src/imap/pool.ts`](../src/imap/pool.ts)
 
 C'est la pièce la plus subtile du projet, et elle existe pour une seule raison : **iCloud limite
 sévèrement les connexions IMAP** et bloque temporairement les comptes qui en ouvrent trop. Ouvrir
@@ -98,7 +98,7 @@ Le pool maintient au plus `IMAP_POOL_SIZE` connexions, ouvertes à la demande pu
   telle quelle et jamais rangée dans les `errors` par dossier.
 - **`release()`** rend la connexion et sert immédiatement le premier waiter. Si la connexion est
   devenue inutilisable entre-temps, elle est retirée du pool au lieu d'être recyclée.
-- **`withConnection(fn)`** encadre les deux et **libère même si `fn` lève** — c'est la seule forme
+- **`withConnection(fn)`** encadre les deux et **libère même si `fn` lève**, c'est la seule forme
   utilisée par le reste du code.
 - Les événements `error` et `close` d'une connexion la retirent du pool immédiatement, sans attendre
   qu'un appel échoue dessus.
@@ -108,7 +108,7 @@ Le pool maintient au plus `IMAP_POOL_SIZE` connexions, ouvertes à la demande pu
   d'**authentification** n'est jamais retenté : le mot de passe ne va pas devenir correct.
 
 Un compteur `reserved` empêche deux demandes concurrentes de dépasser la taille max pendant
-l'ouverture d'une connexion — le point de synchronisation le plus facile à rater dans un pool
+l'ouverture d'une connexion, le point de synchronisation le plus facile à rater dans un pool
 asynchrone, et il est décrémenté même si la connexion échoue.
 
 **Observabilité.** Une demande mise en file est journalisée en `warn` (taille de la file,
@@ -146,21 +146,21 @@ Chaque couche les traduit en trois familles, ce qui suffit à savoir quoi faire 
 
 | Famille            | IMAP                                                          | SMTP               | Ce que ça veut dire                                                                                 |
 | ------------------ | ------------------------------------------------------------- | ------------------ | --------------------------------------------------------------------------------------------------- |
-| Authentification   | `ImapAuthError`                                               | `SmtpAuthError`    | Identifiants faux — action humaine requise, ne pas retenter                                         |
+| Authentification   | `ImapAuthError`                                               | `SmtpAuthError`    | Identifiants faux, action humaine requise, ne pas retenter                                          |
 | Réseau             | `ImapNetworkError` (dont `ImapPoolTimeoutError`, pool saturé) | `SmtpNetworkError` | IMAP : retry de connexion possible ; SMTP : issue potentiellement incertaine, vérifier avant renvoi |
 | Commande / message | `ImapCommandError`                                            | `SmtpMessageError` | La requête est en cause (dossier inexistant, destinataire refusé)                                   |
 
 `classifyImapError` reconnaît l'échec d'authentification via la propriété `authenticationFailed`
-posée par imapflow — sa classe d'erreur interne n'est pas exportée, donc `instanceof` est impossible.
+posée par imapflow, sa classe d'erreur interne n'est pas exportée, donc `instanceof` est impossible.
 Les deux classificateurs sont **idempotents** : ré-classer une erreur déjà classée la renvoie telle
 quelle, ce qui permet de les appeler à plusieurs niveaux sans empiler les messages.
 
 Le message produit vise l'utilisateur, pas la machine. L'erreur d'authentification IMAP rappelle
-qu'un mot de passe d'application est nécessaire — c'est de loin la cause la plus fréquente.
+qu'un mot de passe d'application est nécessaire, c'est de loin la cause la plus fréquente.
 
 ---
 
-## Threading des réponses — [`src/imap/threading.ts`](../src/imap/threading.ts)
+## Threading des réponses: [`src/imap/threading.ts`](../src/imap/threading.ts)
 
 Répondre correctement à un mail demande plus que préfixer « Re: ». Il faut reconstruire les en-têtes
 RFC 5322 qui rattachent la réponse au fil :

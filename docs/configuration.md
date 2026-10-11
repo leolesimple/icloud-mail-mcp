@@ -116,7 +116,7 @@ C'est la seule chose qui sépare votre boîte mail d'Internet une fois le tunnel
 deviné donne un accès complet en lecture, suppression et envoi.
 
 `RATE_LIMIT_PER_MINUTE` est volontairement généreux : un seul Claude n'en approche jamais. Le
-descendre est utile si le tunnel est exposé plus largement. `MAX_SESSIONS` borne le nombre de sessions ; `SESSION_TTL_MS` borne leur durée d’inactivité — une session qu'un client abandonne sans `DELETE` est nettoyée automatiquement.
+descendre est utile si le tunnel est exposé plus largement. `MAX_SESSIONS` borne le nombre de sessions ; `SESSION_TTL_MS` borne leur durée d’inactivité, une session qu'un client abandonne sans `DELETE` est nettoyée automatiquement.
 
 ---
 
@@ -133,19 +133,19 @@ descendre est utile si le tunnel est exposé plus largement. `MAX_SESSIONS` born
 | `ALLOWED_RECIPIENTS` | `''` (vide)    | Liste blanche de destinataires, séparés par des virgules. Vide = aucune restriction. Un envoi dont un destinataire (`to`, `cc` **ou** `bcc`) n'est pas couvert est refusé, et le message d'erreur **nomme les adresses fautives**.                                              |
 | `MAX_SENDS_PER_DAY`  | `0` (illimité) | Nombre maximum d'envois réussis sur une fenêtre glissante de 24 h. Au-delà : refus.                                                                                                                                                                                             |
 
-### `ALLOWED_RECIPIENTS` — format
+### `ALLOWED_RECIPIENTS`: format
 
 Deux formes acceptées, mélangeables :
 
-- **adresse exacte** : `alice@example.com` — insensible à la casse ;
-- **domaine entier** : `@example.com` — couvre `*@example.com`, mais **pas** les sous-domaines
+- **adresse exacte** : `alice@example.com`, insensible à la casse ;
+- **domaine entier** : `@example.com`, couvre `*@example.com`, mais **pas** les sous-domaines
   (`bob@mail.example.com` reste hors liste).
 
 ```
 ALLOWED_RECIPIENTS=alice@example.com, @mon-entreprise.com
 ```
 
-### `MAX_SENDS_PER_DAY` — persistance du compteur
+### `MAX_SENDS_PER_DAY`: persistance du compteur
 
 Une réservation atomique précède chaque tentative SMTP : les appels concurrents ne peuvent pas dépasser le quota. Les envois réussis et les résultats incertains consomment une place pendant 24 h ; un refus SMTP explicite libère la réservation. Ce compteur est local à une instance, sans coordination entre plusieurs processus. Où il vit dépend de
 `QUOTA_STATE_PATH` :
@@ -168,7 +168,7 @@ l'image. Supprimer le volume (ou le fichier) remet le compteur à zéro.
 Tous les booléens acceptent `true`, `1`, `yes` et `false`, `0`, `no` (casse ignorée, espaces périphériques retirés). Une variable absente garde son défaut ; une valeur vide ou inconnue fait échouer le démarrage. Une faute de frappe ne peut donc pas activer `UNRESTRICTED`.
 
 **Recommandation** : démarrer en `DRAFTS_ONLY=true` (ou `ENABLE_SENDING=false`), observer comment
-Claude se comporte sur votre boîte, puis ouvrir progressivement — d'abord `ALLOWED_RECIPIENTS` sur
+Claude se comporte sur votre boîte, puis ouvrir progressivement, d'abord `ALLOWED_RECIPIENTS` sur
 vos correspondants habituels, avec un `MAX_SENDS_PER_DAY` bas. `DRAFTS_ONLY` permet déjà un
 aller-retour complet : Claude rédige, vous envoyez depuis Mail après relecture.
 
@@ -252,7 +252,7 @@ redémarrage**. Ces deux plafonds bornent la RAM qu'ils peuvent occuper. Voir
 **Off par défaut, volontairement.** `wait_for_new_message` ouvre une connexion IMAP dédiée hors du
 pool et attend l'événement `exists` d'iCloud. Cette version n'a **pas de reconnexion** : si la
 connexion iCloud saute pendant l'attente (coupure réseau, throttling, timeout serveur), l'outil ne
-le détecte pas et se contente d'expirer avec `timedOut: true` — un nouveau message arrivé
+le détecte pas et se contente d'expirer avec `timedOut: true`, un nouveau message arrivé
 entre-temps est manqué **sans le moindre signal**. Tant que la version avec reconnexion n'est pas
 faite ([#20](https://github.com/leolesimple/icloud-mail-mcp/issues/20)), l'outil n'est exposé que si vous
 l'activez explicitement, en connaissance de cause.
@@ -291,7 +291,7 @@ Reconnus comme « activé » : toute valeur autre que `false`, `0`, `no` (casse 
 Logs JSON structurés (pino), sur **stdout** en transport `http`, sur **stderr** dès que `stdio` est
 actif (stdout y est réservé au JSON-RPC). Les champs `password`, `pass`,
 `ICLOUD_APP_PASSWORD` et `token` sont expurgés automatiquement, et le contenu des mails n'est jamais
-loggé — seulement des métadonnées (dossier, UID, nombre de résultats).
+loggé, seulement des métadonnées (dossier, UID, nombre de résultats).
 
 En `debug`, les événements de cycle de vie du pool IMAP deviennent visibles ; utile pour diagnostiquer
 un throttling iCloud.
