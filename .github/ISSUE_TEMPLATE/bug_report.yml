@@ -1,0 +1,39 @@
+name: Bug report
+description: Something doesn't work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Never paste tokens, app passwords or real email content. Use synthetic data.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `/health`, or the image tag
+    validations:
+      required: true
+  - type: dropdown
+    id: transport
+    attributes:
+      label: Transport
+      options: [HTTP (Docker), HTTP (npm run dev), stdio]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Tool called, arguments (redacted), and the returned error
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      render: text

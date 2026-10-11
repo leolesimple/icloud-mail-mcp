@@ -183,7 +183,7 @@ Les critères de premier niveau sont **combinés en ET**.
 (`2026-07-01T08:00:00Z`). `folder` et `beforeUid` ne sont pas des critères : seuls, ils donnent un
 listing.
 
-**`subject`, `from`, `to` vérifiés par le serveur MCP** — le `SEARCH` d'iCloud n'applique pas
+**`subject`, `from`, `to` vérifiés par le serveur MCP**: le `SEARCH` d'iCloud n'applique pas
 `FROM` en sous-chaîne comme le veut la RFC 3501 : dans un dossier de 429 messages Apple,
 `FROM "apple.com"` en renvoie 348 et rate des expéditeurs `…@email.apple.com` (factures comprises)
 que l'adresse complète retrouve. Ces trois critères ne sont donc **jamais** envoyés à IMAP `SEARCH`,
@@ -208,7 +208,7 @@ Un critère `from`/`to`/`subject` sans autre critère `SEARCH` lit l'`ENVELOPE` 
 jusqu'à remplir la page : rapide quand les correspondances sont fréquentes, plus long pour un
 expéditeur rare dans un gros dossier (l'associer alors à `since`…).
 
-**Pièces jointes** (`hasAttachment`, `attachmentType`) — IMAP `SEARCH` ne sait pas filtrer sur les
+**Pièces jointes** (`hasAttachment`, `attachmentType`): IMAP `SEARCH` ne sait pas filtrer sur les
 pièces jointes : le serveur lit le `BODYSTRUCTURE` des messages retenus par les autres critères, par
 lots de 100, du plus récent au plus ancien, et s'arrête dès qu'une page est pleine. Est une pièce
 jointe toute partie marquée `Content-Disposition: attachment` ou portant un nom de fichier (une image
@@ -233,11 +233,11 @@ taille de la partie encodée (base64 : environ un tiers de plus que le fichier).
 « vraies » pièces jointes. Sans filtre pièces jointes, `attachments` est absent : le lire coûterait
 une commande de plus par page.
 
-**Champs** (`fields`) — parmi `uid`, `subject`, `from`, `to`, `date`, `seen`, `flagged`, `size`,
+**Champs** (`fields`): parmi `uid`, `subject`, `from`, `to`, `date`, `seen`, `flagged`, `size`,
 `folder`, `attachments` (toute autre valeur est refusée). `uid` est toujours renvoyé, et `folder` aussi en recherche
 multi-dossiers ; `fields: ["subject", "date"]` donne `{ "uid", "subject", "date" }` par message.
 
-**Forme de la réponse** — bloc texte = **tableau nu** par défaut ; `structuredContent` toujours
+**Forme de la réponse**: bloc texte = **tableau nu** par défaut ; `structuredContent` toujours
 enveloppé :
 
 ```jsonc
@@ -258,11 +258,11 @@ enveloppé :
 Le bloc texte devient l'objet `{ messages, nextCursor? }` avec `envelope: true` **ou** dès qu'un
 curseur existe (sinon la pagination serait invisible pour un client qui ne lit que le texte).
 
-**Pagination** (un seul dossier) — repasser le `nextCursor` reçu en `beforeUid`. Les UID
+**Pagination** (un seul dossier): repasser le `nextCursor` reçu en `beforeUid`. Les UID
 croissent avec le temps dans un dossier : ce curseur est plus robuste qu'un décalage numérique face
 aux suppressions. `nextCursor` est absent dès qu'il ne reste plus rien.
 
-**Recherche multi-dossiers** (`folders`) — chaque message porte en plus son `folder` d'origine ;
+**Recherche multi-dossiers** (`folders`): chaque message porte en plus son `folder` d'origine ;
 les résultats sont fusionnés, triés par date et tronqués à `limit`. Pas de `nextCursor` dans ce
 mode. Les dossiers sont fouillés en parallèle sur toutes les connexions du pool sauf une
 (`IMAP_POOL_SIZE - 1`, voir [configuration](configuration.md#connexion-imap)). Un dossier en échec (nom inexistant…) est écarté et reporté dans `errors` au lieu de faire
@@ -515,8 +515,8 @@ En `auto`, chaque image suit le récapitulatif : une ligne `text` qui la situe
 }
 ```
 
-**Échecs partiels.** Un élément en échec — message, index ou partie introuvable, partie multipart,
-pièce jointe au-delà de `ATTACHMENT_MAX_BYTES`, limite cumulée dépassée — porte son `error` sans
+**Échecs partiels.** Un élément en échec, message, index ou partie introuvable, partie multipart,
+pièce jointe au-delà de `ATTACHMENT_MAX_BYTES`, limite cumulée dépassée, porte son `error` sans
 faire échouer le lot. Seule une erreur d'authentification ou réseau IMAP, qui touche la connexion
 entière, fait échouer l'appel (même logique que `find_messages` sur plusieurs dossiers).
 
@@ -758,7 +758,7 @@ un simple `POST`, puis `compose_message` l'attache par son `uploadId`.
 Exige `PUBLIC_BASE_URL` : sans elle, l'outil renvoie une erreur explicite.
 
 **Le dépôt.** `POST <uploadUrl>`, **sans bearer** (le jeton de l'URL porte l'autorisation), avec le
-fichier en **corps brut** — pas de `multipart/form-data` (refusé en `415`) :
+fichier en **corps brut**, pas de `multipart/form-data` (refusé en `415`) :
 
 ```bash
 curl --data-binary @rapport.pdf \
@@ -879,7 +879,7 @@ Liste, crée, renomme ou supprime des dossiers IMAP. Remplace `list_folders` et 
 | `includeStatus` | boolean | `true`  | `list` : ajoute les compteurs `messages` et `unseen` par dossier |
 | `envelope`      | boolean | `false` | `list` : enveloppe le bloc texte en `{ folders: [...] }`         |
 
-**`list`** — à appeler quand on ne connaît pas les noms exacts des dossiers, notamment pour trouver
+**`list`**: à appeler quand on ne connaît pas les noms exacts des dossiers, notamment pour trouver
 l'archive et la corbeille via leur `specialUse`. Avec `includeStatus` (défaut), les compteurs
 arrivent avec le `LIST` lui-même (`LIST-STATUS`, un seul aller-retour sur iCloud ; un `STATUS` par
 dossier sur un serveur qui ne le supporte pas) ; `includeStatus: false` s'en passe.
@@ -918,7 +918,7 @@ dossier sur un serveur qui ne le supporte pas) ; `includeStatus: false` s'en pas
 { "action": "delete", "path": "Dossier obsolète" }
 ```
 
-**Garde-fou** — renommer ou supprimer un dossier à rôle système (INBOX, Sent, Trash, Drafts,
+**Garde-fou**: renommer ou supprimer un dossier à rôle système (INBOX, Sent, Trash, Drafts,
 Archive, Junk) est **refusé** : la suppression d'un dossier IMAP est irréversible et emporte tout
 son contenu.
 

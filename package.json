@@ -3,6 +3,24 @@
   "private": true,
   "version": "0.2.3",
   "description": "MCP server exposing iCloud Mail (IMAP/SMTP) as tools for Claude",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "icloud",
+    "email",
+    "imap",
+    "smtp",
+    "typescript"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/leolesimple/icloud-mail-mcp.git"
+  },
+  "homepage": "https://github.com/leolesimple/icloud-mail-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/leolesimple/icloud-mail-mcp/issues"
+  },
   "type": "module",
   "engines": {
     "node": ">=24.15"
@@ -57,7 +75,7 @@
     "typescript": "^5.7.2",
     "@semantic-release/npm": "^13.2.0"
   },
-  "license": "PolyForm-Strict-1.0.0",
+  "license": "MIT",
   "author": "Léo Lesimple",
   "workspaces": [
     "vendor/release-version"
