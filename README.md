@@ -1,258 +1,173 @@
 # icloud-mail-mcp
 
+English | [Français](README.fr.md)
+
 [![CI](https://github.com/leolesimple/icloud-mail-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/leolesimple/icloud-mail-mcp/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/leolesimple/icloud-mail-mcp)](https://github.com/leolesimple/icloud-mail-mcp/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%E2%89%A524.15-339933)](package.json)
 
-Serveur [MCP](https://modelcontextprotocol.io) qui expose un compte **iCloud Mail** (IMAP/SMTP) sous
-forme d'outils utilisables par Claude : lire, chercher, trier, répondre et archiver des mails depuis
-une conversation.
+An [MCP](https://modelcontextprotocol.io) server that exposes an **iCloud Mail** account (IMAP/SMTP)
+as tools Claude can use: read, search, sort, reply to and archive email from a conversation.
 
-Il tourne chez vous, en Docker, derrière un Cloudflare Tunnel et un bearer token. Les données renvoyées sont accessibles au client IA et à son fournisseur. Avec le tunnel,
-Cloudflare relaie aussi le trafic HTTPS ; iCloud héberge la boîte. L’instance MCP reste hébergée chez vous.
+It is self-hosted in Docker, behind a Cloudflare Tunnel and a bearer token. For now, this is the only documented way to expose it ([#70](https://github.com/leolesimple/icloud-mail-mcp/issues/70)). Returned data
+is visible to the AI client and its provider. With the tunnel, Cloudflare also relays the HTTPS
+traffic, and iCloud hosts the mailbox. The MCP instance itself stays under your control.
 
 ```
-Claude  ──HTTPS+Bearer──▶  Cloudflare Tunnel  ──▶  icloud-mail-mcp  ──IMAP/SMTP+TLS──▶  iCloud
+Claude  --HTTPS+Bearer-->  Cloudflare Tunnel  -->  icloud-mail-mcp  --IMAP/SMTP+TLS-->  iCloud
 ```
 
-> **Licence — à lire avant de cloner.** Ce projet **n'est pas open source**. Il est sous
-> [PolyForm Strict 1.0.0](https://polyformproject.org/licenses/strict/1.0.0) : usage non commercial
-> uniquement (personnel, recherche, associations, établissements publics). Les usages
-> commerciaux, y compris en entreprise, la modification et la redistribution ne sont pas
-> autorisés sans accord écrit. Voir [LICENSE](LICENSE).
+## Features
 
----
+Ten MCP tools, grouped by intent, documented in [`docs/tools.md`](docs/tools.md) (French):
 
-## Sommaire
+| Tool                | What it does                                                                                                                                |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `inbox_overview`    | Call first: account, unread and latest INBOX mail, per-folder counts, active guardrails. Never returns a secret                             |
+| `find_messages`     | List a folder or search server-side (subject, body, sender, recipient, dates, unread, flagged), across one or several folders, with cursors |
+| `read_message`      | Full message content (body truncation on demand, attachment metadata), optionally its whole thread                                          |
+| `get_attachment`    | Binary content of one attachment, targeted by index                                                                                         |
+| `get_attachments`   | Up to 25 attachments in one call, fetched progressively by IMAP part; one failure doesn't fail the batch                                    |
+| `export_message`    | Raw message as EML (`message/rfc822`), as base64 or a signed link                                                                           |
+| `compose_message`   | New message, reply (all), or forward; sent or saved as a draft, with correct threading and attachments                                      |
+| `send_draft`        | Sends an existing draft, then removes it from Drafts                                                                                        |
+| `organize_messages` | Move, trash, mark read/unread, flag, mark answered or junk, up to 200 messages in a single IMAP command                                     |
+| `manage_folders`    | List, create, rename or delete a folder; refused on system folders                                                                          |
 
-- [Ce que ça fait](#ce-que-ça-fait)
-- [Prérequis](#prérequis)
-- [Démarrage rapide](#démarrage-rapide)
-- [Déploiement (Docker / GHCR)](#déploiement-docker--ghcr)
-- [Brancher Claude dessus](#brancher-claude-dessus)
-- [Sécurité](#sécurité)
-- [Limitations connues](#limitations-connues)
-- [Documentation](#documentation)
+On `initialize`, the server also sends the client usage instructions: FR/EN domain keywords (mail,
+courriel, inbox, unread, draft…), the recommended tool order, and a warning that email content is
+untrusted.
 
----
+An optional `wait_for_new_message` tool sits behind `ENABLE_IDLE_WATCH` (off by default). The former
+tool names (`list_messages`, `get_message`, `send_message`, `whoami`…) remain available with
+`LEGACY_TOOLS=true`; see the [mapping table](docs/tools.md#correspondance-avec-les-anciens-outils).
 
-## Ce que ça fait
+Example prompt:
 
-Dix outils MCP organisés par intention, décrits en détail dans [`docs/tools.md`](docs/tools.md) :
+> "Summarize this week's unread mail, archive the newsletters and draft a reply to the one from my bank."
 
-| Outil               | Ce qu'il fait                                                                                                                                                            |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `inbox_overview`    | Vue d'ensemble à appeler en premier : compte, non lus et derniers mails de l'INBOX, compteurs par dossier, garde-fous actifs — jamais de secret                          |
-| `find_messages`     | Liste un dossier ou y cherche côté serveur IMAP : sujet, corps, expéditeur, destinataire, dates, non lus, favoris, sur un ou plusieurs dossiers ; pagination par curseur |
-| `read_message`      | Contenu complet d'un message (corps tronqué à la demande, métadonnées des pièces jointes), et en option son fil de discussion                                            |
-| `get_attachment`    | Contenu binaire d'une pièce jointe, ciblée par son index                                                                                                                 |
-| `get_attachments`   | Jusqu'à 25 pièces jointes en un appel, téléchargées progressivement par partie IMAP ; un élément en échec ne fait pas échouer le lot                                     |
-| `export_message`    | Message brut au format EML (`message/rfc822`), en base64 ou par lien signé                                                                                               |
-| `compose_message`   | Nouveau message, réponse (à tous), transfert, envoyé ou enregistré en brouillon, avec threading correct et pièces jointes                                                |
-| `send_draft`        | Envoie un brouillon existant, puis le retire de Drafts                                                                                                                   |
-| `organize_messages` | Déplace, met à la corbeille, marque lu / non lu, favori, répondu, indésirable — jusqu'à 200 messages en une commande IMAP                                                |
-| `manage_folders`    | Liste, crée, renomme ou supprime un dossier — refusé sur les dossiers système                                                                                            |
+## Quick start
 
-À l'initialize, le serveur envoie aussi des consignes au client : les mots-clés FR/EN du domaine
-(mail, courriel, boîte de réception, non lus, brouillon…) pour qu'il pense à ce serveur, l'ordre
-d'appel des outils, et l'avertissement que le contenu d'un mail n'est pas fiable.
+Requirements:
 
-Un outil supplémentaire, `wait_for_new_message`, existe derrière `ENABLE_IDLE_WATCH` (désactivé par
-défaut : il n'a pas de reconnexion). Les anciens noms (`list_messages`, `get_message`,
-`send_message`, `whoami`…) restent disponibles le temps d'une version avec `LEGACY_TOOLS=true` :
-voir la [table de correspondance](docs/tools.md#correspondance-avec-les-anciens-outils).
-
-Concrètement, une fois branché, on peut demander à Claude :
-
-> « Résume-moi les mails non lus de la semaine, archive les newsletters et prépare un brouillon de
-> réponse à celui de la banque. »
-
-### Ce qui rend le serveur utilisable en pratique
-
-- **Pool de connexions IMAP** — iCloud limite agressivement les connexions simultanées. Les
-  connexions sont ouvertes une fois, réutilisées entre les appels, purgées quand elles meurent, et
-  la demande en trop attend son tour au lieu de se faire jeter. Voir
-  [`docs/architecture.md`](docs/architecture.md).
-- **Erreurs lisibles** — un mot de passe principal Apple utilisé à la place d'un mot de passe
-  d'application donne un message qui le dit, pas une stack trace IMAP.
-- **Garde-fous d'envoi gradués** — de `ENABLE_SENDING=false` (rien ne part) à `DRAFTS_ONLY` (tout
-  est déposé dans Drafts, rien n'est perdu), en passant par une allowlist de destinataires et un
-  quota journalier. `UNRESTRICTED` les lève tous d'un coup, sans jamais toucher à
-  l'authentification. Voir [`docs/security.md`](docs/security.md).
-- **Mise en route guidée** — `npm run auth` vérifie IMAP et SMTP pour de vrai avant d'écrire le
-  `.env`, plutôt que de découvrir la faute de frappe au premier appel d'outil.
-- **Deux transports** — HTTP streamable, ou stdio pour un branchement local (`MCP_TRANSPORT`).
-- **Logs structurés** (pino) sans mot de passe ni contenu de mail.
-- **Des tests** qui ne touchent ni le réseau ni une vraie boîte mail.
-
----
-
-## Prérequis
-
-- **Node.js 24.15+** (ou Docker, qui s'en occupe)
-- **Un compte iCloud avec l'authentification à deux facteurs activée**
-- **Un mot de passe d'application Apple** — le mot de passe principal du compte ne fonctionne pas
-  en IMAP/SMTP :
-  1. [appleid.apple.com](https://appleid.apple.com/) → se connecter
-  2. **Connexion et sécurité** → **Mots de passe pour applications** → **Générer un mot de passe**
-  3. Nommer (« icloud-mail-mcp ») et copier le mot de passe au format `xxxx-xxxx-xxxx-xxxx`
-
----
-
-## Démarrage rapide
+- **Node.js 24.15+** (or Docker)
+- **An iCloud account with two-factor authentication**
+- **An Apple app-specific password**; your main password doesn't work over IMAP/SMTP. Generate one at
+  [appleid.apple.com](https://appleid.apple.com/) → Sign-In and Security → App-Specific Passwords.
 
 ```bash
 git clone https://github.com/leolesimple/icloud-mail-mcp.git
 cd icloud-mail-mcp
 npm install
-npm run auth
+npm run auth      # prompts for credentials, verifies IMAP + SMTP, then writes .env (chmod 600)
+npm run dev       # http://localhost:3000/mcp
 ```
 
-`npm run auth` demande l'adresse iCloud et le mot de passe d'application (saisie
-masquée), génère le `MCP_BEARER_TOKEN`, **vérifie pour de vrai les connexions IMAP
-et SMTP**, puis écrit `.env` en `chmod 600` — rien n'est écrit si une vérification
-échoue, et un `.env` existant est sauvegardé en `.env.bak` avant tout écrasement.
-Le fichier généré démarre avec `ENABLE_SENDING=false`.
+Nothing is written if verification fails, and an existing `.env` is backed up to `.env.bak`. The
+generated file starts with `ENABLE_SENDING=false`. `npm run auth:check` replays the verification
+without writing anything.
 
-```bash
-npm run auth:check     # rejoue la vérification IMAP + SMTP sur le .env existant, sans rien écrire
-```
-
-Puis démarrer :
-
-```bash
-npm run dev            # http://localhost:3000/mcp
-```
-
-Le endpoint MCP est `POST|GET|DELETE /mcp`, protégé par le `MCP_BEARER_TOKEN`
-(`Authorization: Bearer <token>` ou `X-Api-Key: <token>`). `GET /health` reste ouvert
-(healthcheck Docker).
-
-Pour l'inspecter à la main :
+The MCP endpoint is `POST|GET|DELETE /mcp`, protected by `MCP_BEARER_TOKEN`
+(`Authorization: Bearer <token>` or `X-Api-Key: <token>`). `GET /health` stays open for Docker
+healthchecks. To poke at it manually:
 
 ```bash
 npx @modelcontextprotocol/inspector
-# Transport : Streamable HTTP
-# URL       : http://localhost:3000/mcp
-# Header    : Authorization: Bearer <votre token>
+# Transport: Streamable HTTP · URL: http://localhost:3000/mcp · Header: Authorization: Bearer <token>
 ```
 
----
+## Deployment (Docker / GHCR)
 
-## Déploiement (Docker / GHCR)
-
-Le serveur est publié en image Docker sur GHCR à chaque version
-(`ghcr.io/leolesimple/icloud-mail-mcp`, `linux/amd64`). **Rien à compiler ni à
-cloner sur l'hôte** : deux fichiers suffisent dans un dossier vide.
+Each release publishes an image to `ghcr.io/leolesimple/icloud-mail-mcp` (`linux/amd64`). No build or clone is needed on the host; two files in an empty folder are enough:
 
 ```bash
 mkdir icloud-mail-mcp && cd icloud-mail-mcp
 base=https://raw.githubusercontent.com/leolesimple/icloud-mail-mcp/main
 
 curl -O  $base/docker-compose.yml
-curl -O  $base/docker-compose.tunnel.yml   # seulement si aucun cloudflared n'existe déjà
-curl -o .env $base/.env.example            # puis renseigner (voir ci-dessous)
+curl -O  $base/docker-compose.tunnel.yml   # only if you don't already run cloudflared
+curl -o .env $base/.env.example            # then fill it in
 
-docker compose up -d                       # tire l'image et démarre
-docker compose ps                          # "healthy"/"running"
-curl https://<votre-hostname>/health       # {"status":"ok","version":"…"}
+docker compose up -d
+curl https://<your-hostname>/health        # {"status":"ok","version":"…"}
 ```
 
-`.env` — au minimum :
+Minimum `.env`:
 
 ```bash
-ICLOUD_EMAIL=vous@icloud.com
+ICLOUD_EMAIL=you@icloud.com
 ICLOUD_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
 MCP_BEARER_TOKEN=<openssl rand -hex 32>
-TUNNEL_NETWORK=<réseau Docker partagé avec cloudflared>   # requis
-ICLOUD_MAIL_MCP_VERSION=0.1.2                             # ou "latest"
+TUNNEL_NETWORK=<Docker network shared with cloudflared>   # required
+ICLOUD_MAIL_MCP_VERSION=latest                            # or a pinned version, e.g. 0.2.3
 ```
 
-Le trafic passe par un **Cloudflare Tunnel** : `docker-compose.yml` rattache le
-serveur au réseau Docker `TUNNEL_NETWORK` sur lequel tourne `cloudflared` (géré
-par une autre stack), qui pointe un hostname public vers `http://icloud-mail-mcp:3000`.
-Aucun port n'est publié sur l'hôte. Pas de tunnel existant → ajouter
-`docker-compose.tunnel.yml`, qui embarque un `cloudflared` dédié (`TUNNEL_TOKEN`
-dans `.env`).
-
-**Mise à jour** : bumper `ICLOUD_MAIL_MCP_VERSION`, puis
-`docker compose pull && docker compose up -d`.
-
-Détail complet (création du tunnel, hostname public, dépannage, transport stdio) :
+Full details (tunnel setup, public hostname, troubleshooting, stdio transport) are in
 [`docs/deployment.md`](docs/deployment.md).
 
----
+## Connecting Claude
 
-## Brancher Claude dessus
-
-**Claude Code** :
+**Claude Code**
 
 ```bash
-claude mcp add --transport http icloud-mail-mcp https://icloud-mail-mcp.exemple.com/mcp \
-  --header "Authorization: Bearer <votre token>"
+claude mcp add --transport http icloud-mail-mcp https://icloud-mail-mcp.example.com/mcp \
+  --header "Authorization: Bearer <your token>"
 ```
 
-**Claude Desktop** : dans `claude_desktop_config.json`, un serveur `"type": "http"` avec
+**Claude Desktop**: add an `"type": "http"` server to `claude_desktop_config.json` with
 `"headers": { "Authorization": "Bearer <token>" }`.
 
-**claude.ai (web / mobile)** : _Paramètres → Connecteurs → Ajouter un connecteur personnalisé_,
-URL `https://icloud-mail-mcp.exemple.com/mcp`. Le formulaire interdit l'en-tête `Authorization` :
-choisir **`x-api-key`** avec le **token brut** (le serveur accepte les deux formes).
+**claude.ai (web / mobile)**: _Settings → Connectors → Add custom connector_ with the URL
+`https://icloud-mail-mcp.example.com/mcp`. The form rejects an `Authorization` header: pick
+**`x-api-key`** with the raw token (the server accepts both).
 
-Détails et dépannage dans [`docs/deployment.md`](docs/deployment.md#brancher-un-client-mcp).
+## Security
 
----
+This server can read, move, delete and send email. The essentials:
 
-## Sécurité
+- **Never expose the endpoint without the bearer token.** Generate it with `openssl rand -hex 32`.
+- **Never commit `.env`.** It's in `.gitignore`; double-check before any `git add -A` on a fork.
+- **An Apple app password grants access to the whole mailbox.** Revoke it in one click at
+  appleid.apple.com if the server is compromised.
+- **Sending is disabled by default (`ENABLE_SENDING=false`).** Enable it only after checking how Claude
+  behaves on your mailbox.
+- **`/health` is unauthenticated** and only reveals status and version.
 
-Ce serveur peut lire, déplacer, supprimer et envoyer des mails. Les points à ne pas rater :
+Threat model and details: [`docs/security.md`](docs/security.md). To report a vulnerability, see
+[`SECURITY.md`](SECURITY.md).
 
-- **N'exposez jamais le endpoint sans le bearer token.** Le token est comparé en temps constant
-  (`timingSafeEqual`), mais un token faible reste un token faible : `openssl rand -hex 32`.
-- **`.env` ne doit jamais être committé.** Il est dans `.gitignore` ; vérifiez-le avant tout
-  `git add -A` sur un fork.
-- **Le mot de passe d'application Apple donne accès à toute la boîte mail.** Il se révoque en un
-  clic sur appleid.apple.com si le serveur est compromis.
-- **L'envoi est désactivé par défaut (`ENABLE_SENDING=false`).** Vous rallumerez l'envoi quand vous aurez vu comment
-  Claude se comporte sur votre boîte.
-- **Le healthcheck `/health` n'est pas authentifié** — il ne révèle que le statut et la version
-  du serveur (`{"status":"ok","version":"…"}`), aucune configuration ni secret.
+## Known limitations
 
-Détail complet dans [`docs/security.md`](docs/security.md).
-
----
-
-## Limitations connues
-
-- **Pièces jointes plafonnées à `ATTACHMENT_MAX_BYTES` (5 Mo par défaut).** `get_attachment`
-  récupère le binaire d'une pièce jointe et `compose_message` permet d'en joindre, mais au-delà de cette limite (cumul compris) l'outil refuse
-  explicitement plutôt que de tronquer.
-- **Source MIME plafonnée à `MAX_MESSAGE_BYTES` (25 Mio par défaut).** Les lectures sont coupées pendant le téléchargement, y compris si le serveur annonce une taille incorrecte. Le corps des resources est également tronqué.
-- **Confirmation serveur avant envoi, corbeille et suppression de dossier.** Sans elicitation MCP, le jeton exige un second appel mais ne prouve pas un accord humain. `compose_message` prépare un brouillon par défaut.
-- **iCloud uniquement en pratique.** Le code est du IMAP/SMTP standard et les hôtes sont
-  configurables, mais rien d'autre n'est testé.
-
----
+- **Attachments are capped at `ATTACHMENT_MAX_BYTES`** (5 MB by default, cumulative). Beyond it, the
+  tool refuses explicitly instead of truncating.
+- **MIME source is capped at `MAX_MESSAGE_BYTES`** (25 MiB by default). Reads are cut off during
+  download, even if the server announces a wrong size.
+- **Server-side confirmation before send, trash and folder deletion.** Without MCP elicitation, the
+  token requires a second call but doesn't prove a human agreed. `compose_message` creates a draft
+  by default.
+- **iCloud only, in practice.** The code is standard IMAP/SMTP and hosts are configurable, but
+  nothing else is tested.
 
 ## Documentation
 
-| Document                                         | Contenu                                                              |
-| ------------------------------------------------ | -------------------------------------------------------------------- |
-| [`docs/tools.md`](docs/tools.md)                 | Référence des outils : paramètres, retours, exemples                 |
-| [`docs/configuration.md`](docs/configuration.md) | Toutes les variables d'environnement                                 |
-| [`docs/deployment.md`](docs/deployment.md)       | Docker, Cloudflare Tunnel, branchement des clients MCP               |
-| [`docs/architecture.md`](docs/architecture.md)   | Découpage en couches, pool IMAP, gestion des erreurs et des sessions |
-| [`docs/security.md`](docs/security.md)           | Modèle de menace et bonnes pratiques                                 |
-| [`docs/development.md`](docs/development.md)     | Structure du code, tests, conventions                                |
-| [`CHANGELOG.md`](CHANGELOG.md)                   | Historique des versions et procédure de release                      |
+The detailed docs are written in French.
 
----
+| Document                                         | Contents                                          |
+| ------------------------------------------------ | ------------------------------------------------- |
+| [`docs/tools.md`](docs/tools.md)                 | Tool reference: parameters, returns, examples     |
+| [`docs/configuration.md`](docs/configuration.md) | Every environment variable                        |
+| [`docs/deployment.md`](docs/deployment.md)       | Docker, Cloudflare Tunnel, connecting MCP clients |
+| [`docs/architecture.md`](docs/architecture.md)   | Layering, IMAP pool, error and session handling   |
+| [`docs/security.md`](docs/security.md)           | Threat model and best practices                   |
+| [`docs/development.md`](docs/development.md)     | Code layout, tests, conventions                   |
+| [`CHANGELOG.md`](CHANGELOG.md)                   | Release history                                   |
 
-## Licence
+## Contributing
 
-Copyright © 2026 Léo Lesimple. Distribué sous [PolyForm Strict 1.0.0](LICENSE)
-(`PolyForm-Strict-1.0.0`) : l'usage non commercial est autorisé (personnel, recherche, loisirs,
-organismes à but non lucratif, éducatifs ou publics). La distribution, les modifications et les
-œuvres dérivées ne le sont pas. Pour tout usage commercial ou hors de ce cadre, ouvrez une issue
-pour en discuter. Le texte de [LICENSE](LICENSE) fait foi.
+Contributions are welcome. Open an issue first, then a pull request that references it. See
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-Ce n'est **pas** une licence open source au sens de l'OSI : GitHub permet techniquement de forker
-un dépôt public, mais cela ne vaut pas autorisation de modifier ou de redistribuer ce code.
+## License
+
+[MIT](LICENSE) © 2026 Léo Lesimple

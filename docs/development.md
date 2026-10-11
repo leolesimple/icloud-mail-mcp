@@ -1,8 +1,6 @@
 # Développement
 
-> Rappel : la [licence](../LICENSE) n'autorise pas la distribution de versions modifiées. Cette page
-> décrit comment le projet est construit et testé — utile pour le lire, l'auditer avant de lui
-> confier sa boîte mail, ou préparer une contribution à proposer en amont.
+> Cette page décrit comment le projet est construit et testé. Voir aussi [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ---
 
@@ -76,7 +74,7 @@ test/
 ```
 
 **Règle de dépendance** : `imap/` et `smtp/` ne connaissent pas MCP. Un fichier de `mcp/tools/`
-déclare un schéma, appelle une fonction métier, sérialise le résultat — rien de plus. Toute logique
+déclare un schéma, appelle une fonction métier, sérialise le résultat, rien de plus. Toute logique
 qui mérite un test appartient aux couches basses.
 
 ---
@@ -118,7 +116,7 @@ effectivement l'envoi. Le helper pose ses valeurs avec `??=` avant que `dotenv` 
 ### Écrire un test
 
 Tout fichier de test qui charge, directement ou non, `src/config.ts` doit importer l'environnement
-de test **en premier** — les modules ESM sont évalués dans l'ordre des imports :
+de test **en premier**, les modules ESM sont évalués dans l'ordre des imports :
 
 ```ts
 import './helpers/env.js'; // toujours en première ligne
@@ -133,7 +131,7 @@ Les imports pointent vers les fichiers sources en `.js` (résolution NodeNext), 
 
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) rejoue `typecheck`, `lint`, `test` et
 `build` sur Node 24, puis construit l'image Docker (`linux/amd64`, sans push) et vérifie qu'elle
-démarre — à chaque push sur `main` et sur chaque pull request.
+démarre, à chaque push sur `main` et sur chaque pull request.
 
 Le workflow n'a besoin d'**aucun secret** : la suite de tests n'ouvre aucune connexion IMAP ou SMTP
 et force `ENABLE_SENDING=false`. Il n'y a donc pas de compte iCloud à configurer dans le dépôt, et
@@ -189,7 +187,7 @@ Pour tester localement sans rien publier : `npx semantic-release --dry-run --no-
   d'ESLint.
 - **Commentaires** : expliquer _pourquoi_, pas _quoi_. Les commentaires existants documentent des
   pièges réels (coercition zod de `"false"`, ordre de libération verrou/connexion, absence
-  d'`instanceof` sur les erreurs imapflow) — c'est le registre attendu.
+  d'`instanceof` sur les erreurs imapflow), c'est le registre attendu.
 - Les messages d'erreur destinés à l'utilisateur sont en français ; les descriptions d'outils MCP,
   lues par le modèle, sont en anglais.
 
