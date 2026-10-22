@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.4](https://github.com/leolesimple/icloud-mail-mcp/compare/v0.2.3...v0.2.4) (2026-10-22)
+
+
+### Bug Fixes
+
+* **docker:** rebuild on node 24.22.1 for eMudhra CA compromise ([163f175](https://github.com/leolesimple/icloud-mail-mcp/commit/163f1759b2155a9e86fabf8528d3c07ab3a95a45))
+
 ## [0.2.3](https://github.com/leolesimple/icloud-mail-mcp/compare/v0.2.2...v0.2.3) (2026-10-06)
 
 
