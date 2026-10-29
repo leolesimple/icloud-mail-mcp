@@ -51,7 +51,7 @@ Example prompt:
 
 Requirements:
 
-- **Node.js 24.15+** (or Docker)
+- **Node.js 24.22+** (or Docker)
 - **An iCloud account with two-factor authentication**
 - **An Apple app-specific password**; your main password doesn't work over IMAP/SMTP. Generate one at
   [appleid.apple.com](https://appleid.apple.com/) → Sign-In and Security → App-Specific Passwords.
