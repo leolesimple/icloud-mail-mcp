@@ -3,13 +3,19 @@ import { imapPool } from '../imap/pool.js';
 import { downloadMessageOn } from '../imap/messages.js';
 import { config } from '../config.js';
 import { findSpecialFolder } from '../imap/special-folders.js';
-import type {
-  CallToolResult,
-  ClientCapabilities,
-  ElicitRequestFormParams,
-  ElicitResult,
+import {
+  ErrorCode,
+  McpError,
+  type CallToolResult,
+  type ClientCapabilities,
+  type ElicitRequestFormParams,
+  type ElicitResult,
 } from '@modelcontextprotocol/sdk/types.js';
+import type { RequestOptions } from '@modelcontextprotocol/sdk/shared/protocol.js';
 import { confirmTokens, type ConfirmBinding, type ConfirmTokenService } from '../confirm.js';
+import { logger } from '../logger.js';
+
+const log = logger.child({ module: 'confirm-flow' });
 
 /**
  * Confirmation d'une opération destructive, indépendante de tout tool.
@@ -21,6 +27,12 @@ import { confirmTokens, type ConfirmBinding, type ConfirmTokenService } from '..
  *   jeton ; l'appelant refait le même appel avec `confirmToken`, vérifié (puis
  *   consommé) avant d'exécuter.
  *
+ * L'attente du formulaire est bornée (`ELICITATION_TIMEOUT_MS`) et suit
+ * l'annulation de l'appel d'outil. Un client qui annonce l'elicitation sans
+ * jamais répondre (cas de claude.ai) bascule alors sur le jeton, et n'est plus
+ * sollicité par formulaire pour le reste de sa session. `ELICITATION=off`
+ * force le jeton d'emblée.
+ *
  * Un refus ou une annulation n'est pas une erreur : c'est un choix légitime de
  * l'utilisateur, et le présenter comme un échec pousserait le modèle à
  * réessayer ou à contourner.
@@ -29,7 +41,20 @@ import { confirmTokens, type ConfirmBinding, type ConfirmTokenService } from '..
 /** Ce dont le flux a besoin côté serveur MCP : `server.server` convient. */
 export interface ElicitationHost {
   getClientCapabilities(): ClientCapabilities | undefined;
-  elicitInput(params: ElicitRequestFormParams): Promise<ElicitResult>;
+  elicitInput(params: ElicitRequestFormParams, options?: RequestOptions): Promise<ElicitResult>;
+}
+
+/** `auto` : formulaire si le client l'annonce ; `off` : toujours le jeton. */
+export type ElicitationMode = 'auto' | 'off';
+
+/**
+ * Hôtes (une session MCP chacun) dont un formulaire a expiré sans réponse :
+ * inutile de leur faire attendre un nouveau timeout à chaque confirmation.
+ */
+const unresponsiveHosts = new WeakSet<ElicitationHost>();
+
+function isRequestTimeout(err: unknown): boolean {
+  return err instanceof McpError && err.code === ErrorCode.RequestTimeout;
 }
 
 export interface ConfirmFlowRequest<T> {
@@ -45,6 +70,12 @@ export interface ConfirmFlowRequest<T> {
   execute: () => Promise<T>;
   /** Service de jetons. Par défaut, celui du serveur. */
   tokens?: ConfirmTokenService;
+  /** Annulation de l'appel d'outil (`extra.signal`) : interrompt l'attente du formulaire. */
+  signal?: AbortSignal;
+  /** Par défaut, `config.ELICITATION`. */
+  elicitation?: ElicitationMode;
+  /** Par défaut, `config.ELICITATION_TIMEOUT_MS`. */
+  elicitationTimeoutMs?: number;
 }
 
 export type ConfirmFlowOutcome<T> =
@@ -77,33 +108,51 @@ export function supportsFormElicitation(host: ElicitationHost): boolean {
 export async function runConfirmFlow<T>(
   request: ConfirmFlowRequest<T>,
 ): Promise<ConfirmFlowOutcome<T>> {
-  const { host, operation, binding, summary } = request;
+  const { host, operation, binding, summary, signal } = request;
   const tokens = request.tokens ?? confirmTokens;
+  const mode = request.elicitation ?? config.ELICITATION;
+  const timeout = request.elicitationTimeoutMs ?? config.ELICITATION_TIMEOUT_MS;
 
-  if (supportsFormElicitation(host)) {
-    const answer = await host.elicitInput({
-      mode: 'form',
-      message: `Confirmation requise : ${summary}\nCette opération est irréversible.`,
-      requestedSchema: {
-        type: 'object',
-        properties: {
-          confirm: {
-            type: 'boolean',
-            title: 'Confirmer',
-            description: 'Cochez pour exécuter l’opération.',
-            default: false,
+  if (mode === 'auto' && !unresponsiveHosts.has(host) && supportsFormElicitation(host)) {
+    let answer: ElicitResult | undefined;
+    try {
+      answer = await host.elicitInput(
+        {
+          mode: 'form',
+          message: `Confirmation requise : ${summary}\nCette opération est irréversible.`,
+          requestedSchema: {
+            type: 'object',
+            properties: {
+              confirm: {
+                type: 'boolean',
+                title: 'Confirmer',
+                description: 'Cochez pour exécuter l’opération.',
+                default: false,
+              },
+            },
+            required: ['confirm'],
           },
         },
-        required: ['confirm'],
-      },
-    });
-    if (answer.action === 'cancel') return { status: 'cancelled', operation, summary };
-    // Un « accept » sans la case cochée vaut refus : on ne se contente pas
-    // d'un client qui accepterait le formulaire sans intervention humaine.
-    if (answer.action !== 'accept' || answer.content?.confirm !== true) {
-      return { status: 'declined', operation, summary };
+        { timeout, ...(signal ? { signal } : {}) },
+      );
+    } catch (err) {
+      // Annulation de l'appel ou autre échec : on remonte, rien n'est exécuté.
+      if (signal?.aborted || !isRequestTimeout(err)) throw err;
+      unresponsiveHosts.add(host);
+      log.warn(
+        { operation, timeoutMs: timeout },
+        'elicitation sans réponse : repli sur le jeton de confirmation pour cette session',
+      );
     }
-    return { status: 'executed', via: 'elicitation', result: await request.execute() };
+    if (answer) {
+      if (answer.action === 'cancel') return { status: 'cancelled', operation, summary };
+      // Un « accept » sans la case cochée vaut refus : on ne se contente pas
+      // d'un client qui accepterait le formulaire sans intervention humaine.
+      if (answer.action !== 'accept' || answer.content?.confirm !== true) {
+        return { status: 'declined', operation, summary };
+      }
+      return { status: 'executed', via: 'elicitation', result: await request.execute() };
+    }
   }
 
   if (request.confirmToken === undefined) {
@@ -148,6 +197,8 @@ export async function confirmToolAction(
   operation: string,
   input: Record<string, unknown>,
   execute: () => Promise<CallToolResult>,
+  /** Annulation de l'appel d'outil (`extra.signal`). */
+  signal?: AbortSignal,
 ): Promise<CallToolResult> {
   const { confirmToken, ...params } = input;
   const folder =
@@ -220,6 +271,7 @@ export async function confirmToolAction(
     summary: `${operation} — ${details}`,
     confirmToken: typeof confirmToken === 'string' ? confirmToken : undefined,
     execute,
+    ...(signal ? { signal } : {}),
   });
   return outcome.status === 'executed' ? outcome.result : confirmationResult(outcome);
 }

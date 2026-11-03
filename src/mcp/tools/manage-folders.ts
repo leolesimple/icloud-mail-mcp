@@ -47,7 +47,7 @@ export function registerManageFoldersTool(server: McpServer): void {
         openWorldHint: false,
       },
     },
-    async (input) => {
+    async (input, extra) => {
       const { action, path, newPath, includeStatus, envelope } = input;
 
       if (action === 'list') {
@@ -73,7 +73,7 @@ export function registerManageFoldersTool(server: McpServer): void {
         return jsonResult(await manageFolder(action, path, newPath), manageFoldersResultSchema);
       };
       return input.action === 'delete'
-        ? confirmToolAction(server.server, 'manage_folders', input, execute)
+        ? confirmToolAction(server.server, 'manage_folders', input, execute, extra.signal)
         : execute();
     },
   );

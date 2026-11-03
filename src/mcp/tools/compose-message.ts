@@ -114,7 +114,7 @@ export function registerComposeMessageTool(server: McpServer, deps: ComposeMessa
         openWorldHint: true,
       },
     },
-    async (input) => {
+    async (input, extra) => {
       const plan = planCompose(input);
       if (!plan.ok) {
         return errorResult(plan.error);
@@ -221,7 +221,7 @@ export function registerComposeMessageTool(server: McpServer, deps: ComposeMessa
           attachments: attachments?.map((a) => ({ ...a, content: a.content.toString('base64') })),
         };
         return await (input.deliver === 'send'
-          ? confirmToolAction(server.server, 'compose_message', boundInput, execute)
+          ? confirmToolAction(server.server, 'compose_message', boundInput, execute, extra.signal)
           : execute());
       } catch (err) {
         if (err instanceof AttachmentTooLargeError || err instanceof AttachmentSourceError) {

@@ -194,15 +194,22 @@ Les clés booléennes utilisent la grammaire stricte décrite plus haut.
 
 ## Jetons de confirmation
 
-| Variable         | Défaut      | Description                                                                                                                                                                        |
-| ---------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CONFIRM_SECRET` | `''` (vide) | Secret HMAC des jetons de confirmation des opérations destructives. Au moins 32 caractères, sinon le démarrage échoue. Vide ou absent : un secret aléatoire est tiré au démarrage. |
+| Variable                 | Défaut      | Description                                                                                                                                                                        |
+| ------------------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CONFIRM_SECRET`         | `''` (vide) | Secret HMAC des jetons de confirmation des opérations destructives. Au moins 32 caractères, sinon le démarrage échoue. Vide ou absent : un secret aléatoire est tiré au démarrage. |
+| `ELICITATION`            | `auto`      | `auto` : formulaire d'elicitation si le client l'annonce, avec repli sur le jeton s'il ne répond pas dans `ELICITATION_TIMEOUT_MS`. `off` : toujours le jeton.                     |
+| `ELICITATION_TIMEOUT_MS` | `20000`     | Attente maximale de la réponse au formulaire, en millisecondes. À garder sous le timeout de requête du client (60 s pour claude.ai).                                               |
 
 Les jetons durent 2 minutes : les perdre au redémarrage est sans conséquence, d'où un secret
 optionnel. Le fixer n'a d'intérêt que pour garder les jetons valides à travers un redémarrage
 rapide. Générez-le avec `openssl rand -hex 32` ; ne réutilisez ni `MCP_BEARER_TOKEN` ni le mot de
 passe d'application. Il n'apparaît dans aucun log (expurgé par pino) ni dans aucune réponse d'outil.
 Voir [`security.md`](security.md#confirmation-des-opérations-destructives).
+
+Certains clients annoncent la capacité `elicitation` sans jamais afficher le formulaire (claude.ai).
+En `auto`, le premier formulaire sans réponse expire au bout de `ELICITATION_TIMEOUT_MS`, l'appel
+renvoie alors un jeton, et la session n'est plus sollicitée par formulaire. `ELICITATION=off`
+évite cette première attente pour un déploiement dédié à ces clients.
 
 ---
 

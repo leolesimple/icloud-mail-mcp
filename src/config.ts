@@ -79,6 +79,17 @@ const envSchema = z.object({
     z.string().min(32, 'CONFIRM_SECRET doit faire au moins 32 caractères').optional(),
   ),
 
+  // Confirmation par formulaire (elicitation MCP) quand le client l'annonce.
+  // auto : formulaire, avec repli sur le jeton si le client ne répond pas dans
+  //        ELICITATION_TIMEOUT_MS (client qui annonce la capacité sans la rendre).
+  // off  : jamais de formulaire, toujours le jeton en deux temps.
+  ELICITATION: z
+    .enum(['auto', 'off'], { message: 'ELICITATION doit valoir "auto" ou "off"' })
+    .default('auto'),
+  // Attente maximale de la réponse au formulaire, en millisecondes. Doit rester
+  // sous le timeout des clients (60 s pour claude.ai) pour que le repli aboutisse.
+  ELICITATION_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
+
   // --- Liens de téléchargement (get_attachment format "url") ---------------
   // Secret HMAC des liens signés servis par GET /download/:token. Optionnel :
   // absent ou vide, un secret aléatoire est tiré au démarrage (les liens, valables
