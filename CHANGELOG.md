@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.5](https://github.com/leolesimple/icloud-mail-mcp/compare/v0.2.4...v0.2.5) (2026-11-04)
+
+
+### Bug Fixes
+
+* **deps:** patch audited vulnerabilities and unblock CI ([#76](https://github.com/leolesimple/icloud-mail-mcp/issues/76)) ([68f061f](https://github.com/leolesimple/icloud-mail-mcp/commit/68f061ff91b85a42b16537f583de2f48e733a989))
+
 ## [0.2.4](https://github.com/leolesimple/icloud-mail-mcp/compare/v0.2.3...v0.2.4) (2026-10-22)
 
 
