@@ -95,7 +95,7 @@ Vérifier :
 docker compose ps                          # "healthy"/"running"
 docker compose logs -f icloud-mail-mcp     # "icloud-mail-mcp http server listening"
 curl https://icloud-mail-mcp.exemple.com/health
-# {"status":"ok","version":"0.1.2"}
+# {"status":"ok","version":"1.0.0"}
 ```
 
 Le `/health` répond sans token, c'est voulu, le healthcheck Docker en a besoin. Il ne révèle que le
