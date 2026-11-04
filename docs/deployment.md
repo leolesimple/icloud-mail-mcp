@@ -236,8 +236,9 @@ au prochain appel.
 
 [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) déploie sur l'hôte :
 
-- **automatiquement** après la publication réussie de l’image GHCR du workflow Release (le tag est déployé) ;
-- **à la demande** via le bouton _Run workflow_ de l'onglet _Actions_ (choix de la version).
+- **uniquement à la demande**, via le bouton _Run workflow_ de l'onglet _Actions_ (choix de la version).
+  La workflow Release publie l'image GHCR mais ne déploie rien : lancer _Deploy_ ensuite, avec la
+  version voulue (ou `latest`).
 
 Il se connecte en SSH et exécute [`deploy/deploy.sh`](../deploy/deploy.sh) : écriture de la version
 dans `.env`, `docker compose pull`, `up -d`, puis attente de `healthy` (échec sinon). Aucun runner

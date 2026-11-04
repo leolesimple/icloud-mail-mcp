@@ -1,7 +1,8 @@
 name: Deploy
 run-name: 'Deploy ${{ inputs.version }}'
 
-# Called explicitly after GHCR publication; GITHUB_TOKEN release events do not start workflows.
+# Déploiement MANUEL : onglet Actions > Deploy > « Run workflow » (choix de la version).
+# Release ne l'appelle plus ; workflow_call est conservé pour un éventuel appel explicite.
 on:
   workflow_call:
     inputs:
