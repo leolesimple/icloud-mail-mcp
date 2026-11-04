@@ -4,7 +4,7 @@ English | [Français](README.fr.md)
 
 [![CI](https://github.com/leolesimple/icloud-mail-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/leolesimple/icloud-mail-mcp/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/leolesimple/icloud-mail-mcp)](https://github.com/leolesimple/icloud-mail-mcp/releases)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![License: PolyForm Shield](https://img.shields.io/badge/license-PolyForm%20Shield%201.0.0-blue)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A524.15-339933)](package.json)
 
 An [MCP](https://modelcontextprotocol.io) server that exposes an **iCloud Mail** account (IMAP/SMTP)
@@ -170,4 +170,9 @@ Contributions are welcome. Open an issue first, then a pull request that referen
 
 ## License
 
-[MIT](LICENSE) © 2026 Léo Lesimple
+[PolyForm Shield 1.0.0](LICENSE) © 2026 Léo Lesimple
+
+You can use, modify and share this software for any purpose, including inside a company, **except to
+provide a product that competes with it** (for example, reselling it, or republishing it as a
+substitute mail MCP server). This is a source-available license, not an OSI-approved open source
+license. Versions up to 0.2.4 were released under the MIT license and stay under it.

@@ -75,7 +75,7 @@
     "typescript": "^5.7.2",
     "@semantic-release/npm": "^13.2.0"
   },
-  "license": "MIT",
+  "license": "PolyForm-Shield-1.0.0",
   "author": "Léo Lesimple",
   "workspaces": [
     "vendor/release-version"
