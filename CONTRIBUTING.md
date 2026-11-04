@@ -1,7 +1,8 @@
 # Contributing
 
 Thanks for your interest in icloud-mail-mcp. Contributions are welcome, under the terms of the
-[MIT license](LICENSE).
+[PolyForm Shield 1.0.0 license](LICENSE). By submitting a contribution you agree that it is
+licensed under the same terms.
 
 ## Workflow
 

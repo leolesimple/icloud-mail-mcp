@@ -5,14 +5,14 @@
 
 ### Bug Fixes
 
-* **confirm:** bound elicitation with timeout and client cancellation ([#75](https://github.com/leolesimple/icloud-mail-mcp/issues/75)) ([81b734e](https://github.com/leolesimple/icloud-mail-mcp/commit/81b734ea41df92276fed10c215156320e5034c43)), closes [#74](https://github.com/leolesimple/icloud-mail-mcp/issues/74)
+* **confirm:** bound elicitation with timeout and client cancellation ([#75](https://github.com/leolesimple/icloud-mail-mcp/issues/75)) ([19d3bbd](https://github.com/leolesimple/icloud-mail-mcp/commit/19d3bbd4b94d17005daac945d08fa44ac1003b68)), closes [#74](https://github.com/leolesimple/icloud-mail-mcp/issues/74)
 
 ## [0.2.5](https://github.com/leolesimple/icloud-mail-mcp/compare/v0.2.4...v0.2.5) (2026-11-04)
 
 
 ### Bug Fixes
 
-* **deps:** patch audited vulnerabilities and unblock CI ([#76](https://github.com/leolesimple/icloud-mail-mcp/issues/76)) ([68f061f](https://github.com/leolesimple/icloud-mail-mcp/commit/68f061ff91b85a42b16537f583de2f48e733a989))
+* **deps:** patch audited vulnerabilities and unblock CI ([#76](https://github.com/leolesimple/icloud-mail-mcp/issues/76)) ([e949568](https://github.com/leolesimple/icloud-mail-mcp/commit/e949568d64042e79e3aa9619a1ef6efb905d3ae8))
 
 ## [0.2.4](https://github.com/leolesimple/icloud-mail-mcp/compare/v0.2.3...v0.2.4) (2026-10-22)
 
