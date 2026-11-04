@@ -141,13 +141,16 @@ une pull request extérieure ne peut rien exfiltrer.
 
 ## Releases
 
-Les versions sont publiées automatiquement par
-[`semantic-release`](https://semantic-release.gitbook.io/) via
-[`.github/workflows/release.yml`](../.github/workflows/release.yml), déclenché après chaque run
-vert de `ci.yml` sur `main` (donc à chaque merge). Aucun tag manuel : semantic-release calcule le
-bump à partir des commits mergés depuis le dernier tag, pose le tag `vX.Y.Z` et publie la GitHub
-Release avec ses notes. Le job `docker` du même workflow pousse ensuite l'image sur GHCR taguée
-`{X.Y.Z, X.Y, latest}`.
+Les versions sont publiées par [`semantic-release`](https://semantic-release.gitbook.io/) via
+[`.github/workflows/release.yml`](../.github/workflows/release.yml), **déclenché à la main** :
+onglet Actions, workflow *Release*, « Run workflow » sur `main`. Un merge ne publie rien tout seul.
+
+L'option **`dry_run`** (cochée par défaut) simule la release : semantic-release affiche la version
+qui sortirait, sans tag, sans commit, sans image, sans déploiement. Décochée, il calcule le bump à
+partir des commits mergés depuis le dernier tag, pose le tag `vX.Y.Z` et publie la GitHub Release
+avec ses notes. Le job `docker` du même workflow pousse ensuite l'image sur GHCR taguée
+`{X.Y.Z, X.Y, latest}`. Avant de publier, le workflow vérifie que la CI du dernier commit
+non-release de `main` est verte.
 
 À chaque release, le hook local `vendor/release-version` bumpe `package.json` et
 `package-lock.json`, et `@semantic-release/git` les commite directement sur `main`

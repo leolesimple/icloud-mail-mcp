@@ -1,7 +1,7 @@
 # Déploiement continu
 
 Le workflow [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) se connecte en SSH à
-l'hôte et y lance [`deploy.sh`](deploy.sh). Deux déclencheurs : un **appel explicite depuis Release après publication de l’image GHCR** et le **bouton _Run workflow_** de l'onglet _Actions_ (choix de la version).
+l'hôte et y lance [`deploy.sh`](deploy.sh). Un seul déclencheur : le **bouton _Run workflow_** de l'onglet _Actions_ (choix de la version). Le déploiement reste manuel : la workflow Release publie l'image GHCR mais ne déploie rien.
 
 Aucun runner, aucun agent résident sur l'hôte : `sshd` suffit.
 
