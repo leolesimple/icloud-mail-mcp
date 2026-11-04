@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.6](https://github.com/leolesimple/icloud-mail-mcp/compare/v0.2.5...v0.2.6) (2026-11-04)
+
+
+### Bug Fixes
+
+* **confirm:** bound elicitation with timeout and client cancellation ([#75](https://github.com/leolesimple/icloud-mail-mcp/issues/75)) ([81b734e](https://github.com/leolesimple/icloud-mail-mcp/commit/81b734ea41df92276fed10c215156320e5034c43)), closes [#74](https://github.com/leolesimple/icloud-mail-mcp/issues/74)
+
 ## [0.2.5](https://github.com/leolesimple/icloud-mail-mcp/compare/v0.2.4...v0.2.5) (2026-11-04)
 
 
