@@ -8,7 +8,8 @@ name: Release
 # dernier tag, décide s'il y a une release, bump package.json/package-lock.json,
 # ajoute l'entrée de CHANGELOG.md et les commite sur main (`chore(release): X.Y.Z [skip ci]`), tague ce commit,
 # crée la GitHub Release ; si une release a eu lieu, le job docker pousse
-# l'image sur GHCR taguée avec la nouvelle version.
+# l'image sur GHCR taguée avec la nouvelle version. Le déploiement reste MANUEL
+# (workflow Deploy, bouton « Run workflow »).
 # Garde-fou : la CI du dernier commit non-release de main doit être verte.
 #
 # Release metadata is pushed with a dedicated SSH write deploy key. Configure
@@ -159,17 +160,3 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-  deploy:
-    needs: [release, docker]
-    if: needs.release.outputs.released == 'true'
-    permissions: {}
-    uses: ./.github/workflows/deploy.yml
-    with:
-      version: ${{ needs.release.outputs.version }}
-    secrets:
-      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
-      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
