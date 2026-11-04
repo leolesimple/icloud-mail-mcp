@@ -65,7 +65,10 @@ Les outils actuels et leurs équivalents historiques demandent une confirmation 
 action `trash` et suppression de dossier. Le premier appel n’exécute pas l’opération.
 
 - Si le client supporte l’elicitation par formulaire, une acceptation explicite `confirm: true`
-  autorise l’opération. Refus et annulation n’entraînent aucune mutation.
+  autorise l’opération. Refus et annulation n’entraînent aucune mutation. L’attente est bornée
+  (`ELICITATION_TIMEOUT_MS`) et suit l’annulation de l’appel d’outil.
+- Un formulaire resté sans réponse jusqu’au timeout fait basculer la session sur le jeton
+  (`ELICITATION=auto`). `ELICITATION=off` impose le jeton d’emblée.
 - Sinon, le serveur renvoie `confirmation_required` avec un jeton. Le client répète le même appel
   avec ce jeton ; changer les paramètres invalide la confirmation.
 

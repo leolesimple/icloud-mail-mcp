@@ -24,7 +24,7 @@ export function registerDeleteMessageTool(server: McpServer): void {
         uids: z.array(z.coerce.number().int().positive()).min(1).max(BULK_UID_LIMIT).optional(),
       },
     },
-    async (input) => {
+    async (input, extra) => {
       const { folder, uid, uids } = input;
 
       if ((uid === undefined) === (uids === undefined)) {
@@ -42,7 +42,7 @@ export function registerDeleteMessageTool(server: McpServer): void {
         log.info({ folder, uid }, 'deleting message');
         return jsonResult(await deleteMessage(folder, uid as number), deleteResultSchema);
       };
-      return confirmToolAction(server.server, 'delete_message', input, execute);
+      return confirmToolAction(server.server, 'delete_message', input, execute, extra.signal);
     },
   );
 }

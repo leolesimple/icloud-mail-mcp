@@ -38,7 +38,7 @@ export function registerSendMessageTool(server: McpServer): void {
           .optional(),
       },
     },
-    async (input) => {
+    async (input, extra) => {
       const execute = async () => {
         const { to, cc, bcc, subject, text, html, attachments } = input;
 
@@ -66,7 +66,7 @@ export function registerSendMessageTool(server: McpServer): void {
           throw err;
         }
       };
-      return confirmToolAction(server.server, 'send_message', input, execute);
+      return confirmToolAction(server.server, 'send_message', input, execute, extra.signal);
     },
   );
 }

@@ -43,7 +43,7 @@ export function registerForwardMessageTool(server: McpServer): void {
           .describe('Extra attachments, in addition to the forwarded message'),
       },
     },
-    async (input) => {
+    async (input, extra) => {
       const execute = async () => {
         const { folder, uid, to, cc, bcc, text, html, attachments } = input;
 
@@ -68,7 +68,7 @@ export function registerForwardMessageTool(server: McpServer): void {
           throw err;
         }
       };
-      return confirmToolAction(server.server, 'forward_message', input, execute);
+      return confirmToolAction(server.server, 'forward_message', input, execute, extra.signal);
     },
   );
 }
