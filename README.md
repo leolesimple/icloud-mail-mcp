@@ -168,6 +168,13 @@ The detailed docs are written in French.
 Contributions are welcome. Open an issue first, then a pull request that references it. See
 [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
+## Versioning
+
+This project follows [Semantic Versioning](https://semver.org). From 1.0.0, the MCP tools, their
+parameters and the environment variables are the public contract: breaking changes only ship in a
+new major version. The 1.x line targets iCloud Mail; a more generic mail server is planned for the
+next major version.
+
 ## License
 
 [PolyForm Shield 1.0.0](LICENSE) © 2026 Léo Lesimple
