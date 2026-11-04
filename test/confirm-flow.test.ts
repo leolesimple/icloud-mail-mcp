@@ -305,3 +305,160 @@ describe('confirmationResult', () => {
     });
   }
 });
+
+describe('runConfirmFlow : client qui annonce l’elicitation sans répondre', () => {
+  /** Client en mémoire dont le formulaire ne reçoit jamais de réponse. */
+  async function silentClient() {
+    const server = new Server({ name: 'test', version: '0' }, { capabilities: {} });
+    const client = new Client(
+      { name: 'client', version: '0' },
+      { capabilities: { elicitation: { form: {} } } },
+    );
+    let requests = 0;
+    client.setRequestHandler(ElicitRequestSchema, () => {
+      requests += 1;
+      return new Promise<ElicitResult>(() => {});
+    });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    return {
+      server,
+      client,
+      get requests() {
+        return requests;
+      },
+    };
+  }
+
+  it('bascule sur le jeton au timeout, puis ne redemande plus de formulaire', async () => {
+    const c = await silentClient();
+    try {
+      const t = tokens();
+      const exec = counter();
+      const base = {
+        host: c.server,
+        operation: 'send',
+        binding: BINDING,
+        summary: SUMMARY,
+        execute: exec.execute,
+        tokens: t,
+        elicitation: 'auto' as const,
+        elicitationTimeoutMs: 50,
+      };
+
+      const first = await runConfirmFlow(base);
+      assert.equal(first.status, 'confirmation_required');
+      assert.equal(exec.calls, 0);
+      assert.equal(c.requests, 1);
+      if (first.status !== 'confirmation_required') return;
+
+      const started = Date.now();
+      const second = await runConfirmFlow({ ...base, confirmToken: first.confirmToken });
+      assert.deepEqual(second, { status: 'executed', via: 'token', result: { deleted: 2 } });
+      assert.equal(exec.calls, 1);
+      // Pas de second formulaire ni de second timeout pour cette session.
+      assert.equal(c.requests, 1);
+      assert.ok(Date.now() - started < 50);
+    } finally {
+      await c.client.close();
+    }
+  });
+
+  it('une annulation de l’appel interrompt l’attente sans exécuter ni basculer', async () => {
+    const c = await silentClient();
+    try {
+      const exec = counter();
+      const controller = new AbortController();
+      const base = {
+        host: c.server,
+        operation: 'send',
+        binding: BINDING,
+        summary: SUMMARY,
+        execute: exec.execute,
+        tokens: tokens(),
+        elicitation: 'auto' as const,
+        elicitationTimeoutMs: 10_000,
+      };
+      setTimeout(() => controller.abort(new Error('annulé par le client')), 20);
+      await assert.rejects(runConfirmFlow({ ...base, signal: controller.signal }));
+      assert.equal(exec.calls, 0);
+
+      // La session n'est pas marquée muette : un nouvel appel redemande le formulaire.
+      const again = new AbortController();
+      setTimeout(() => again.abort(), 20);
+      await assert.rejects(runConfirmFlow({ ...base, signal: again.signal }));
+      assert.equal(c.requests, 2);
+    } finally {
+      await c.client.close();
+    }
+  });
+});
+
+describe('runConfirmFlow : ELICITATION', () => {
+  it('off : jeton directement, même si le client annonce l’elicitation', async () => {
+    const { host: h, requests } = host(
+      { elicitation: { form: {} } },
+      { action: 'accept', content: { confirm: true } },
+    );
+    const exec = counter();
+    const outcome = await runConfirmFlow({
+      host: h,
+      operation: 'send',
+      binding: BINDING,
+      summary: SUMMARY,
+      execute: exec.execute,
+      tokens: tokens(),
+      elicitation: 'off',
+    });
+    assert.equal(outcome.status, 'confirmation_required');
+    assert.equal(requests.length, 0);
+    assert.equal(exec.calls, 0);
+  });
+
+  it('auto : une erreur autre qu’un timeout remonte sans repli', async () => {
+    const h: ElicitationHost = {
+      getClientCapabilities: () => ({ elicitation: { form: {} } }),
+      elicitInput: async () => {
+        throw new Error('transport fermé');
+      },
+    };
+    const exec = counter();
+    await assert.rejects(
+      runConfirmFlow({
+        host: h,
+        operation: 'send',
+        binding: BINDING,
+        summary: SUMMARY,
+        execute: exec.execute,
+        tokens: tokens(),
+        elicitation: 'auto',
+      }),
+      /transport fermé/,
+    );
+    assert.equal(exec.calls, 0);
+  });
+
+  it('auto : transmet le timeout et le signal à elicitInput', async () => {
+    let seen: { timeout?: number; signal?: AbortSignal } | undefined;
+    const controller = new AbortController();
+    const h: ElicitationHost = {
+      getClientCapabilities: () => ({ elicitation: { form: {} } }),
+      elicitInput: async (_params, options) => {
+        seen = options;
+        return { action: 'decline' };
+      },
+    };
+    await runConfirmFlow({
+      host: h,
+      operation: 'send',
+      binding: BINDING,
+      summary: SUMMARY,
+      execute: counter().execute,
+      elicitation: 'auto',
+      elicitationTimeoutMs: 1234,
+      signal: controller.signal,
+    });
+    assert.equal(seen?.timeout, 1234);
+    assert.equal(seen?.signal, controller.signal);
+  });
+});

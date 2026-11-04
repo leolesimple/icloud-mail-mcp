@@ -23,7 +23,7 @@ export function registerManageFolderTool(server: McpServer): void {
         newPath: z.string().min(1).optional().describe('Target path (required for rename)'),
       },
     },
-    async (input) => {
+    async (input, extra) => {
       const { action, path, newPath } = input;
 
       if (action === 'rename' && !newPath) {
@@ -34,7 +34,7 @@ export function registerManageFolderTool(server: McpServer): void {
         return jsonResult(await manageFolder(action, path, newPath));
       };
       return input.action === 'delete'
-        ? confirmToolAction(server.server, 'manage_folder', input, execute)
+        ? confirmToolAction(server.server, 'manage_folder', input, execute, extra.signal)
         : execute();
     },
   );

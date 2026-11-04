@@ -48,6 +48,28 @@ describe('parseConfig', () => {
     }
   });
 
+  describe('ELICITATION', () => {
+    it('vaut auto avec un timeout de 20 s par défaut', () => {
+      const config = parseConfig({ ...validEnv });
+      assert.equal(config.ELICITATION, 'auto');
+      assert.equal(config.ELICITATION_TIMEOUT_MS, 20_000);
+    });
+
+    it('accepte off et un timeout personnalisé', () => {
+      const config = parseConfig({
+        ...validEnv,
+        ELICITATION: 'off',
+        ELICITATION_TIMEOUT_MS: '5000',
+      });
+      assert.equal(config.ELICITATION, 'off');
+      assert.equal(config.ELICITATION_TIMEOUT_MS, 5000);
+    });
+
+    it('rejette une valeur inconnue', () => {
+      assert.throws(() => parseConfig({ ...validEnv, ELICITATION: 'form' }), /ELICITATION/);
+    });
+  });
+
   it('accepte les trois valeurs de MCP_TRANSPORT', () => {
     for (const transport of ['http', 'stdio', 'both'] as const) {
       assert.equal(parseConfig({ ...validEnv, MCP_TRANSPORT: transport }).MCP_TRANSPORT, transport);

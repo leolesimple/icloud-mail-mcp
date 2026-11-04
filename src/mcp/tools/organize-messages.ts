@@ -59,7 +59,7 @@ export function registerOrganizeMessagesTool(server: McpServer): void {
         openWorldHint: false,
       },
     },
-    async (input) => {
+    async (input, extra) => {
       const { folder, uids, action, destination, keywords } = input;
 
       if (action === 'move' && !destination) {
@@ -117,7 +117,7 @@ export function registerOrganizeMessagesTool(server: McpServer): void {
         );
       };
       return input.action === 'trash'
-        ? confirmToolAction(server.server, 'organize_messages', input, execute)
+        ? confirmToolAction(server.server, 'organize_messages', input, execute, extra.signal)
         : execute();
     },
   );

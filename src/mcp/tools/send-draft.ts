@@ -34,14 +34,14 @@ export function registerSendDraftTool(server: McpServer): void {
         openWorldHint: true,
       },
     },
-    async (input) => {
+    async (input, extra) => {
       const execute = async () => {
         const { uid } = input;
 
         log.info({ uid }, 'sending draft');
         return jsonResult(await sendDraft(uid), sendDraftResultSchema);
       };
-      return confirmToolAction(server.server, 'send_draft', input, execute);
+      return confirmToolAction(server.server, 'send_draft', input, execute, extra.signal);
     },
   );
 }
