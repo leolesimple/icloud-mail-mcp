@@ -241,4 +241,9 @@ référence. Voir [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Licence
 
-[MIT](LICENSE) © 2026 Léo Lesimple
+[PolyForm Shield 1.0.0](LICENSE) © 2026 Léo Lesimple
+
+Vous pouvez utiliser, modifier et partager ce logiciel pour tout usage, y compris en entreprise,
+**sauf pour fournir un produit qui lui fait concurrence** (par exemple le revendre, ou le republier
+comme serveur MCP mail de substitution). C'est une licence « source-available », pas une licence open
+source reconnue par l'OSI. Les versions jusqu'à 0.2.4 ont été publiées sous licence MIT et le restent.
