@@ -239,6 +239,13 @@ Détail complet dans [`docs/security.md`](docs/security.md).
 Les contributions sont bienvenues : ouvrez d'abord une issue, puis une pull request qui la
 référence. Voir [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
+## Versionnage
+
+Ce projet suit le [versionnage sémantique](https://semver.org/lang/fr/). À partir de la 1.0.0, les
+outils MCP, leurs paramètres et les variables d'environnement forment le contrat public : les
+changements incompatibles ne sortent que dans une nouvelle version majeure. La ligne 1.x cible
+iCloud Mail ; un serveur mail plus générique est prévu pour la prochaine version majeure.
+
 ## Licence
 
 [PolyForm Shield 1.0.0](LICENSE) © 2026 Léo Lesimple
