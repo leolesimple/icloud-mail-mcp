@@ -246,4 +246,4 @@ référence. Voir [`CONTRIBUTING.md`](CONTRIBUTING.md).
 Vous pouvez utiliser, modifier et partager ce logiciel pour tout usage, y compris en entreprise,
 **sauf pour fournir un produit qui lui fait concurrence** (par exemple le revendre, ou le republier
 comme serveur MCP mail de substitution). C'est une licence « source-available », pas une licence open
-source reconnue par l'OSI. Les versions jusqu'à 0.2.4 ont été publiées sous licence MIT et le restent.
+source reconnue par l'OSI. Les versions jusqu'à 0.2.6 ont été publiées sous licence MIT et le restent.

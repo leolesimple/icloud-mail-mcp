@@ -32,12 +32,13 @@ Si vous utilisez le mauvais mot de passe, l'erreur au démarrage le dit explicit
 
 ## Connexion IMAP
 
-| Variable                  | Défaut             | Description                                                      |
-| ------------------------- | ------------------ | ---------------------------------------------------------------- |
-| `IMAP_HOST`               | `imap.mail.me.com` | Serveur IMAP                                                     |
-| `IMAP_PORT`               | `993`              | Port IMAP (TLS implicite)                                        |
-| `IMAP_POOL_SIZE`          | `2`                | Connexions IMAP maintenues ouvertes et réutilisées               |
-| `IMAP_ACQUIRE_TIMEOUT_MS` | `60000`            | Attente maximale d'une connexion libre du pool, en millisecondes |
+| Variable                  | Défaut             | Description                                                                                                 |
+| ------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `IMAP_HOST`               | `imap.mail.me.com` | Serveur IMAP                                                                                                |
+| `IMAP_PORT`               | `993`              | Port IMAP (TLS implicite)                                                                                   |
+| `IMAP_POOL_SIZE`          | `2`                | Connexions IMAP maintenues ouvertes et réutilisées                                                          |
+| `IMAP_ACQUIRE_TIMEOUT_MS` | `60000`            | Attente maximale d'une connexion libre du pool, en millisecondes                                            |
+| `IMAP_MAX_WAITERS`        | `32`               | Taille maximale de la file d'attente du pool : au-delà, l'appel échoue tout de suite (« File IMAP pleine ») |
 
 **`IMAP_POOL_SIZE` mérite un mot.** iCloud limite le nombre de connexions IMAP simultanées par
 compte et bloque temporairement les comptes trop bavards. Le pool ouvre au plus ce nombre de
