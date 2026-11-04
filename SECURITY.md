@@ -2,7 +2,12 @@
 
 ## Supported versions
 
-Security fixes target the latest release.
+| Version | Supported                        |
+| ------- | -------------------------------- |
+| 1.x     | Yes: security and critical fixes |
+| < 1.0   | No: please upgrade               |
+
+Security fixes target the latest 1.x release. New features land on the next major version.
 
 ## Reporting a vulnerability
 

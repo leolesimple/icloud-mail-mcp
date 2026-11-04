@@ -175,4 +175,4 @@ Contributions are welcome. Open an issue first, then a pull request that referen
 You can use, modify and share this software for any purpose, including inside a company, **except to
 provide a product that competes with it** (for example, reselling it, or republishing it as a
 substitute mail MCP server). This is a source-available license, not an OSI-approved open source
-license. Versions up to 0.2.4 were released under the MIT license and stay under it.
+license. Versions up to 0.2.6 were released under the MIT license and stay under it.
