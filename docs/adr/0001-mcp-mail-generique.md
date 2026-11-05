@@ -15,7 +15,7 @@ dossiers spéciaux annoncés par flags). Les seuls blocages étaient la configur
 2. **Branche `1.x`** créée depuis `v1.0.0` : correctifs et sécurité uniquement.
 3. **Branche `next`** pour la v2 (prereleases `2.0.0-next.N`) ; `main` reste stable.
 4. **MCP générique** : au démarrage, le serveur interroge l'IMAP (CAPABILITY, ID, hôte) et construit un
-   *profil serveur*. Les outils sont enregistrés **de façon conditionnelle** selon ce profil, sur le
+   _profil serveur_. Les outils sont enregistrés **de façon conditionnelle** selon ce profil, sur le
    modèle de `idleWatch`. Le socle (lecture, recherche, envoi) est toujours présent.
 5. **Configuration** `MAIL_*`, TLS configurable (`IMAP_SECURE`, `SMTP_SECURE`), `MAIL_LOGIN` optionnel.
 6. **Même dépôt**, pas de fork. Le dépôt est **renommé à la sortie de 2.0.0**, pas avant.
@@ -30,5 +30,5 @@ dossiers spéciaux annoncés par flags). Les seuls blocages étaient la configur
 ## Conséquences
 
 - Deux lignes à maintenir pendant la transition (`1.x` et `next`).
-- Un guide de migration est obligatoire (#93).
+- Un guide de migration est obligatoire (#94).
 - Les tests doivent simuler plusieurs profils de serveur sans réseau (#91).
