@@ -13,7 +13,7 @@ npm run build
 gitleaks git --redact --log-opts='--all' --exit-code=1 .
 # Also scan uncommitted changes in this worktree.
 for scan_path in src test docs .github deploy vendor; do
-  gitleaks dir --redact --exit-code=1 "$scan_path"
+  gitleaks dir --config .gitleaks.toml --redact --exit-code=1 "$scan_path"
 done
 
 docker build -t icloud-mail-mcp:security-check .
