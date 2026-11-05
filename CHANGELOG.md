@@ -1,5 +1,24 @@
 # Changelog
 
+# [1.0.0](https://github.com/leolesimple/icloud-mail-mcp/compare/v0.2.6...v1.0.0) (2026-11-05)
+
+
+### Bug Fixes
+
+* **deps:** bump setup-node 7.1.0 and docker/login-action 4.7.0 ([#72](https://github.com/leolesimple/icloud-mail-mcp/issues/72)) ([d6fb6c3](https://github.com/leolesimple/icloud-mail-mcp/commit/d6fb6c3d902b8515e386d50c42e8079655cddeff))
+* **deps:** bump the npm-minor-patch group with 9 updates ([#78](https://github.com/leolesimple/icloud-mail-mcp/issues/78)) ([76fec48](https://github.com/leolesimple/icloud-mail-mcp/commit/76fec48c5dd24e0d23294700aef8f4c09662dda4))
+* **deps:** corrige l'alerte minimatch de l'audit npm ([#83](https://github.com/leolesimple/icloud-mail-mcp/issues/83)) ([c3a44d3](https://github.com/leolesimple/icloud-mail-mcp/commit/c3a44d3461691b3503112d0eb029c512c39ceb32))
+
+
+### Features
+
+* première version stable 1.0.0 ([#82](https://github.com/leolesimple/icloud-mail-mcp/issues/82)) ([bcb6f13](https://github.com/leolesimple/icloud-mail-mcp/commit/bcb6f13a5d50348bb09df991e6e7e4cb8fdcb8d2))
+
+
+### BREAKING CHANGES
+
+* la licence passe de MIT à PolyForm Shield 1.0.0 (usage libre, y compris en entreprise, sauf pour fournir un produit concurrent). Les versions jusqu'à 0.2.6 restent sous MIT.
+
 ## [0.2.6](https://github.com/leolesimple/icloud-mail-mcp/compare/v0.2.5...v0.2.6) (2026-11-04)
 
 
