@@ -25,19 +25,19 @@ export function parseList(raw: string): string[] {
 }
 
 const envSchema = z.object({
-  ICLOUD_EMAIL: z.string().email('ICLOUD_EMAIL doit être une adresse email valide'),
-  ICLOUD_APP_PASSWORD: z.string().min(1, 'ICLOUD_APP_PASSWORD est requis'),
-  IMAP_HOST: z.string().min(1).default('imap.mail.me.com'),
-  IMAP_PORT: z.coerce.number().int().positive().default(993),
+  MAIL_EMAIL: z.string().email('MAIL_EMAIL doit être une adresse email valide'),
+  MAIL_PASSWORD: z.string().min(1, 'MAIL_PASSWORD est requis'),
+  MAIL_IMAP_HOST: z.string().min(1, 'MAIL_IMAP_HOST est requis'),
+  MAIL_IMAP_PORT: z.coerce.number().int().positive().max(65535).default(993),
   IMAP_POOL_SIZE: z.coerce.number().int().positive().default(2),
   // Attente maximale d'une connexion IMAP libre, en millisecondes. Au-delà,
   // l'appel échoue avec une erreur explicite au lieu de rester bloqué en file.
   IMAP_ACQUIRE_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
-  SMTP_HOST: z.string().min(1).default('smtp.mail.me.com'),
-  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  MAIL_SMTP_HOST: z.string().min(1, 'MAIL_SMTP_HOST est requis'),
+  MAIL_SMTP_PORT: z.coerce.number().int().positive().max(65535).default(587),
   SMTP_POOL_SIZE: z.coerce.number().int().positive().default(2),
   MCP_BEARER_TOKEN: z.string().min(16, 'MCP_BEARER_TOKEN doit faire au moins 16 caractères'),
-  PORT: z.coerce.number().int().positive().max(65535).default(3000),
+  PORT: z.coerce.number().int().positive().max(65535).default(13316),
   HTTP_HOST: z.string().min(1).default('127.0.0.1'),
   // Comma-separated socket IPs/CIDRs of trusted proxies. Empty = direct requests.
   TRUSTED_PROXIES: z.string().default(''),

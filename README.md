@@ -5,7 +5,7 @@ English | [Français](README.fr.md)
 [![CI](https://github.com/leolesimple/icloud-mail-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/leolesimple/icloud-mail-mcp/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/leolesimple/icloud-mail-mcp)](https://github.com/leolesimple/icloud-mail-mcp/releases)
 [![License: PolyForm Shield](https://img.shields.io/badge/license-PolyForm%20Shield%201.0.0-blue)](LICENSE)
-[![Node](https://img.shields.io/badge/node-%E2%89%A524.15-339933)](package.json)
+[![Node](https://img.shields.io/badge/node-%E2%89%A526.0.0-339933)](package.json)
 
 An [MCP](https://modelcontextprotocol.io) server that exposes an **iCloud Mail** account (IMAP/SMTP)
 as tools Claude can use: read, search, sort, reply to and archive email from a conversation.
@@ -51,7 +51,7 @@ Example prompt:
 
 Requirements:
 
-- **Node.js 24.15+** (or Docker)
+- **Node.js 26+** (or Docker)
 - **An iCloud account with two-factor authentication**
 - **An Apple app-specific password**; your main password doesn't work over IMAP/SMTP. Generate one at
   [appleid.apple.com](https://appleid.apple.com/) → Sign-In and Security → App-Specific Passwords.
@@ -61,7 +61,7 @@ git clone https://github.com/leolesimple/icloud-mail-mcp.git
 cd icloud-mail-mcp
 npm install
 npm run auth      # prompts for credentials, verifies IMAP + SMTP, then writes .env (chmod 600)
-npm run dev       # http://localhost:3000/mcp
+npm run dev       # http://localhost:13316/mcp
 ```
 
 Nothing is written if verification fails, and an existing `.env` is backed up to `.env.bak`. The
@@ -74,7 +74,7 @@ healthchecks. To poke at it manually:
 
 ```bash
 npx @modelcontextprotocol/inspector
-# Transport: Streamable HTTP · URL: http://localhost:3000/mcp · Header: Authorization: Bearer <token>
+# Transport: Streamable HTTP · URL: http://localhost:13316/mcp · Header: Authorization: Bearer <token>
 ```
 
 ## Deployment (Docker / GHCR)
@@ -96,8 +96,8 @@ curl https://<your-hostname>/health        # {"status":"ok","version":"…"}
 Minimum `.env`:
 
 ```bash
-ICLOUD_EMAIL=you@icloud.com
-ICLOUD_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
+MAIL_EMAIL=you@icloud.com
+MAIL_PASSWORD=xxxx-xxxx-xxxx-xxxx
 MCP_BEARER_TOKEN=<openssl rand -hex 32>
 TUNNEL_NETWORK=<Docker network shared with cloudflared>   # required
 ICLOUD_MAIL_MCP_VERSION=latest                            # or a pinned version, e.g. 0.2.3

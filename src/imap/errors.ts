@@ -81,7 +81,7 @@ export function classifyImapError(err: unknown): Error {
 
   if (flowErr.authenticationFailed) {
     return new ImapAuthError(
-      `Authentification iCloud IMAP refusée — vérifier ICLOUD_EMAIL et ICLOUD_APP_PASSWORD ` +
+      `Authentification iCloud IMAP refusée — vérifier MAIL_EMAIL et MAIL_PASSWORD ` +
         `(un mot de passe d'application est requis, pas le mot de passe principal Apple) : ${err.message}`,
       { cause: err },
     );

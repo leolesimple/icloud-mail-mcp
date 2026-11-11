@@ -77,7 +77,7 @@ l'appeler **en premier** pour toute demande qui touche aux mails. Remplace `whoa
 
 ```jsonc
 {
-  "account": { "email": "vous@icloud.com" },
+  "account": { "email": "vous@domain.com" },
   "inbox": {
     "folder": "INBOX",
     "total": 1284, // STATUS ; absent si l'INBOX n'a pas pu être comptée
@@ -109,11 +109,11 @@ Avec `includeDiagnostics: true`, `diagnostics` porte le rapport qu'exposait `who
 
 ```jsonc
 {
-  "server": { "name": "icloud-mail", "version": "…" },
+  "server": { "name": "mail-mcp", "version": "…" },
   "account": {
-    "email": "vous@icloud.com",
-    "imap": { "host": "imap.mail.me.com", "port": 993 },
-    "smtp": { "host": "smtp.mail.me.com", "port": 587 },
+    "email": "vous@domain.com",
+    "imap": { "host": "imap.example.com", "port": 993 },
+    "smtp": { "host": "smtp.example.com", "port": 587 },
   },
   "credentials": { "appPasswordConfigured": true, "bearerTokenConfigured": true },
   "guardrails": {/* identique à ci-dessus */},
@@ -245,7 +245,7 @@ enveloppé :
     "uid": 10432,
     "subject": "Votre facture de juillet",
     "from": [{ "name": "Compta", "address": "compta@exemple.fr" }],
-    "to": [{ "name": "Vous", "address": "vous@icloud.com" }],
+    "to": [{ "name": "Vous", "address": "vous@domain.com" }],
     "date": "2026-07-14T09:30:00.000Z", // toujours normalisée en UTC
     "seen": false,
     "flagged": false,
@@ -339,7 +339,7 @@ discussion. Remplace `get_message` et `get_thread`.
   "uid": 10432,
   "subject": "Votre facture de juillet",
   "from": [{ "name": "Compta", "address": "compta@exemple.fr" }],
-  "to": [{ "name": "Vous", "address": "vous@icloud.com" }],
+  "to": [{ "name": "Vous", "address": "vous@domain.com" }],
   "cc": [],
   "date": "2026-07-14T09:30:00.000Z",
   "seen": true,
@@ -611,7 +611,7 @@ brouillon. Remplace `send_message`, `reply_message`, `forward_message`, `save_dr
   réponse à tous). Utiliser `deliver: "send"`, ou `reply` en brouillon avec les autres destinataires
   dans `cc`.
 
-**Nouveau message.** L'expéditeur est toujours `ICLOUD_EMAIL` : il n'est pas paramétrable, iCloud
+**Nouveau message.** L'expéditeur est toujours `MAIL_EMAIL` : il n'est pas paramétrable, iCloud
 refuserait l'envoi.
 
 **Réponse.** Ce qui est déduit du message d'origine :
@@ -688,7 +688,7 @@ quota `MAX_SENDS_PER_DAY`.
 // Envoyé
 {
   "sent": true,
-  "messageId": "<f4c1…@icloud.com>",
+  "messageId": "<f4c1…@example.com>",
   "accepted": ["alice@exemple.fr"],
   "rejected": [],                 // adresses refusées par le serveur
   "savedToSent": true,            // copie archivée dans « Sent Messages »
@@ -722,7 +722,7 @@ copié ni supprimé).
 
 ```jsonc
 {
-  "send": { "messageId": "<…@icloud.com>", "accepted": ["dest@exemple.fr"], "rejected": [] },
+  "send": { "messageId": "<…@example.com>", "accepted": ["dest@exemple.fr"], "rejected": [] },
   "copiedToSent": true,
   "draftDeleted": true,
 }

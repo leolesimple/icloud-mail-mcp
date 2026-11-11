@@ -16,7 +16,7 @@ describe('classifySmtpError', () => {
     it(`classe ${code} en SmtpAuthError`, () => {
       const classified = classifySmtpError(nodemailerError(code));
       assert.ok(classified instanceof SmtpAuthError);
-      assert.match(classified.message, /ICLOUD_APP_PASSWORD/);
+      assert.match(classified.message, /MAIL_PASSWORD/);
     });
   }
 

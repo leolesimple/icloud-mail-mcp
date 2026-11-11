@@ -134,7 +134,7 @@ export async function sendReply(input: ReplyInput): Promise<SendOutcome> {
   const original = await getMessage(input.folder, input.uid);
   const reply = buildReplyHeaders(original, {
     replyAll: input.replyAll ?? false,
-    selfAddress: config.ICLOUD_EMAIL,
+    selfAddress: config.MAIL_EMAIL,
     cc: input.cc,
   });
 

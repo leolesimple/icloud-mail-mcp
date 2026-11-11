@@ -10,7 +10,7 @@ import type { MessageSummary } from '../src/imap/messages.js';
 
 // Valeurs posées par test/helpers/env.ts — ce sont les « secrets » factices qui
 // ne doivent jamais apparaître dans la sortie de whoami.
-const APP_PASSWORD = process.env.ICLOUD_APP_PASSWORD as string;
+const APP_PASSWORD = process.env.MAIL_PASSWORD as string;
 const BEARER_TOKEN = process.env.MCP_BEARER_TOKEN as string;
 
 const noPool = () => ({
@@ -27,9 +27,9 @@ describe('buildWhoami', () => {
     const report = await buildWhoami(false, { poolStats: noPool });
 
     assert.equal(report.account.email, 'test@example.com');
-    assert.equal(report.account.imap.host, 'imap.mail.me.com');
+    assert.equal(report.account.imap.host, 'imap.example.com');
     assert.equal(report.account.imap.port, 993);
-    assert.equal(report.account.smtp.host, 'smtp.mail.me.com');
+    assert.equal(report.account.smtp.host, 'smtp.example.com');
     assert.equal(report.account.smtp.port, 587);
     assert.equal(report.server.name, 'icloud-mail');
     assert.match(report.server.version, /^\d+\.\d+\.\d+/);

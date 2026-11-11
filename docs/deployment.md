@@ -5,7 +5,7 @@ connexion _sortante_ vers Cloudflare et fait redescendre le trafic HTTPS par ce 
 ouvrir sur la box, pas d'IP fixe, certificat TLS géré par Cloudflare.
 
 ```
-Internet ──HTTPS──▶ Cloudflare ──tunnel sortant──▶ cloudflared ──http://icloud-mail-mcp:3000──▶ icloud-mail-mcp
+Internet ──HTTPS──▶ Cloudflare ──tunnel sortant──▶ cloudflared ──http://icloud-mail-mcp:13316──▶ icloud-mail-mcp
                                                         └──── réseau Docker partagé ────┘
 ```
 
@@ -34,7 +34,7 @@ Côté [Cloudflare Zero Trust](https://one.dash.cloudflare.com/), sur le tunnel 
 réseau, **Public Hostname → Add a public hostname** :
 
 - _Subdomain_ / _Domain_ : à votre convenance
-- _Service_ : **HTTP** → `icloud-mail-mcp:3000` (le **nom du conteneur**, résolu sur le réseau
+- _Service_ : **HTTP** → `icloud-mail-mcp:13316` (le **nom du conteneur**, résolu sur le réseau
   partagé, pas `localhost`)
 
 Pour le modèle autonome, récupérer aussi le **token** du tunnel (environnement _Docker_).
@@ -56,8 +56,8 @@ curl -o .env $base/.env.example
 Renseigner dans `.env` :
 
 ```bash
-ICLOUD_EMAIL=vous@icloud.com
-ICLOUD_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
+MAIL_EMAIL=vous@icloud.com
+MAIL_PASSWORD=xxxx-xxxx-xxxx-xxxx
 MCP_BEARER_TOKEN=<openssl rand -hex 32>
 TUNNEL_NETWORK=tunnel-net              # le réseau de l'étape 1
 ICLOUD_MAIL_MCP_VERSION=0.2.3          # version à déployer ("latest" pour suivre le dernier tag)
@@ -122,7 +122,7 @@ l'hôte, et le réseau externe du tunnel remplacé par un bridge local (pas de `
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
-curl http://localhost:3000/health
+curl http://localhost:13316/health
 ```
 
 **À ne pas utiliser sur une machine exposée** : le port devient joignable hors du tunnel.
@@ -168,7 +168,7 @@ Pour lancer le serveur en local, sans HTTP ni tunnel :
 ```bash
 claude mcp add icloud-mail-mcp -- \
   env MCP_TRANSPORT=stdio \
-      ICLOUD_EMAIL=vous@icloud.com ICLOUD_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx \
+      MAIL_EMAIL=vous@icloud.com MAIL_PASSWORD=xxxx-xxxx-xxxx-xxxx \
       MCP_BEARER_TOKEN=$(openssl rand -hex 16) \
   node /chemin/vers/icloud-mail-mcp/dist/index.js
 ```

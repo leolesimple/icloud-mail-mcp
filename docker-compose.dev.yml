@@ -3,7 +3,7 @@
 # réseau externe du tunnel par un bridge local (pas de cloudflared en dev).
 #
 #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
-#   curl http://localhost:3000/health
+#   curl http://localhost:13316/health
 #
 # À ne pas utiliser sur une machine exposée : le port devient joignable
 # directement, hors du tunnel.
@@ -12,7 +12,7 @@ services:
     build: .
     image: icloud-mail-mcp:dev
     ports:
-      - '127.0.0.1:3000:3000'
+      - '127.0.0.1:13316:13316'
 
 networks:
   tunnel:

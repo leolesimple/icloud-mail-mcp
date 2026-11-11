@@ -40,7 +40,7 @@ function headerRefs(headers: Buffer | undefined, name: string): string[] {
 }
 
 function roleOf(summary: MessageSummary): MessageRole {
-  const account = config.ICLOUD_EMAIL.toLowerCase();
+  const account = config.MAIL_EMAIL.toLowerCase();
   return summary.from.some((addr) => addr.address?.toLowerCase() === account) ? 'sent' : 'received';
 }
 

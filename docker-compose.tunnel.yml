@@ -9,7 +9,7 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:2025.2
     container_name: icloud-mail-mcp-cloudflared
-    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN:?TUNNEL_TOKEN manquant dans .env} --url http://icloud-mail-mcp:3000
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN:?TUNNEL_TOKEN manquant dans .env} --url http://icloud-mail-mcp:13316
     restart: unless-stopped
     # Le HEALTHCHECK est porté par l'image : on n'ouvre le tunnel qu'une fois le
     # serveur prêt à répondre sur /health.

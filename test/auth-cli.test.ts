@@ -66,8 +66,8 @@ describe('renderEnvFile', () => {
   });
 
   it('place chaque valeur sur sa clé', () => {
-    assert.match(rendered, /^ICLOUD_EMAIL=moi@icloud\.com$/m);
-    assert.match(rendered, /^ICLOUD_APP_PASSWORD=abcd-efgh-ijkl-mnop$/m);
+    assert.match(rendered, /^MAIL_EMAIL=moi@icloud\.com$/m);
+    assert.match(rendered, /^MAIL_PASSWORD=abcd-efgh-ijkl-mnop$/m);
     assert.match(rendered, /^MCP_BEARER_TOKEN=S3cr3t-t0k3n_value$/m);
   });
 
@@ -122,9 +122,9 @@ describe('planEnvWrite', () => {
 describe('writeEnvFile', () => {
   it('écrit le fichier en chmod 600 dans le répertoire jetable', () => {
     const target = join(mkdtempSync(join(workdir, 'write-')), '.env');
-    writeEnvFile(target, 'ICLOUD_EMAIL=a@b.c\n', { backup: false });
+    writeEnvFile(target, 'MAIL_EMAIL=a@b.c\n', { backup: false });
 
-    assert.equal(readFileSync(target, 'utf8'), 'ICLOUD_EMAIL=a@b.c\n');
+    assert.equal(readFileSync(target, 'utf8'), 'MAIL_EMAIL=a@b.c\n');
     assert.equal(statSync(target).mode & 0o777, 0o600);
   });
 

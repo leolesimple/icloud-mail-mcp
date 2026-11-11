@@ -40,7 +40,7 @@ export function classifySmtpError(err: unknown): Error {
 
   if (smtpErr.code && AUTH_ERROR_CODES.has(smtpErr.code)) {
     return new SmtpAuthError(
-      `Authentification SMTP iCloud refusée — vérifier ICLOUD_EMAIL et ICLOUD_APP_PASSWORD : ${err.message}`,
+      `Authentification SMTP iCloud refusée — vérifier MAIL_EMAIL et MAIL_PASSWORD : ${err.message}`,
       { cause: err },
     );
   }

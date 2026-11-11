@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { getThreadOn } from '../src/imap/thread.js';
 import { FakeMail } from './helpers/fake-imap.js';
 
-const ME = 'test@example.com'; // = config.ICLOUD_EMAIL sous test/helpers/env.ts
+const ME = 'test@example.com'; // = config.MAIL_EMAIL sous test/helpers/env.ts
 const OTHER = 'alice@example.com';
 
 describe('getThreadOn (B7)', () => {

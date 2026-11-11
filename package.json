@@ -2,12 +2,12 @@
   "name": "icloud-mail-mcp",
   "private": true,
   "version": "1.0.0",
-  "description": "MCP server exposing iCloud Mail (IMAP/SMTP) as tools for Claude",
+  "description": "MCP server exposing an IMAP/SMTP Mail Server as tools for Claude/ChatGPT, and more.",
   "keywords": [
     "mcp",
     "model-context-protocol",
     "claude",
-    "icloud",
+    "chatgpt",
     "email",
     "imap",
     "smtp",
@@ -23,7 +23,7 @@
   },
   "type": "module",
   "engines": {
-    "node": ">=24.15"
+    "node": ">=26.0.0"
   },
   "scripts": {
     "build": "tsc",
@@ -65,7 +65,7 @@
     "@semantic-release/git": "^11.0.1",
     "@types/express": "^5.0.6",
     "@types/mailparser": "^3.4.6",
-    "@types/node": "^24.19.2",
+    "@types/node": "^26.0.0",
     "@types/nodemailer": "^8.0.1",
     "@typescript-eslint/eslint-plugin": "^8.70.1",
     "@typescript-eslint/parser": "^8.68.0",

@@ -13,8 +13,8 @@ export interface MailAccount {
 }
 
 export const account: MailAccount = {
-  email: config.ICLOUD_EMAIL,
-  password: config.ICLOUD_APP_PASSWORD,
-  imap: { host: config.IMAP_HOST, port: config.IMAP_PORT },
-  smtp: { host: config.SMTP_HOST, port: config.SMTP_PORT },
+  email: config.MAIL_EMAIL,
+  password: config.MAIL_PASSWORD,
+  imap: { host: config.MAIL_IMAP_HOST, port: config.MAIL_IMAP_PORT },
+  smtp: { host: config.MAIL_SMTP_HOST, port: config.MAIL_SMTP_PORT },
 };

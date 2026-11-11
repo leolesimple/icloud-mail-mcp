@@ -68,16 +68,18 @@ fix(pool): release the connection when the callback throws
 docs: fix a typo in the deployment guide
 ```
 
-**Breaking changes need an explicit footer.** With the preset used here, `feat!:` alone does not
-trigger a major release. Add a `BREAKING CHANGE:` footer that says what changed and what to do
-instead:
+**Breaking changes need an explicit footer.** Add a `BREAKING CHANGE:` footer that says what
+changed and what to do instead. It is the footer, not the header, that triggers a major release:
 
 ```
-feat!: remove the LEGACY_TOOLS option
+feat: remove the LEGACY_TOOLS option
 
 BREAKING CHANGE: the 15 legacy tool names are no longer exposed. Use the tools
 described in docs/tools.md.
 ```
+
+**Do not put a `!` in the header** (`feat!:`): the commitlint check in CI rejects it ("type may
+not be empty"), and the `BREAKING CHANGE:` footer is enough.
 
 ## Pull request checklist
 

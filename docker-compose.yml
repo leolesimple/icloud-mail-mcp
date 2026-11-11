@@ -31,7 +31,7 @@ volumes:
 
 # Réseau partagé avec le cloudflared qui expose le tunnel. Ce cloudflared est
 # géré hors de ce projet (stack tierce) ; le serveur y est simplement rattaché,
-# joignable en `http://icloud-mail-mcp:3000`. Le nom du réseau vit dans .env
+# joignable en `http://icloud-mail-mcp:13316`. Le nom du réseau vit dans .env
 # (TUNNEL_NETWORK) pour ne pas être commité, et le réseau doit déjà exister :
 #   docker network create "$TUNNEL_NETWORK"   # si ce n'est pas déjà le cas
 #
