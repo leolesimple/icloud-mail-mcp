@@ -19,9 +19,8 @@ Les descriptions transmises au client sont en anglais, avec les synonymes franç
 | [`organize_messages`](#organize_messages)   | Déplacer, mettre à la corbeille, marquer                  | non           |
 | [`manage_folders`](#manage_folders)         | Lister, créer, renommer, supprimer des dossiers           | non           |
 
-Les anciens noms (17 outils avant ce regroupement) sont décrits dans la
-[table de correspondance](#correspondance-avec-les-anciens-outils). `LEGACY_TOOLS=true` les
-réexpose le temps d'une version.
+Les anciens noms (17 outils avant ce regroupement) ont été supprimés en 2.0.0. La
+[table de correspondance](#correspondance-avec-les-anciens-outils) indique quel outil les remplace.
 
 ## Consignes envoyées au client
 
@@ -967,10 +966,11 @@ C'est une version minimale du push MCP : pas de reconnexion automatique, pas de 
 
 ## Correspondance avec les anciens outils
 
-Les 17 outils historiques ont été regroupés par intention. Avec `LEGACY_TOOLS=true` (voir
-[configuration.md](configuration.md#compatibilité-des-outils)), les 15 noms disparus sont
-réexposés **en plus** des nouveaux, avec leurs contrats d'origine et une description qui commence
-par « Deprecated: use … ». Cette compatibilité est prévue pour une version.
+Les 17 outils historiques ont été regroupés par intention. En 1.x, `LEGACY_TOOLS=true` réexposait
+les 15 noms disparus ; **cette option et ces outils ont été supprimés en 2.0.0**. Un client qui
+appelle encore un ancien nom reçoit une erreur « outil inconnu » : il faut le faire passer au
+nouvel outil indiqué ci-dessous. Une variable `LEGACY_TOOLS` restée dans un `.env` est ignorée sans
+erreur.
 
 | Ancien outil      | Nouvel outil        | Équivalent                                                                                       |
 | ----------------- | ------------------- | ------------------------------------------------------------------------------------------------ |
