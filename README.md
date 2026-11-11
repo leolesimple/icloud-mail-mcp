@@ -40,8 +40,8 @@ courriel, inbox, unread, draft…), the recommended tool order, and a warning th
 untrusted.
 
 An optional `wait_for_new_message` tool sits behind `ENABLE_IDLE_WATCH` (off by default). The former
-tool names (`list_messages`, `get_message`, `send_message`, `whoami`…) remain available with
-`LEGACY_TOOLS=true`; see the [mapping table](docs/tools.md#correspondance-avec-les-anciens-outils).
+tool names (`list_messages`, `get_message`, `send_message`, `whoami`…) were removed in 2.0.0; see the
+[mapping table](docs/tools.md#correspondance-avec-les-anciens-outils) to move a client to the new tools.
 
 Example prompt:
 

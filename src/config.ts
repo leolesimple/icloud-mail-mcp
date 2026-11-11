@@ -124,13 +124,6 @@ const envSchema = z.object({
   // si la connexion iCloud saute. Voir docs/configuration.md.
   ENABLE_IDLE_WATCH: envBool(false),
 
-  // --- Compatibilité --------------------------------------------------------
-  // Réenregistre les anciens outils (list_messages, get_message, send_message…)
-  // en plus des nouveaux, avec leurs noms et contrats d'origine et la mention
-  // « Deprecated » en tête de description. Prévu pour une version de
-  // transition seulement. Voir docs/tools.md.
-  LEGACY_TOOLS: envBool(false),
-
   // URL publique HTTPS du serveur (ex. https://mail-mcp.exemple.com), sans
   // slash final. Optionnelle : renseigne `icons`/`websiteUrl` dans les
   // métadonnées `Implementation` du protocole MCP (favicon affiché par les
