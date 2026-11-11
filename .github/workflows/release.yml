@@ -1,16 +1,18 @@
 name: Release
 
 # Déclenchement MANUEL uniquement : onglet Actions > Release > « Run workflow »,
-# sur la branche main. Un merge ne publie plus rien tout seul.
+# sur la branche à publier : main (version stable, la 1.x jusqu'à la 2.0.0) ou
+# next (préversions 2.0.0-next.N, voir .releaserc.json). Un merge ne publie rien tout seul.
+# La branche de maintenance 1.x n'est déclarée dans .releaserc.json qu'à la sortie de la 2.0.0.
 # L'option `dry_run` (cochée par défaut) simule la release : semantic-release
 # affiche la version qui sortirait, sans tag, sans commit, sans image, sans déploiement.
 # Décochée, semantic-release analyse les commits Conventional Commits depuis le
 # dernier tag, décide s'il y a une release, bump package.json/package-lock.json,
-# ajoute l'entrée de CHANGELOG.md et les commite sur main (`chore(release): X.Y.Z [skip ci]`), tague ce commit,
+# ajoute l'entrée de CHANGELOG.md et les commite sur la branche (`chore(release): X.Y.Z [skip ci]`), tague ce commit,
 # crée la GitHub Release ; si une release a eu lieu, le job docker pousse
-# l'image sur GHCR taguée avec la nouvelle version. Le déploiement reste MANUEL
-# (workflow Deploy, bouton « Run workflow »).
-# Garde-fou : la CI du dernier commit non-release de main doit être verte.
+# l'image sur GHCR taguée avec la nouvelle version (le tag `latest` est réservé aux
+# versions stables). Le déploiement reste MANUEL (workflow Deploy, bouton « Run workflow »).
+# Garde-fou : la CI du dernier commit non-release de la branche doit être verte.
 #
 # Release metadata is pushed with a dedicated SSH write deploy key. Configure
 # any branch/ruleset bypass explicitly and restrict it to this release path.
@@ -27,7 +29,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-main
+  # Un groupe par branche : une release de `next` ne doit pas bloquer celle de `main`.
+  group: release-${{ github.ref_name }}
   cancel-in-progress: false
 
 env:
@@ -35,8 +38,8 @@ env:
 
 jobs:
   release:
-    # Une release ne part que de main (le bouton permet de choisir une autre branche).
-    if: github.ref == 'refs/heads/main'
+    # Une release ne part que de main ou next (le bouton permet de choisir une autre branche).
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/next'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -74,7 +77,7 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 24
+          node-version: 26
           cache: npm
       - run: npm ci --ignore-scripts
 
@@ -147,7 +150,7 @@ jobs:
           images: ${{ env.IMAGE }}
           tags: |
             type=semver,pattern={{version}},value=v${{ needs.release.outputs.version }}
-            type=semver,pattern={{major}}.{{minor}},value=v${{ needs.release.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ needs.release.outputs.version }},enable=${{ !contains(needs.release.outputs.version, '-') }}
             type=raw,value=latest,enable=${{ !contains(needs.release.outputs.version, '-') }}
 
       - name: Build & push
