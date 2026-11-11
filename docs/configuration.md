@@ -9,50 +9,98 @@ laisser le serveur démarrer et échouer au premier appel :
 
 ```
 Configuration invalide (voir .env / .env.example) :
-  - ICLOUD_EMAIL: ICLOUD_EMAIL doit être une adresse email valide
+  - MAIL_EMAIL: MAIL_EMAIL doit être une adresse email valide
   - MCP_BEARER_TOKEN: MCP_BEARER_TOKEN doit faire au moins 16 caractères
 ```
 
 ---
 
-## Identifiants iCloud
+## Migration depuis la 1.x
 
-| Variable              | Requis  | Défaut | Description                                                                                                    |
-| --------------------- | ------- | ------ | -------------------------------------------------------------------------------------------------------------- |
-| `ICLOUD_EMAIL`        | **oui** | —      | Adresse Apple ID complète. Sert d'identifiant IMAP et SMTP, et d'expéditeur de tous les messages.              |
-| `ICLOUD_APP_PASSWORD` | **oui** | —      | Mot de passe d'application au format `xxxx-xxxx-xxxx-xxxx`. **Pas** le mot de passe principal du compte Apple. |
+La 2.0.0 rend le serveur générique : il fonctionne avec n'importe quel serveur IMAP/SMTP, plus
+seulement iCloud. Les variables ont été renommées **sans alias** : les anciens noms ne sont plus lus
+et ne déclenchent pas d'avertissement. Un `.env` de la 1.x échoue au démarrage avec la liste des
+variables `MAIL_*` manquantes.
 
-Le mot de passe d'application se génère sur [appleid.apple.com](https://appleid.apple.com/) →
-**Connexion et sécurité** → **Mots de passe pour applications**. Il nécessite l'authentification à
-deux facteurs sur le compte, et se révoque indépendamment du mot de passe principal.
+| Ancien nom (1.x)      | Nouveau nom      | Remarque                                                         |
+| --------------------- | ---------------- | ---------------------------------------------------------------- |
+| `ICLOUD_EMAIL`        | `MAIL_EMAIL`     |                                                                  |
+| `ICLOUD_APP_PASSWORD` | `MAIL_PASSWORD`  |                                                                  |
+| `IMAP_HOST`           | `MAIL_IMAP_HOST` | **Obligatoire** : plus de valeur par défaut (`imap.mail.me.com`) |
+| `IMAP_PORT`           | `MAIL_IMAP_PORT` | Défaut inchangé : `993`                                          |
+| `SMTP_HOST`           | `MAIL_SMTP_HOST` | **Obligatoire** : plus de valeur par défaut (`smtp.mail.me.com`) |
+| `SMTP_PORT`           | `MAIL_SMTP_PORT` | Défaut inchangé : `587`                                          |
 
-Si vous utilisez le mauvais mot de passe, l'erreur au démarrage le dit explicitement.
+Les autres variables (`IMAP_POOL_SIZE`, `SMTP_POOL_SIZE`, `MCP_BEARER_TOKEN`, `ENABLE_SENDING`…) ne
+changent pas.
+
+Pour convertir un `.env` existant (sauvegarde dans `.env.bak`) :
+
+```bash
+sed -i.bak -E \
+  -e 's/^ICLOUD_EMAIL=/MAIL_EMAIL=/' \
+  -e 's/^ICLOUD_APP_PASSWORD=/MAIL_PASSWORD=/' \
+  -e 's/^IMAP_HOST=/MAIL_IMAP_HOST=/' \
+  -e 's/^IMAP_PORT=/MAIL_IMAP_PORT=/' \
+  -e 's/^SMTP_HOST=/MAIL_SMTP_HOST=/' \
+  -e 's/^SMTP_PORT=/MAIL_SMTP_PORT=/' \
+  .env
+```
+
+Si votre ancien `.env` ne fixait pas les hôtes (valeurs par défaut iCloud), ajoutez-les
+explicitement :
+
+```
+MAIL_IMAP_HOST=imap.mail.me.com
+MAIL_SMTP_HOST=smtp.mail.me.com
+```
+
+---
+
+## Identifiants du compte
+
+| Variable        | Requis  | Défaut | Description                                                                                                      |
+| --------------- | ------- | ------ | ---------------------------------------------------------------------------------------------------------------- |
+| `MAIL_EMAIL`    | **oui** | —      | Adresse email complète du compte. Sert d'identifiant IMAP et SMTP, et d'expéditeur de tous les messages.         |
+| `MAIL_PASSWORD` | **oui** | —      | Mot de passe du compte, ou **mot de passe d'application** si votre fournisseur l'impose (c'est le cas d'iCloud). |
+
+Si l'authentification est refusée, l'erreur au démarrage ou à la première connexion le dit
+explicitement.
+
+### Cas d'iCloud
+
+iCloud n'accepte **pas** le mot de passe principal du compte Apple : il faut un mot de passe
+d'application au format `xxxx-xxxx-xxxx-xxxx`. Il se génère sur
+[appleid.apple.com](https://appleid.apple.com/) → **Connexion et sécurité** → **Mots de passe pour
+applications**, nécessite l'authentification à deux facteurs, et se révoque indépendamment du mot de
+passe principal. `MAIL_EMAIL` est alors l'Apple ID complet, et les hôtes sont `imap.mail.me.com`
+(port 993) et `smtp.mail.me.com` (port 587).
 
 ---
 
 ## Connexion IMAP
 
-| Variable                  | Défaut             | Description                                                                                                 |
-| ------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------- |
-| `IMAP_HOST`               | `imap.mail.me.com` | Serveur IMAP                                                                                                |
-| `IMAP_PORT`               | `993`              | Port IMAP (TLS implicite)                                                                                   |
-| `IMAP_POOL_SIZE`          | `2`                | Connexions IMAP maintenues ouvertes et réutilisées                                                          |
-| `IMAP_ACQUIRE_TIMEOUT_MS` | `60000`            | Attente maximale d'une connexion libre du pool, en millisecondes                                            |
-| `IMAP_MAX_WAITERS`        | `32`               | Taille maximale de la file d'attente du pool : au-delà, l'appel échoue tout de suite (« File IMAP pleine ») |
+| Variable                  | Défaut     | Description                                                                                                 |
+| ------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------- |
+| `MAIL_IMAP_HOST`          | **requis** | Serveur IMAP                                                                                                |
+| `MAIL_IMAP_PORT`          | `993`      | Port IMAP (TLS implicite ; le chiffrement n'est pas encore configurable)                                    |
+| `IMAP_POOL_SIZE`          | `2`        | Connexions IMAP maintenues ouvertes et réutilisées                                                          |
+| `IMAP_ACQUIRE_TIMEOUT_MS` | `60000`    | Attente maximale d'une connexion libre du pool, en millisecondes                                            |
+| `IMAP_MAX_WAITERS`        | `32`       | Taille maximale de la file d'attente du pool : au-delà, l'appel échoue tout de suite (« File IMAP pleine ») |
 
-**`IMAP_POOL_SIZE` mérite un mot.** iCloud limite le nombre de connexions IMAP simultanées par
-compte et bloque temporairement les comptes trop bavards. Le pool ouvre au plus ce nombre de
+**`IMAP_POOL_SIZE` mérite un mot.** Beaucoup de fournisseurs, iCloud en tête, limitent le nombre de
+connexions IMAP simultanées par compte et bloquent temporairement les comptes trop bavards. Le pool ouvre au plus ce nombre de
 connexions et les recycle entre les appels d'outils ; les demandes supplémentaires attendent leur
 tour au lieu d'ouvrir une connexion de plus.
 
 La recherche multi-dossiers (`find_messages` avec `folders`) fouille les dossiers en parallèle sur
 **toutes les connexions du pool sauf une**, laissée libre pour les autres appels :
 
-- `2` (défaut) : prudent vis-à-vis d'iCloud, mais une recherche `folders: "*"` reste séquentielle
+- `2` (défaut) : prudent vis-à-vis des limites des fournisseurs, mais une recherche `folders: "*"` reste séquentielle
   (une connexion pour elle, une pour le reste) ;
 - `4` : recommandé dès qu'on cherche souvent sur tous les dossiers ou que plusieurs conversations
   tapent en parallèle. La recherche utilise 3 connexions, la quatrième reste disponible ;
-- au-delà de `4`, le gain est faible et le risque de throttling iCloud augmente.
+- au-delà de `4`, le gain est faible et le risque de throttling côté serveur augmente.
 
 **`IMAP_ACQUIRE_TIMEOUT_MS`** borne l'attente d'une connexion quand le pool est plein. Au-delà,
 l'appel échoue avec une erreur explicite (« Pool IMAP saturé », taille du pool, connexions occupées,
@@ -66,11 +114,11 @@ seconde (`info`) ; `inbox_overview` avec `includeDiagnostics` montre l'état du 
 
 ## Connexion SMTP
 
-| Variable         | Défaut             | Description                                           |
-| ---------------- | ------------------ | ----------------------------------------------------- |
-| `SMTP_HOST`      | `smtp.mail.me.com` | Serveur SMTP                                          |
-| `SMTP_PORT`      | `587`              | Port SMTP (STARTTLS obligatoire)                      |
-| `SMTP_POOL_SIZE` | `2`                | Connexions SMTP simultanées maximum (pool nodemailer) |
+| Variable         | Défaut     | Description                                           |
+| ---------------- | ---------- | ----------------------------------------------------- |
+| `MAIL_SMTP_HOST` | **requis** | Serveur SMTP                                          |
+| `MAIL_SMTP_PORT` | `587`      | Port SMTP (STARTTLS obligatoire)                      |
+| `SMTP_POOL_SIZE` | `2`        | Connexions SMTP simultanées maximum (pool nodemailer) |
 
 Le port 587 utilise STARTTLS, pas TLS implicite. Le transport est configuré avec `requireTLS: true` :
 si le serveur refuse de passer en TLS, l'envoi échoue au lieu de partir en clair.
@@ -101,7 +149,7 @@ En `stdio`, stdout porte le canal JSON-RPC : le serveur bascule automatiquement 
 | `MAX_SESSIONS`                 | `32`                        | Nombre maximal de sessions MCP simultanées, en plus du TTL.                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `MAX_MESSAGE_BYTES`            | `26214400`                  | Source MIME entière maximale lue (25 Mio), vérifiée sur métadonnées puis en flux.                                                                                                                                                                                                                                                                                                                                                                                      |
 | `UPLOAD_TIMEOUT_MS`            | `30000`                     | Délai maximal de lecture d’un upload HTTP.                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `PORT`                         | `3000`                      | Port d'écoute. En Docker, port interne au réseau du compose : le conteneur ne l'expose pas à l'hôte. Ignoré si `MCP_TRANSPORT=stdio`.                                                                                                                                                                                                                                                                                                                                  |
+| `PORT`                         | `13316`                     | Port d'écoute. En Docker, port interne au réseau du compose : le conteneur ne l'expose pas à l'hôte. Ignoré si `MCP_TRANSPORT=stdio`.                                                                                                                                                                                                                                                                                                                                  |
 | `MCP_BEARER_TOKEN`             | **requis**                  | Token attendu sur `/mcp`, en `Authorization: Bearer <token>` ou `X-Api-Key: <token>` (jeton brut, pour les connecteurs claude.ai). 16 caractères minimum. Toujours requis, même en `stdio` (où il ne sert pas).                                                                                                                                                                                                                                                        |
 | `RATE_LIMIT_PER_MINUTE`        | `120`                       | Requêtes `/mcp` autorisées par IP et par minute (fenêtre glissante). Au-delà : `429`. `/health` n'est jamais limité.                                                                                                                                                                                                                                                                                                                                                   |
 | `SESSION_TTL_MS`               | `1800000`                   | Inactivité (en ms) au-delà de laquelle une session MCP est évincée et son transport fermé. 30 min par défaut.                                                                                                                                                                                                                                                                                                                                                          |
@@ -258,8 +306,8 @@ redémarrage**. Ces deux plafonds bornent la RAM qu'ils peuvent occuper. Voir
 | `ENABLE_IDLE_WATCH` | `false` | `true` enregistre l'outil `wait_for_new_message` |
 
 **Off par défaut, volontairement.** `wait_for_new_message` ouvre une connexion IMAP dédiée hors du
-pool et attend l'événement `exists` d'iCloud. Cette version n'a **pas de reconnexion** : si la
-connexion iCloud saute pendant l'attente (coupure réseau, throttling, timeout serveur), l'outil ne
+pool et attend l'événement `exists` du serveur. Cette version n'a **pas de reconnexion** : si la
+connexion saute pendant l'attente (coupure réseau, throttling, timeout serveur), l'outil ne
 le détecte pas et se contente d'expirer avec `timedOut: true`, un nouveau message arrivé
 entre-temps est manqué **sans le moindre signal**. Tant que la version avec reconnexion n'est pas
 faite ([#20](https://github.com/leolesimple/icloud-mail-mcp/issues/20)), l'outil n'est exposé que si vous
@@ -290,11 +338,11 @@ Reconnus comme « activé » : toute valeur autre que `false`, `0`, `no` (casse 
 
 Logs JSON structurés (pino), sur **stdout** en transport `http`, sur **stderr** dès que `stdio` est
 actif (stdout y est réservé au JSON-RPC). Les champs `password`, `pass`,
-`ICLOUD_APP_PASSWORD` et `token` sont expurgés automatiquement, et le contenu des mails n'est jamais
+`MAIL_PASSWORD` et `token` sont expurgés automatiquement, et le contenu des mails n'est jamais
 loggé, seulement des métadonnées (dossier, UID, nombre de résultats).
 
 En `debug`, les événements de cycle de vie du pool IMAP deviennent visibles ; utile pour diagnostiquer
-un throttling iCloud.
+un throttling côté serveur.
 
 ---
 

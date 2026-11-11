@@ -4,19 +4,21 @@ import assert from 'node:assert/strict';
 import { envBool, parseConfig, parseList } from '../src/config.js';
 
 const validEnv = {
-  ICLOUD_EMAIL: 'user@icloud.com',
-  ICLOUD_APP_PASSWORD: 'abcd-efgh-ijkl-mnop',
+  MAIL_EMAIL: 'user@icloud.com',
+  MAIL_PASSWORD: 'abcd-efgh-ijkl-mnop',
+  MAIL_IMAP_HOST: 'imap.example.com',
+  MAIL_SMTP_HOST: 'smtp.example.com',
   MCP_BEARER_TOKEN: '0123456789abcdef0123456789abcdef',
 };
 
 describe('parseConfig', () => {
-  it('applique les valeurs par défaut iCloud', () => {
+  it('applique les valeurs par défaut', () => {
     const config = parseConfig({ ...validEnv });
-    assert.equal(config.IMAP_HOST, 'imap.mail.me.com');
-    assert.equal(config.IMAP_PORT, 993);
-    assert.equal(config.SMTP_HOST, 'smtp.mail.me.com');
-    assert.equal(config.SMTP_PORT, 587);
-    assert.equal(config.PORT, 3000);
+    assert.equal(config.MAIL_IMAP_HOST, 'imap.example.com');
+    assert.equal(config.MAIL_IMAP_PORT, 993);
+    assert.equal(config.MAIL_SMTP_HOST, 'smtp.example.com');
+    assert.equal(config.MAIL_SMTP_PORT, 587);
+    assert.equal(config.PORT, 13316);
     assert.equal(config.LOG_LEVEL, 'info');
     assert.equal(config.IMAP_POOL_SIZE, 2);
     assert.equal(config.MCP_TRANSPORT, 'http');
@@ -85,14 +87,50 @@ describe('parseConfig', () => {
   });
 
   it('convertit les ports en nombres', () => {
-    const config = parseConfig({ ...validEnv, PORT: '8080', IMAP_PORT: '143' });
+    const config = parseConfig({ ...validEnv, PORT: '8080', MAIL_IMAP_PORT: '143' });
     assert.equal(config.PORT, 8080);
-    assert.equal(config.IMAP_PORT, 143);
+    assert.equal(config.MAIL_IMAP_PORT, 143);
   });
 
   it('rejette un email invalide', () => {
-    assert.throws(() => parseConfig({ ...validEnv, ICLOUD_EMAIL: 'pas-un-email' }), /ICLOUD_EMAIL/);
+    assert.throws(() => parseConfig({ ...validEnv, MAIL_EMAIL: 'pas-un-email' }), /MAIL_EMAIL/);
   });
+
+  it('MAIL_IMAP_HOST manque', () => {
+    assert.throws(() => parseConfig({ ...validEnv, MAIL_IMAP_HOST: undefined }), /MAIL_IMAP_HOST/);
+  });
+
+  it('MAIL_SMTP_HOST manque', () => {
+    assert.throws(() => parseConfig({ ...validEnv, MAIL_SMTP_HOST: undefined }), /MAIL_SMTP_HOST/);
+  });
+
+  it('MAIL_EMAIL manque', () => {
+    assert.throws(() => parseConfig({ ...validEnv, MAIL_EMAIL: undefined }), /MAIL_EMAIL/);
+  });
+
+  it('MAIL_PASSWORD manque', () => {
+    assert.throws(() => parseConfig({ ...validEnv, MAIL_PASSWORD: undefined }), /MAIL_PASSWORD/);
+  });
+
+  it('rejette un MAIL_PASSWORD vide', () => {
+    assert.throws(() => parseConfig({ ...validEnv, MAIL_PASSWORD: '' }), /MAIL_PASSWORD/);
+  });
+
+  for (const name of ['MAIL_IMAP_PORT', 'MAIL_SMTP_PORT'] as const) {
+    describe(name, () => {
+      for (const value of ['0', '-1', '65536', '70000', '993.5', 'abc', '']) {
+        it(`rejette ${JSON.stringify(value)} en nommant la variable`, () => {
+          assert.throws(() => parseConfig({ ...validEnv, [name]: value }), new RegExp(name));
+        });
+      }
+
+      for (const value of ['1', '143', '465', '65535']) {
+        it(`accepte ${JSON.stringify(value)} et le convertit en nombre`, () => {
+          assert.equal(parseConfig({ ...validEnv, [name]: value })[name], Number(value));
+        });
+      }
+    });
+  }
 
   it('rejette un bearer token trop court', () => {
     assert.throws(
@@ -115,9 +153,9 @@ describe('parseConfig', () => {
 
   it('liste toutes les variables fautives dans le message d’erreur', () => {
     assert.throws(
-      () => parseConfig({ ICLOUD_EMAIL: 'x', ICLOUD_APP_PASSWORD: 'y', MCP_BEARER_TOKEN: 'z' }),
+      () => parseConfig({ MAIL_EMAIL: 'x', MAIL_PASSWORD: 'y', MCP_BEARER_TOKEN: 'z' }),
       (err: Error) =>
-        err.message.includes('ICLOUD_EMAIL') && err.message.includes('MCP_BEARER_TOKEN'),
+        err.message.includes('MAIL_EMAIL') && err.message.includes('MCP_BEARER_TOKEN'),
     );
   });
 

@@ -25,8 +25,8 @@ import { verifySmtp } from '../smtp/verify.js';
 
 const ENV_PATH = fileURLToPath(new URL('../../.env', import.meta.url));
 const APPLE_ID_URL = 'https://appleid.apple.com/';
-const IMAP_DEFAULT = { host: 'imap.mail.me.com', port: 993 };
-const SMTP_DEFAULT = { host: 'smtp.mail.me.com', port: 587 };
+const IMAP_DEFAULT = { host: '', port: 993 };
+const SMTP_DEFAULT = { host: '', port: 587 };
 
 const KEY_ENTER = ['\r', '\n', '\u0004']; // CR, LF, EOT
 const KEY_CTRL_C = '\u0003';

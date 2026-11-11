@@ -9,7 +9,7 @@
 ```bash
 npm install
 npm run auth              # saisie des identifiants, vérification IMAP + SMTP, écriture de .env (chmod 600)
-npm run dev               # serveur sur http://localhost:3000, rechargé par tsx
+npm run dev               # serveur sur http://localhost:13316, rechargé par tsx
 ```
 
 `npm run auth` remplace le `cp .env.example .env` manuel : il génère le
@@ -32,7 +32,7 @@ disponible pour un contrôle IMAP seul.
 | `npm run format`      | Prettier                                                                   |
 | `npm run verify:imap` | Connexion IMAP réelle + liste des dossiers                                 |
 
-Node **24.15+** est requis (`engines`), pour le runner de tests intégré et le support ESM natif.
+Node **26+** est requis (`engines`), pour le runner de tests intégré et le support ESM natif.
 
 ---
 
@@ -129,8 +129,8 @@ Les imports pointent vers les fichiers sources en `.js` (résolution NodeNext), 
 ## Intégration continue
 
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) rejoue `typecheck`, `lint`, `test` et
-`build` sur Node 24, puis construit l'image Docker (`linux/amd64`, sans push) et vérifie qu'elle
-démarre, à chaque push sur `main` et sur chaque pull request.
+`build` sur Node 26, puis construit l'image Docker (`linux/amd64`, sans push) et vérifie qu'elle
+démarre, à chaque push sur `main`, `1.x` et `next`, et sur chaque pull request vers ces branches.
 
 Le workflow n'a besoin d'**aucun secret** : la suite de tests n'ouvre aucune connexion IMAP ou SMTP
 et force `ENABLE_SENDING=false`. Il n'y a donc pas de compte iCloud à configurer dans le dépôt, et
@@ -142,14 +142,18 @@ une pull request extérieure ne peut rien exfiltrer.
 
 Les versions sont publiées par [`semantic-release`](https://semantic-release.gitbook.io/) via
 [`.github/workflows/release.yml`](../.github/workflows/release.yml), **déclenché à la main** :
-onglet Actions, workflow *Release*, « Run workflow » sur `main`. Un merge ne publie rien tout seul.
+onglet Actions, workflow _Release_, « Run workflow » sur la branche à publier : `main` (version
+stable, la 1.x jusqu'à la 2.0.0) ou `next` (préversions `2.0.0-next.N`). Un merge ne publie rien
+tout seul. La branche de maintenance `1.x` ne sera déclarée dans `.releaserc.json` qu'à la sortie de
+la 2.0.0, quand `main` passera à la ligne 2.x.
 
 L'option **`dry_run`** (cochée par défaut) simule la release : semantic-release affiche la version
 qui sortirait, sans tag, sans commit, sans image, sans déploiement. Décochée, il calcule le bump à
 partir des commits mergés depuis le dernier tag, pose le tag `vX.Y.Z` et publie la GitHub Release
 avec ses notes. Le job `docker` du même workflow pousse ensuite l'image sur GHCR taguée
-`{X.Y.Z, X.Y, latest}`. Avant de publier, le workflow vérifie que la CI du dernier commit
-non-release de `main` est verte.
+`{X.Y.Z, X.Y, latest}` pour une version stable, et seulement `X.Y.Z-next.N` pour une préversion
+(jamais `latest`). Avant de publier, le workflow vérifie que la CI du dernier commit non-release de
+la branche est verte.
 
 À chaque release, le hook local `vendor/release-version` bumpe `package.json` et
 `package-lock.json`, et `@semantic-release/git` les commite directement sur `main`

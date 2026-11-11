@@ -76,7 +76,7 @@ Exemple de demande :
 
 ## Prérequis
 
-- Node.js 24.15 ou supérieur, ou Docker
+- Node.js 26 ou supérieur, ou Docker
 - Un compte iCloud avec l'authentification à deux facteurs activée
 - Un mot de passe d'application Apple (le mot de passe principal ne fonctionne pas en IMAP/SMTP) :
   1. [appleid.apple.com](https://appleid.apple.com/) → se connecter
@@ -107,7 +107,7 @@ npm run auth:check     # rejoue la vérification IMAP + SMTP sur le .env existan
 Puis démarrer :
 
 ```bash
-npm run dev            # http://localhost:3000/mcp
+npm run dev            # http://localhost:13316/mcp
 ```
 
 Le endpoint MCP est `POST|GET|DELETE /mcp`, protégé par le `MCP_BEARER_TOKEN`
@@ -119,7 +119,7 @@ Pour l'inspecter à la main :
 ```bash
 npx @modelcontextprotocol/inspector
 # Transport : Streamable HTTP
-# URL       : http://localhost:3000/mcp
+# URL       : http://localhost:13316/mcp
 # Header    : Authorization: Bearer <votre token>
 ```
 
@@ -147,8 +147,8 @@ curl https://<votre-hostname>/health       # {"status":"ok","version":"…"}
 `.env`: au minimum :
 
 ```bash
-ICLOUD_EMAIL=vous@icloud.com
-ICLOUD_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
+MAIL_EMAIL=vous@icloud.com
+MAIL_PASSWORD=xxxx-xxxx-xxxx-xxxx
 MCP_BEARER_TOKEN=<openssl rand -hex 32>
 TUNNEL_NETWORK=<réseau Docker partagé avec cloudflared>   # requis
 ICLOUD_MAIL_MCP_VERSION=latest                            # ou une version précise, ex. 0.2.3
@@ -156,7 +156,7 @@ ICLOUD_MAIL_MCP_VERSION=latest                            # ou une version préc
 
 Le trafic passe par un **Cloudflare Tunnel** : `docker-compose.yml` rattache le
 serveur au réseau Docker `TUNNEL_NETWORK` sur lequel tourne `cloudflared` (géré
-par une autre stack), qui pointe un hostname public vers `http://icloud-mail-mcp:3000`.
+par une autre stack), qui pointe un hostname public vers `http://icloud-mail-mcp:13316`.
 Aucun port n'est publié sur l'hôte. Pas de tunnel existant → ajouter
 `docker-compose.tunnel.yml`, qui embarque un `cloudflared` dédié (`TUNNEL_TOKEN`
 dans `.env`).
