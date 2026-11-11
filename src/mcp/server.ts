@@ -13,7 +13,6 @@ import { registerSendDraftTool } from './tools/send-draft.js';
 import { registerOrganizeMessagesTool } from './tools/organize-messages.js';
 import { registerManageFoldersTool } from './tools/manage-folders.js';
 import { registerWaitForNewMessageTool } from './tools/wait-for-new-message.js';
-import { registerLegacyTools } from './tools/legacy/index.js';
 import { registerMailResources } from './resources.js';
 import { registerMailPrompts } from './prompts.js';
 import { config } from '../config.js';
@@ -39,8 +38,6 @@ export const SERVER_INSTRUCTIONS = [
 ].join('\n');
 
 export interface MailMcpServerOptions {
-  /** Réenregistre les anciens outils (`LEGACY_TOOLS`). */
-  legacyTools?: boolean;
   /** Enregistre `wait_for_new_message` (`ENABLE_IDLE_WATCH`). */
   idleWatch?: boolean;
   /** Dépendances de `compose_message` (tests : envoi simulé). */
@@ -50,7 +47,6 @@ export interface MailMcpServerOptions {
 }
 
 export function createMailMcpServer(options: MailMcpServerOptions = {}): McpServer {
-  const legacyTools = options.legacyTools ?? config.LEGACY_TOOLS;
   const idleWatch = options.idleWatch ?? config.ENABLE_IDLE_WATCH;
 
   // `icons`/`websiteUrl` sont optionnels dans le protocole MCP (Implementation) :
@@ -93,11 +89,6 @@ export function createMailMcpServer(options: MailMcpServerOptions = {}): McpServ
   // l'attente IDLE se dégrade silencieusement si la connexion iCloud saute (#20).
   if (idleWatch) {
     registerWaitForNewMessageTool(server);
-  }
-
-  // Anciens noms, le temps d'une version de transition (voir docs/tools.md).
-  if (legacyTools) {
-    registerLegacyTools(server);
   }
 
   registerMailResources(server);

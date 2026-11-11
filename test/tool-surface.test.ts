@@ -6,7 +6,7 @@ import { connectClient } from './helpers/mcp-client.js';
 
 /**
  * Contrat de la surface d'outils : la liste exacte des noms (avec et sans
- * LEGACY_TOOLS), les consignes envoyées à l'initialize, les annotations et les
+ * ENABLE_IDLE_WATCH), les consignes envoyées à l'initialize, les annotations et les
  * mots-clés FR/EN des descriptions. Aucun outil n'est exécuté.
  */
 
@@ -24,7 +24,8 @@ const NEW_TOOLS = [
   'send_draft',
 ];
 
-const LEGACY_ONLY_TOOLS = [
+/** Anciens noms supprimés en 2.0.0 (#87) : ils ne doivent plus jamais être exposés. */
+const REMOVED_TOOLS = [
   'delete_message',
   'flag_message',
   'forward_message',
@@ -61,13 +62,14 @@ describe('surface des outils', () => {
   });
 
   it('expose exactement les 11 outils par intention par défaut', async () => {
-    assert.deepEqual(await toolNames(await open({ legacyTools: false })), sorted(NEW_TOOLS));
+    assert.deepEqual(await toolNames(await open({})), sorted(NEW_TOOLS));
   });
 
-  it('ajoute les 15 anciens noms avec LEGACY_TOOLS', async () => {
+  it('n’expose plus aucun des 15 anciens noms', async () => {
+    const names = await toolNames(await open({ idleWatch: true }));
     assert.deepEqual(
-      await toolNames(await open({ legacyTools: true })),
-      sorted([...NEW_TOOLS, ...LEGACY_ONLY_TOOLS]),
+      names.filter((name) => REMOVED_TOOLS.includes(name)),
+      [],
     );
   });
 
@@ -78,12 +80,9 @@ describe('surface des outils', () => {
     );
   });
 
-  it('préfixe chaque ancien outil par « Deprecated: use X »', async () => {
-    const { tools } = await (await open({ legacyTools: true })).listTools();
-    for (const tool of tools.filter((t) => LEGACY_ONLY_TOOLS.includes(t.name))) {
-      assert.match(tool.description ?? '', /^Deprecated: use [a-z_]+/, tool.name);
-    }
-    for (const tool of tools.filter((t) => NEW_TOOLS.includes(t.name))) {
+  it('ne marque aucun outil comme « Deprecated »', async () => {
+    const { tools } = await (await open({ idleWatch: true })).listTools();
+    for (const tool of tools) {
       assert.doesNotMatch(tool.description ?? '', /Deprecated/, tool.name);
     }
   });

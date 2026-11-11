@@ -269,22 +269,14 @@ Reconnus comme « activé » : toute valeur autre que `false`, `0`, `no` (casse 
 
 ---
 
-## Compatibilité des outils
+## Anciens outils (supprimés en 2.0.0)
 
-| Variable       | Défaut  | Description                                                 |
-| -------------- | ------- | ----------------------------------------------------------- |
-| `LEGACY_TOOLS` | `false` | `true` réenregistre les anciens outils en plus des nouveaux |
-
-Les 17 outils historiques ont été regroupés en 8 outils organisés par intention (voir
-[docs/tools.md](tools.md)). Avec `LEGACY_TOOLS=true`, les 15 anciens noms qui ont disparu
-(`list_messages`, `search_messages`, `get_message`, `get_thread`, `send_message`, `reply_message`,
-`forward_message`, `save_draft`, `update_draft`, `move_message`, `delete_message`, `flag_message`,
-`list_folders`, `manage_folder`, `whoami`) sont exposés **en plus** des nouveaux, avec leurs
-contrats d'origine et une description qui commence par « Deprecated: use … ». `get_attachment` et
-`send_draft` gardent leur nom et ne sont donc pas dupliqués.
-
-Prévu pour une version de transition : le temps de mettre à jour un client ou un prompt qui cite
-les anciens noms. La variable disparaîtra avec eux.
+La variable `LEGACY_TOOLS` n'existe plus : les 15 anciens noms d'outils (`list_messages`,
+`search_messages`, `get_message`, `get_thread`, `send_message`, `reply_message`, `forward_message`,
+`save_draft`, `update_draft`, `move_message`, `delete_message`, `flag_message`, `list_folders`,
+`manage_folder`, `whoami`) ne sont plus exposés. Les outils organisés par intention (voir
+[docs/tools.md](tools.md#correspondance-avec-les-anciens-outils)) les remplacent. Une variable
+`LEGACY_TOOLS` restée dans un `.env` est ignorée sans erreur.
 
 Reconnus comme « activé » : toute valeur autre que `false`, `0`, `no` (casse et espaces ignorés).
 

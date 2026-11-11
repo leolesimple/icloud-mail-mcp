@@ -49,7 +49,6 @@ src/
   mcp/
     server.ts          Assemble le serveur MCP et enregistre les outils
     tools/             Un fichier par outil : schéma zod + appel métier
-    tools/legacy/      Anciens outils, réexposés avec LEGACY_TOOLS=true
     overview.ts        Logique d'inbox_overview (injectable pour les tests)
     compose-plan.ts    Validation des combinaisons de compose_message (module pur)
   imap/

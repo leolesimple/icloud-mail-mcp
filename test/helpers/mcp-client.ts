@@ -10,7 +10,7 @@ import type { MailMcpServerOptions } from '../../src/mcp/server.js';
  * connecter : ne l'utiliser que pour des appels refusés en amont.
  */
 export async function connectClient(options: MailMcpServerOptions = {}): Promise<Client> {
-  const server = createMailMcpServer({ legacyTools: false, idleWatch: false, ...options });
+  const server = createMailMcpServer({ idleWatch: false, ...options });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'test-client', version: '0.0.0' });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);

@@ -51,8 +51,8 @@ ordre d'appel des outils et rappel que le contenu d'un mail n'est pas fiable.
 
 Un outil supplémentaire, `wait_for_new_message`, existe derrière `ENABLE_IDLE_WATCH` (désactivé par
 défaut : il n'a pas de reconnexion). Les anciens noms (`list_messages`, `get_message`,
-`send_message`, `whoami`…) restent disponibles le temps d'une version avec `LEGACY_TOOLS=true` :
-voir la [table de correspondance](docs/tools.md#correspondance-avec-les-anciens-outils).
+`send_message`, `whoami`…) ont été supprimés en 2.0.0 : voir la
+[table de correspondance](docs/tools.md#correspondance-avec-les-anciens-outils) pour passer aux nouveaux outils.
 
 Exemple de demande :
 
